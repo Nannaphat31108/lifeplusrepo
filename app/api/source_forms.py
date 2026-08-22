@@ -1,0 +1,725 @@
+import re
+import json, shutil, tempfile
+from pathlib import Path
+from io import BytesIO
+from datetime import date, datetime
+from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
+from app.db.session import get_db
+from app.core.security import get_current_user
+from app.models.entities import SourceFormRecord, Customer, SupplementAlias
+
+router=APIRouter(prefix="/api/source-forms",tags=["Source Forms"])
+ROOT=Path(__file__).resolve().parents[2]/"original_forms"
+
+class FormSave(BaseModel):
+    record_no:str
+    status:str="DRAFT"
+    data:dict
+
+
+def require_person_key(
+    x_person_key: str | None = Header(default=None, alias="X-Person-Key")
+):
+    if not x_person_key:
+        raise HTTPException(401, "กรุณาเลือกคนที่ 1-4 และใส่รหัสก่อน")
+    return x_person_key.strip().upper()
+
+
+def _record_data_dict(x):
+    raw=getattr(x,"data_json",None)
+    if isinstance(raw,dict):
+        return raw
+    if isinstance(raw,str):
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+    raw2=getattr(x,"data",None)
+    return raw2 if isinstance(raw2,dict) else {}
+
+@router.post("/{code}")
+def save(
+    code: str,
+    p: FormSave,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    person_key: str = Depends(require_person_key),
+):
+    if code in {"F-RD-002", "F-RD-002.1"} and not p.data.get("date"):
+        p.data["date"] = date.today().isoformat()
+
+    x = SourceFormRecord(
+        form_code=code,
+        record_no=p.record_no,
+        status=p.status,
+        payload_json=json.dumps(p.data, ensure_ascii=False, default=str),
+        created_by=u.id,
+        workspace_user_id=None,
+        owner_person_key=person_key
+    )
+    try:
+        db.add(x)
+        db.flush()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Save flush failed: {type(e).__name__}: {e}")
+
+    # F-RD-001: Customer entered in the original form becomes master customer data.
+    if code == "F-RD-001":
+        customer_name = str(p.data.get("customer_name") or "").strip()
+        customer_code = str(p.data.get("customer_code") or "").strip()
+
+        if customer_name:
+            customer = None
+            if customer_code:
+                customer = db.scalar(
+                    select(Customer).where(Customer.customer_code == customer_code)
+                )
+            if not customer:
+                customer = db.scalar(
+                    select(Customer).where(Customer.name == customer_name)
+                )
+
+            if customer:
+                customer.name = customer_name
+                if customer_code and customer.customer_code != customer_code:
+                    exists = db.scalar(
+                        select(Customer).where(
+                            Customer.customer_code == customer_code,
+                            Customer.id != customer.id
+                        )
+                    )
+                    if not exists:
+                        customer.customer_code = customer_code
+            else:
+                generated_code = customer_code or f"CUST-{u.id}-{x.id:06d}"
+                db.add(Customer(
+                    customer_code=generated_code,
+                    name=customer_name
+                ))
+
+    # Store another name/alias against the same extract code.
+    for ingredient in (p.data.get("ingredients") or []):
+        code_value = str(
+            ingredient.get("material_code")
+            or ingredient.get("code")
+            or ""
+        ).strip()
+        main_name = str(ingredient.get("name") or "").strip()
+        alternate_name = str(ingredient.get("alternate_name") or "").strip()
+
+        if code_value and (main_name or alternate_name):
+            alias = db.scalar(
+                select(SupplementAlias).where(
+                    SupplementAlias.supplement_code == code_value,
+                    SupplementAlias.primary_name == (main_name or alternate_name)
+                )
+            )
+            if not alias:
+                db.add(SupplementAlias(
+                    supplement_code=code_value,
+                    primary_name=main_name or alternate_name,
+                    alternate_name=alternate_name or None
+                ))
+            elif alternate_name:
+                alias.alternate_name = alternate_name
+
+    try:
+        db.commit()
+        db.refresh(x)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Save failed: {type(e).__name__}: {e}")
+    return {"id": x.id, "record_no": x.record_no, "owner": u.full_name}
+
+@router.get("/{code}")
+def list_records(
+    code: str,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    person_key: str = Depends(require_person_key),
+):
+    rows = db.scalars(
+        select(SourceFormRecord)
+        .where(
+            SourceFormRecord.form_code == code,
+            SourceFormRecord.created_by == u.id,
+            SourceFormRecord.owner_person_key == person_key
+        )
+        .order_by(SourceFormRecord.id.desc())
+    ).all()
+    return [{
+        "id": x.id,
+        "record_no": x.record_no,
+        "status": x.status,
+        "data": json.loads(x.payload_json or "{}"),
+        "created_at": x.created_at,
+        "owner": u.full_name
+    } for x in rows]
+
+@router.get("/record/{record_id}")
+def get_record(
+    record_id: int,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    person_key: str = Depends(require_person_key),
+):
+    x = db.get(SourceFormRecord, record_id)
+    if not x or x.created_by != u.id or x.owner_person_key != person_key:
+        raise HTTPException(404, "Record not found")
+    return {
+        "id": x.id,
+        "form_code": x.form_code,
+        "record_no": x.record_no,
+        "status": x.status,
+        "data": json.loads(x.payload_json or "{}")
+    }
+
+
+@router.put("/record/{record_id}")
+def update_record(
+    record_id: int,
+    p: FormSave,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    person_key: str = Depends(require_person_key),
+):
+    x = db.get(SourceFormRecord, record_id)
+    if not x or x.created_by != u.id or x.owner_person_key != person_key:
+        raise HTTPException(404, "Record not found")
+
+    if x.form_code in {"F-RD-002", "F-RD-002.1"} and not p.data.get("date"):
+        p.data["date"] = date.today().isoformat()
+
+    x.record_no = p.record_no
+    x.status = p.status
+    x.owner_person_key = person_key
+    x.payload_json = json.dumps(p.data, ensure_ascii=False, default=str)
+
+    # F-RD-001 always updates/syncs Customer master data.
+    if x.form_code == "F-RD-001":
+        customer_name = str(p.data.get("customer_name") or "").strip()
+        customer_code = str(p.data.get("customer_code") or "").strip()
+        if customer_name:
+            customer = None
+            if customer_code:
+                customer = db.scalar(select(Customer).where(Customer.customer_code == customer_code))
+            if not customer:
+                customer = db.scalar(select(Customer).where(Customer.name == customer_name))
+            if customer:
+                customer.name = customer_name
+            else:
+                db.add(Customer(
+                    customer_code=customer_code or f"CUST-{u.id}-{x.id:06d}",
+                    name=customer_name
+                ))
+
+    # Same extract code can keep primary name + another name.
+    for ing in (p.data.get("ingredients") or []):
+        sc = str(ing.get("material_code") or ing.get("code") or "").strip()
+        pn = str(ing.get("name") or "").strip()
+        an = str(ing.get("alternate_name") or "").strip()
+        if sc and (pn or an):
+            alias = db.scalar(
+                select(SupplementAlias).where(
+                    SupplementAlias.supplement_code == sc,
+                    SupplementAlias.primary_name == (pn or an)
+                )
+            )
+            if not alias:
+                db.add(SupplementAlias(
+                    supplement_code=sc,
+                    primary_name=pn or an,
+                    alternate_name=an or None
+                ))
+            elif an:
+                alias.alternate_name = an
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Update failed: {type(e).__name__}: {e}")
+    return {"id": x.id, "record_no": x.record_no, "owner": u.full_name, "updated": True}
+
+
+def put(ws,cell,value):
+    if value is None or value == "":
+        return
+
+    target=ws[cell]
+
+    # If address points to a child cell inside a merged range,
+    # write to the top-left owner cell instead.
+    if isinstance(target, MergedCell):
+        for rng in ws.merged_cells.ranges:
+            if cell in rng:
+                target=ws.cell(rng.min_row, rng.min_col)
+                break
+
+    target.value=value
+
+def _shift_formula_addr(addr:str, production:bool, ingredient_count:int):
+    capacity=12 if production else 20
+    if ingredient_count<=capacity:
+        return addr
+    extra=ingredient_count-capacity
+    m=re.match(r"^([A-Z]+)(\d+)$",addr or "")
+    if not m:
+        return addr
+    col,row=m.group(1),int(m.group(2))
+    insert_at=28 if production else 36
+    if row>=insert_at:
+        row+=extra
+    return f"{col}{row}"
+
+def fill_manual_cells(ws,d,production=False):
+    ingredient_count=int(d.get("ingredient_count") or len(d.get("ingredients",[]) or []) or 0)
+    for cell,value in (d.get("manual_cells") or {}).items():
+        try:
+            target=_shift_formula_addr(cell,production,ingredient_count)
+            put(ws,target,value)
+        except Exception:
+            pass
+
+def fill_001(ws,d):
+    put(ws,"H4",d.get("customer_name")); put(ws,"H6",d.get("customer_code"))
+    put(ws,"H9",d.get("product_category")); put(ws,"H17",d.get("objective")); put(ws,"H23",d.get("product_detail"))
+    items=d.get("ingredients",[])
+    for i,x in enumerate(items[:10]):
+        row=35+(i if i<5 else i-5); namecell=("C" if i<5 else "Z")+str(row); amtcell=("R" if i<5 else "AO")+str(row)
+        put(ws,namecell,x.get("name"));put(ws,amtcell,x.get("amount"))
+    put(ws,"N41",d.get("order_capsule"));put(ws,"R41",d.get("order_sachet"));put(ws,"U41",d.get("order_tablet"))
+    for i,x in enumerate(d.get("formula_rates",[])[:5],42):
+        put(ws,f"AA{i}",x.get("formula_no"));put(ws,f"AL{i}",x.get("price"))
+
+from copy import copy
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.cell_range import CellRange
+
+def _copy_excel_row_style(ws, source_row:int, target_row:int):
+    ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+
+    for col in range(1, ws.max_column + 1):
+        src=ws.cell(source_row,col)
+        dst=ws.cell(target_row,col)
+
+        # MergedCell children are read-only; skip them entirely.
+        if isinstance(src, MergedCell) or isinstance(dst, MergedCell):
+            continue
+
+        if src.has_style:
+            dst._style=copy(src._style)
+
+        dst.font=copy(src.font)
+        dst.fill=copy(src.fill)
+        dst.border=copy(src.border)
+        dst.alignment=copy(src.alignment)
+        dst.protection=copy(src.protection)
+        dst.number_format=src.number_format
+
+def expand_formula_ingredient_rows(ws, production:bool, ingredient_count:int):
+    capacity=12 if production else 20
+    if ingredient_count<=capacity:
+        return
+
+    extra=ingredient_count-capacity
+    insert_at=28 if production else 36
+    template_row=27 if production else 35
+
+    # Capture all merge ranges before changing the worksheet.
+    original_merges=[CellRange(str(rng)) for rng in list(ws.merged_cells.ranges)]
+
+    # Capture one-row merge pattern of the final ingredient template row.
+    template_merges=[]
+    for cr in original_merges:
+        if cr.min_row==template_row and cr.max_row==template_row:
+            template_merges.append(CellRange(str(cr)))
+
+    # Unmerge ranges at/below the insert position before inserting rows.
+    for cr in original_merges:
+        if cr.min_row>=insert_at:
+            try:
+                ws.unmerge_cells(str(cr))
+            except Exception:
+                pass
+
+    ws.insert_rows(insert_at, amount=extra)
+
+    # Copy visual style from last original ingredient row.
+    for offset in range(extra):
+        row=insert_at+offset
+        _copy_excel_row_style(ws,template_row,row)
+
+        # Number column: safe top-left write only.
+        put(ws,f"B{row}",capacity+offset+1)
+
+        # Recreate same-row merges for each inserted ingredient row.
+        for tcr in template_merges:
+            new_cr=CellRange(
+                min_col=tcr.min_col,
+                min_row=row,
+                max_col=tcr.max_col,
+                max_row=row
+            )
+            try:
+                ws.merge_cells(str(new_cr))
+            except Exception:
+                pass
+
+    # Restore all original merges below inserted section, shifted down.
+    for cr in original_merges:
+        if cr.min_row>=insert_at:
+            shifted=CellRange(str(cr))
+            shifted.shift(row_shift=extra,col_shift=0)
+            try:
+                ws.merge_cells(str(shifted))
+            except Exception:
+                pass
+
+def fill_formula(ws,d,production=False):
+    put(ws,"I6" if production else "I5",d.get("customer_name"))
+    put(ws,"AJ6" if production else "AJ5",d.get("formula_no"))
+    put(ws,"I8" if production else "I7",d.get("product_type"))
+    put(ws,"AJ8" if production else "AJ7",d.get("date"))
+    put(ws,"I10" if production else "I9",d.get("product_name_fda"))
+    put(ws,"AJ10" if production else "AJ9",d.get("salesperson"))
+    put(ws,"I12" if production else "I11",d.get("order_quantity"))
+    put(ws,"Q12" if production else "T11",d.get("order_unit"))
+
+    ingredients=d.get("ingredients",[]) or []
+    inactive=d.get("inactive_ingredients",[]) or []
+    count=max(int(d.get("ingredient_count") or 0),len(ingredients))
+
+    expand_formula_ingredient_rows(ws,production,count)
+
+    if production:
+        # Actual F-RD-002.1 ingredient template is rows 16-27 (12 rows).
+        capacity=12
+        extra=max(0,count-capacity)
+        total_row=28+extra
+        packaging_row=31+extra
+        cost_row=33+extra
+        sale_row=34+extra
+        profit_row=35+extra
+        tester_cost_row=36+extra
+        sign_row=41+extra
+
+        last_active=15+max(count,1)
+
+        for idx,x in enumerate(ingredients):
+            row=16+idx
+            put(ws,f"D{row}",x.get("name"))
+            put(ws,f"P{row}",x.get("quantity_mg"))
+            put(ws,f"AA{row}",x.get("price_kg"))
+            put(ws,f"AI{row}",x.get("supplier"))
+            put(ws,f"AM{row}",x.get("material_code"))
+            put(ws,f"AN{row}",x.get("price_pack"))
+            put(ws,f"AO{row}",x.get("pack_mg"))
+            put(ws,f"AP{row}",x.get("quantity_g"))
+
+            # Calculation Master ingredient rules.
+            put(ws,f"V{row}",f"=SUM(P{row}*$I$12/1000000)")
+            put(ws,f"Z{row}",f"=P{row}*100/$P${total_row}")
+            put(ws,f"AE{row}",f"=SUM(AA{row}/1000000*P{row})")
+
+            # Keep formula-production packaging calculations.
+            put(ws,f"AO{row}",f"=P{row}*AP{packaging_row}")
+            put(ws,f"AP{row}",f"=AO{row}/1000")
+            put(ws,f"AQ{row}",f"=SUM(AA{row}/1000000*AO{row})")
+
+        put(ws,f"P{total_row}",f"=SUM(P16:U{last_active})")
+        put(ws,f"V{total_row}",f"=SUM(V16:Y{last_active})")
+        put(ws,f"Z{total_row}",f"=SUM(Z16:Z{last_active})")
+
+        # Existing formula-production summary structure.
+        put(ws,f"K{cost_row}",f"=SUM(AE16:AH{packaging_row})")
+        put(ws,f"AO{cost_row}",f"=SUM(I12*K{cost_row})")
+        put(ws,f"AO{sale_row}",f"=SUM(I12*K{sale_row})")
+        put(ws,f"K{profit_row}",f"=SUM(K{sale_row}-K{cost_row})")
+        put(ws,f"AO{profit_row}",f"=SUM(AO{sale_row}-AO{cost_row})")
+        put(ws,f"AI{sign_row}",f"=AJ8")
+
+        put(ws,f"B{38+extra}",d.get("rate_text"))
+        put(ws,f"B{47+extra}",d.get("formula_note"))
+        put(ws,f"AI{40+extra}",d.get("signature_name"))
+
+    else:
+        # F-RD-002 current layout: 20 active rows, then fixed 3 inactive rows.
+        capacity=20
+        extra=max(0,count-capacity)
+
+        active_subtotal_row=36+extra
+        inactive_header_row=37+extra
+        inactive_label_row=38+extra
+        inactive_start=39+extra
+        inactive_end=inactive_start+max(len(inactive),3)-1
+        inactive_subtotal_row=42+extra
+        total_row=43+extra
+
+        qty_summary_row=44+extra
+        prod_summary_row=45+extra
+        cost_row=47+extra
+        sale_row=48+extra
+        profit_row=49+extra
+        date_sign_row=54+extra
+
+        active_last=15+max(count,1)
+
+        for idx,x in enumerate(ingredients):
+            row=16+idx
+            put(ws,f"D{row}",x.get("name"))
+            put(ws,f"T{row}",x.get("quantity_mg"))
+            put(ws,f"AE{row}",x.get("price_kg"))
+            put(ws,f"AM{row}",x.get("supplier"))
+            put(ws,f"AR{row}",x.get("import_country"))
+            put(ws,f"AS{row}",x.get("material_code"))
+            put(ws,f"AT{row}",x.get("halal"))
+
+            # Exact master formulas.
+            put(ws,f"Z{row}",f"=SUM(T{row}*$I$11/1000000)")
+            put(ws,f"AD{row}",f"=T{row}*100/$T${total_row}")
+            put(ws,f"AI{row}",f"=SUM(AE{row}/1000000*T{row})")
+
+        # Active subtotal.
+        put(ws,f"T{active_subtotal_row}",f"=SUM(T16:Y{active_last})")
+        put(ws,f"Z{active_subtotal_row}",f"=SUM(Z16:AC{active_last})")
+        put(ws,f"AD{active_subtotal_row}",f"=SUM(AD16:AD{active_last})")
+
+        # Inactive ingredient rows.
+        for j,x in enumerate(inactive):
+            row=inactive_start+j
+            put(ws,f"B{row}",j+1)
+            put(ws,f"D{row}",x.get("name"))
+            put(ws,f"T{row}",x.get("quantity_mg"))
+            put(ws,f"AE{row}",x.get("price_kg"))
+            put(ws,f"AM{row}",x.get("supplier"))
+            put(ws,f"AR{row}",x.get("import_country"))
+            put(ws,f"AS{row}",x.get("material_code"))
+            put(ws,f"AT{row}",x.get("halal"))
+
+            put(ws,f"Z{row}",f"=SUM(T{row}*$I$11/1000000)")
+            put(ws,f"AD{row}",f"=T{row}*100/$T${total_row}")
+            put(ws,f"AI{row}",f"=SUM(AE{row}/1000000*T{row})")
+
+        actual_inactive_last=inactive_start+max(len(inactive),1)-1
+
+        # Same subtotal/total hierarchy as Calculation Master.
+        put(ws,f"T{inactive_subtotal_row}",f"=SUM(T{inactive_start}:Y{actual_inactive_last})")
+        put(ws,f"Z{inactive_subtotal_row}",f"=SUM(Z{inactive_start}:AC{actual_inactive_last})")
+        put(ws,f"AD{inactive_subtotal_row}",f"=SUM(AD{inactive_start}:AD{actual_inactive_last})")
+
+        put(ws,f"T{total_row}",f"=T{active_subtotal_row}+T{inactive_subtotal_row}")
+        put(ws,f"Z{total_row}",f"=SUM(Z{active_subtotal_row}+Z{inactive_subtotal_row})")
+        put(ws,f"AD{total_row}",f"=SUM(AD{active_subtotal_row}+AD{inactive_subtotal_row})")
+
+        put(ws,f"K{qty_summary_row}",f"=SUM(T{total_row})")
+        put(ws,f"K{prod_summary_row}",f"=SUM(Z{total_row})")
+
+        # Exact master costing rule includes *120.
+        put(ws,f"K{cost_row}",f"=SUM(AI16:AL{actual_inactive_last})*120")
+        put(ws,f"AO{cost_row}",f"=SUM(I11*K{cost_row})")
+        put(ws,f"AO{sale_row}",f"=SUM(I11*K{sale_row})")
+        put(ws,f"K{profit_row}",f"=SUM(K{sale_row}-K{cost_row})")
+        put(ws,f"AO{profit_row}",f"=SUM(AO{sale_row}-AO{cost_row})")
+        put(ws,f"AJ{date_sign_row}",f"=AG7")
+
+        put(ws,f"B{51+extra}",d.get("rate_text"))
+        put(ws,f"S{51+extra}",d.get("formula_note"))
+        put(ws,f"AJ{53+extra}",d.get("signature_name"))
+
+def fill_003(ws,d):
+    put(ws,"C5",d.get("quotation_no"));put(ws,"H5",d.get("formula_no"));put(ws,"C7",d.get("customer_name"));put(ws,"H7",d.get("receipt_no"))
+    put(ws,"C9",d.get("customer_needed"));put(ws,"C13",d.get("characteristic"));put(ws,"C15",d.get("packaging"))
+    put(ws,"C16",d.get("quantity"));put(ws,"H16",d.get("delivery_date"));put(ws,"C18",d.get("tester_type"));put(ws,"E18",d.get("price"));put(ws,"H18",d.get("payin_ref"));put(ws,"A20",d.get("requester"));put(ws,"F20",d.get("rd_maker"))
+def fill_004(ws,d):
+    put(ws,"C4",d.get("customer_name"));put(ws,"H4",d.get("customer_code"));put(ws,"C6",d.get("op_no"));put(ws,"H6",d.get("formula_no"))
+    put(ws,"C8",d.get("formula_name"));put(ws,"C9",d.get("product_name"))
+    for i,x in enumerate(d.get("rates",[])[:10],12):
+        put(ws,f"A{i}",x.get("quantity"));put(ws,f"E{i}",x.get("price_unit"));put(ws,f"H{i}",x.get("note"))
+
+
+def fill_admin_qp(ws,d):
+    # Header/detail fields.
+    put(ws,"B5",d.get("date"))
+    put(ws,"D5",d.get("ref_no"))
+    put(ws,"F5",d.get("job_code"))
+    put(ws,"H5",d.get("sales_executive"))
+    put(ws,"B6",d.get("customer_name"))
+    put(ws,"D6",d.get("phone_fax"))
+    put(ws,"F6",d.get("admin_officer"))
+    put(ws,"H6",d.get("quotation_po"))
+    put(ws,"B7",d.get("address"))
+    put(ws,"F7",d.get("product_name"))
+    put(ws,"B8",d.get("formula_no"))
+
+    items=d.get("items") or []
+    start=11
+
+    for i,x in enumerate(items[:15],start):
+        put(ws,f"A{i}",i-start+1)
+        put(ws,f"B{i}",x.get("description"))
+        put(ws,f"C{i}",x.get("ingredient_name"))
+        put(ws,f"D{i}",x.get("quantity_mg"))
+        put(ws,f"E{i}",x.get("quantity"))
+        put(ws,f"F{i}",x.get("unit"))
+        put(ws,f"G{i}",x.get("unit_price"))
+        # Amount remains a workbook formula.
+        put(ws,f"H{i}",f"=E{i}*G{i}")
+
+    # Totals/financial logic.
+    put(ws,"H28","=SUM(E11:E25)")
+    put(ws,"H30","=SUM(H11:H25)")
+    if d.get("after_discount") not in (None,""):
+        put(ws,"H29",d.get("after_discount"))
+    else:
+        put(ws,"H29","=H30")
+    put(ws,"H31","=H29*7%")
+    put(ws,"H32","=H29+H31")
+    put(ws,"H33","=H32*50%")
+    put(ws,"H34","=H32*50%")
+
+    # Additional original-detail fields.
+    put(ws,"B36",d.get("formula_detail"))
+    put(ws,"B37",d.get("usage_instruction"))
+    put(ws,"B38",d.get("packaging_unit"))
+    put(ws,"B39",d.get("packaging_detail"))
+    put(ws,"B40",d.get("box_unit"))
+    put(ws,"B41",d.get("price_per_sachet_text"))
+    put(ws,"B49",d.get("quotation_officer"))
+
+@router.get("/record/{record_id}/excel")
+def export_record(
+    record_id:int,
+    db:Session=Depends(get_db),
+    u=Depends(get_current_user),
+    person_key:str=Depends(require_person_key),
+):
+    x=db.get(SourceFormRecord,record_id)
+    if not x or x.created_by != u.id or x.owner_person_key != person_key:
+        raise HTTPException(404,"Record not found")
+
+    try:
+        d=json.loads(x.payload_json or "{}")
+    except Exception:
+        d={}
+
+    templates={
+      "F-RD-001":("F-RD-001_TEMPLATE.xlsx","RD"),
+      "F-RD-002":("F-RD-002.xlsx","สูตร"),
+      "F-RD-002.1":("F-RD-002.1.xlsx","คิดต้นทุน สรุป"),
+      "F-RD-003":("F-RD-003.xlsx","Sheet1"),
+      "F-RD-004":("F-RD-004.xlsx","Sheet1"),
+      "ADMIN-QP":("ADMIN-QP.xlsx","Quotation"),
+    }
+
+    if x.form_code not in templates:
+        raise HTTPException(400,"Unsupported form")
+
+    fn,sheet=templates[x.form_code]
+    src=ROOT/fn
+    if not src.exists():
+        raise HTTPException(500,f"Template not found: {fn}")
+
+    try:
+        wb=load_workbook(src)
+        if sheet not in wb.sheetnames:
+            raise HTTPException(500,f"Sheet not found: {sheet}")
+        ws=wb[sheet]
+
+        if x.form_code=="F-RD-001":
+            fill_001(ws,d)
+        elif x.form_code=="F-RD-002":
+            fill_formula(ws,d,False)
+        elif x.form_code=="F-RD-002.1":
+            fill_formula(ws,d,True)
+        elif x.form_code=="F-RD-003":
+            fill_003(ws,d)
+        elif x.form_code=="F-RD-004":
+            fill_004(ws,d)
+        elif x.form_code=="ADMIN-QP":
+            fill_admin_qp(ws,d)
+        else:
+            raise HTTPException(400,"Unsupported form")
+
+        fill_manual_cells(ws,d,x.form_code=="F-RD-002.1")
+
+        output=BytesIO()
+        wb.save(output)
+        output.seek(0)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500,f"Excel export failed after merged-cell handling: {type(e).__name__}: {e}")
+
+    safe_record=re.sub(r'[^A-Za-z0-9._-]+','_',str(x.record_no or x.id)).strip('_') or str(x.id)
+    filename=f"{x.form_code}_{safe_record}.xlsx"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+
+@router.get("/diagnostics/source-form-schema")
+def source_form_schema_diagnostics(
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+):
+    from sqlalchemy import text
+    try:
+        dialect=db.bind.dialect.name
+        result={"dialect":dialect}
+        if dialect=="postgresql":
+            cols=db.execute(text("""
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_name='source_form_records'
+                ORDER BY ordinal_position
+            """)).mappings().all()
+            fks=db.execute(text("""
+                SELECT
+                  kcu.column_name,
+                  ccu.table_name AS foreign_table_name,
+                  ccu.column_name AS foreign_column_name
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                JOIN information_schema.constraint_column_usage AS ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                WHERE tc.constraint_type='FOREIGN KEY'
+                  AND tc.table_name='source_form_records'
+            """)).mappings().all()
+            result["columns"]=[dict(x) for x in cols]
+            result["foreign_keys"]=[dict(x) for x in fks]
+        else:
+            cols=db.execute(text("PRAGMA table_info(source_form_records)")).fetchall()
+            result["columns"]=[list(x) for x in cols]
+        return result
+    except Exception as e:
+        raise HTTPException(500,f"Diagnostic failed: {type(e).__name__}: {e}")
+
+@router.get("/aliases/{supplement_code}")
+def aliases(
+    supplement_code: str,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    
+):
+    rows = db.scalars(
+        select(SupplementAlias)
+        .where(SupplementAlias.supplement_code == supplement_code)
+        .order_by(SupplementAlias.id)
+    ).all()
+    return [{
+        "primary_name": x.primary_name,
+        "alternate_name": x.alternate_name
+    } for x in rows]
