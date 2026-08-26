@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>R&D ERP AI</title>
+  <link rel="stylesheet" href="/static/app.css?v=31.22">
+</head>
+<body>
+<div id="toast"></div>
+
+<div id="loginPage" class="login-page">
+  <div class="login-card">
+    <div class="brand-mark">R&D</div>
+    <h1>R&D ERP + MRP + AI</h1><div class="build-label">FINAL v29.9 • Save + Auto Excel</div><div class="build-label">FINAL v27.2 • Save Export Fixed</div>
+    <p>ระบบบริหารงานพัฒนาผลิตภัณฑ์ สูตร ต้นทุน Tester และการผลิต</p>
+    <label>Username</label>
+    <input id="loginUsername" value="admin">
+    <label>Password</label>
+    <input id="loginPassword" type="password" value="admin1234">
+    <button class="primary full" onclick="login()">เข้าสู่ระบบ</button><div class="login-hint">ตัวอย่าง: <b>rd1 / rd11234</b> หรือ <b>admin / admin1234</b></div>
+    <div id="loginError" class="error"></div>
+  </div>
+</div>
+
+
+<div id="departmentPortal" class="department-page hidden">
+  <div class="department-wrap">
+    <div class="department-head">
+      <div><div class="brand-mark">ERP</div><h1>เลือกแผนก</h1><p>เลือกพื้นที่ทำงานก่อนเข้าสู่ระบบของแต่ละแผนก</p></div>
+      <div class="department-user"><b id="portalUserName">-</b><small id="portalUserRole">-</small><button class="ghost" onclick="logout()">Logout</button></div>
+    </div>
+    <div id="departmentGrid" class="department-grid"></div>
+  </div>
+</div>
+
+<div id="appShell" class="app-shell hidden">
+  <aside class="sidebar">
+    <div class="brand">R&D ERP <span>AI</span></div>
+    <div class="department-badge" id="currentDepartment">-</div>
+    <div class="user-box">
+      <div id="userName">-</div>
+      <small id="userRole">-</small>
+    </div>
+    <nav>
+      <button class="nav nav-home" onclick="backToDepartments()">← เปลี่ยนแผนก</button>
+      <div class="dept-menu dept-common"><button data-page="dashboard" class="nav" onclick="openPage('dashboard')">Dashboard</button></div>
+      <div class="dept-menu" data-dept="RD"><div class="nav-section">R&D</div>
+        <button class="nav exact-form-nav" data-form="F-RD-002" onclick="openExactForm('F-RD-002')">F-RD-002 สูตร</button>
+        <button class="nav exact-form-nav" data-form="F-RD-002.1" onclick="openExactForm('F-RD-002.1')">F-RD-002.1 สูตรผลิต</button>
+        <button class="nav exact-form-nav" data-form="F-RD-003" onclick="openExactForm('F-RD-003')">F-RD-003 Tester</button>
+        <button class="nav exact-form-nav" data-form="F-RD-004" onclick="openExactForm('F-RD-004')">F-RD-004 Rate</button>
+        <button data-page="formulas" class="nav" onclick="openPage('formulas')">Formula Database</button>
+        <button data-page="materials" class="nav" onclick="openPage('materials')">Raw Materials</button>
+        <button data-page="registration" class="nav" onclick="openPage('registration')">Registration / FDA</button>
+      </div>
+      <div class="dept-menu" data-dept="SALE"><div class="nav-section">SALE</div>
+        <button class="nav exact-form-nav" data-form="F-RD-001" onclick="openExactForm('F-RD-001')">F-RD-001 ความต้องการลูกค้า</button>
+        <button data-page="customers" class="nav" onclick="openPage('customers')">Customers</button>
+        <button data-page="projects" class="nav" onclick="openPage('projects')">Product Development</button>
+      </div>
+      <div class="dept-menu" data-dept="ADMIN"><div class="nav-section">ADMIN</div>
+        <button data-page="customers" class="nav" onclick="openPage('customers')">Customers</button>
+        <button data-page="admin" class="nav" onclick="openPage('admin')">Users / Audit</button>
+        <button data-page="originalForms" class="nav" onclick="openPage('originalForms')">Original Forms</button>
+      </div>
+      <div class="dept-menu" data-dept="JOB"><div class="nav-section">JOB</div><button class="nav" onclick="openDepartmentWorkspace('JOB')">Job Workspace</button></div>
+      <div class="dept-menu" data-dept="PLANNING"><div class="nav-section">PLANNING</div><button data-page="production" class="nav" onclick="openPage('production')">Production / MRP</button></div>
+      <div class="dept-menu" data-dept="STOCK"><div class="nav-section">STOCK</div><button data-page="inventory" class="nav" onclick="openPage('inventory')">Inventory</button><button data-page="materials" class="nav" onclick="openPage('materials')">Raw Materials</button></div>
+      <div class="dept-menu" data-dept="PURCHASE"><div class="nav-section">PURCHASE</div><button data-page="suppliers" class="nav" onclick="openPage('suppliers')">Suppliers</button><button data-page="inventory" class="nav" onclick="openPage('inventory')">Stock Requirement</button></div>
+      <div class="dept-menu" data-dept="PRODUCTION"><div class="nav-section">PRODUCTION</div><button class="nav exact-form-nav" data-form="F-RD-002.1" onclick="openExactForm('F-RD-002.1')">สูตรผลิต</button><button data-page="production" class="nav" onclick="openPage('production')">Production / MRP</button></div>
+      <div class="dept-menu" data-dept="GRAPHIC"><div class="nav-section">GRAPHIC</div><button class="nav" onclick="openDepartmentWorkspace('GRAPHIC')">Graphic Workspace</button></div>
+      <div class="dept-menu" data-dept="QC"><div class="nav-section">QC</div><button class="nav" onclick="openDepartmentWorkspace('QC')">QC Workspace</button></div>
+      <div class="dept-menu" data-dept="QUALITY"><div class="nav-section">QUALITY</div><button data-page="registration" class="nav" onclick="openPage('registration')">Registration / FDA</button><button class="nav" onclick="openDepartmentWorkspace('QUALITY')">Quality Workspace</button></div>
+      <div class="dept-menu" data-dept="CEO"><div class="nav-section">CEO</div><button data-page="dashboard" class="nav" onclick="openPage('dashboard')">Executive Dashboard</button><button data-page="ai" class="nav" onclick="openPage('ai')">AI Insights</button><button class="nav" onclick="showAllDepartmentOverview()">Department Overview</button></div>
+</nav>
+    <div class="side-bottom">
+      <a href="/docs" target="_blank">API Docs</a>
+      <button class="nav danger" onclick="logout()">Logout</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="pageTitle">Dashboard</h1>
+        <p id="pageSubtitle">ภาพรวมสถานะระบบ</p>
+      </div>
+      <button class="ghost" onclick="refreshCurrent()">Refresh</button>
+    </header>
+
+    <section id="pageContent"></section>
+  </main>
+</div>
+
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="modalTitle">Form</h2>
+      <button onclick="closeModal()">×</button>
+    </div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=31.22"></script>
+</body>
+</html>

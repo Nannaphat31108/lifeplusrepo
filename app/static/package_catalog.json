@@ -1,0 +1,1597 @@
+[
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวด PETสีชา 100ml.  + ฝาทองเงา",
+    "rate": "500-10000",
+    "price": 8,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "golf",
+    "source_row": 3,
+    "tiers": [
+      {
+        "rate": 30000,
+        "price": 7.5,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวด PETสีชา 120ml.",
+    "rate": 1000,
+    "price": 5.76,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "ตั้งซุ่นฮวด",
+    "source_row": 7
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ฝาเงินด้าน",
+    "rate": null,
+    "price": 4.2,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 8,
+    "tiers": [
+      {
+        "rate": 10000,
+        "price": 2.02,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": "รวม 1,000",
+        "price": 9.96,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": "รวม 10,000",
+        "price": 7.78,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวด PETสีชา 200ml.",
+    "rate": "20-499",
+    "price": 6,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "ตั้งซุ่นฮวด",
+    "source_row": 13,
+    "tiers": [
+      {
+        "rate": "500-1000",
+        "price": 5.82,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": "1000 ขึ้นไป",
+        "price": 5.76,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ฝาหมุนขาวธรรมดา",
+    "rate": 100,
+    "price": 2.9,
+    "lead_time": "รวม 8.9",
+    "packing": null,
+    "supplier": null,
+    "source_row": 16,
+    "tiers": [
+      {
+        "rate": "500-3,000",
+        "price": 0.9,
+        "lead_time": 6.72,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 10000,
+        "price": 0.87,
+        "lead_time": 6.63,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวด PETสีชา 200ml.",
+    "rate": 500,
+    "price": 6,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "ตั้งซุ่นฮวด",
+    "source_row": 21,
+    "tiers": [
+      {
+        "rate": "500-1000",
+        "price": 5.82,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": "1000 ขึ้นไป",
+        "price": 5.76,
+        "lead_time": "รวม",
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ฝาเซฟตี้ล็อกสีขาว",
+    "rate": 500,
+    "price": 3.15,
+    "lead_time": 9.15,
+    "packing": null,
+    "supplier": null,
+    "source_row": 24,
+    "tiers": [
+      {
+        "rate": "500-1000",
+        "price": 3.06,
+        "lead_time": 8.88,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": "1000 ขึ้นไป",
+        "price": 3.02,
+        "lead_time": 8.78,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวด PETสีชา 150ml.",
+    "rate": 5000,
+    "price": 5.28,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "ตั้งซุ่นฮวด",
+    "source_row": 28
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ฝาเซฟตี้ล็อกสีขาว",
+    "rate": "ฝา",
+    "price": 3.02,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 29,
+    "tiers": [
+      {
+        "rate": 50000,
+        "price": 5.23,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": "ฝา",
+        "price": 3,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": "รวม 5,000",
+        "price": 8.3,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": "รวม 50,000",
+        "price": 8.23,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวด PET สีขาว 125  ml   + ฝาฉีก",
+    "rate": 1000,
+    "price": 8,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "อริญ",
+    "source_row": 35
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวดแก้วสีชาแบล็คเมอร์ 125ml ฝาฉีกขวดแก้วสีขาว",
+    "rate": 1000,
+    "price": 11.8,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "ddworld",
+    "source_row": 39
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "(แพ็คละ 180 ชิ้น)",
+    "rate": 5000,
+    "price": 11.5,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 40,
+    "tiers": [
+      {
+        "rate": 20000,
+        "price": 11.4,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวด PET สีขาว ฝาหมุนขาว 60ml (ไม่มีโฟม)",
+    "rate": 591,
+    "price": 8.32,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "Nakarin",
+    "source_row": 45
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "( 1 ลังมี 591 ใบ)",
+    "rate": 1182,
+    "price": 7.94,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 46,
+    "tiers": [
+      {
+        "rate": 3546,
+        "price": 7.76,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": "5,000 ขึ้นไป",
+        "price": 7.76,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "กระปุก ขนาด 500ml QE305/ฝาอลูมิเนียม/พลาสติก",
+    "rate": 1000,
+    "price": 6.8,
+    "lead_time": null,
+    "packing": "100 กรัม",
+    "supplier": "KPAC",
+    "source_row": 50
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "กระปุก 1000ml ฝาขาว",
+    "rate": "500 ขึ้นไป",
+    "price": 12.13,
+    "lead_time": null,
+    "packing": null,
+    "supplier": "ตั้งซุ่นฮวด",
+    "source_row": 54,
+    "tiers": [
+      {
+        "rate": "1,000 ขึ้นไป",
+        "price": 12,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "กระป๋องขนาด 99x130mm",
+    "rate": 2000,
+    "price": 30,
+    "lead_time": "25-30 วัน",
+    "packing": null,
+    "supplier": "sm.packaging",
+    "source_row": 58
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ราคารวมฉลาก , ฝาพลาสติก ฝาเงินดึง",
+    "rate": 3000,
+    "price": 28,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 59,
+    "tiers": [
+      {
+        "rate": 5000,
+        "price": 27,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 10000,
+        "price": 25,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวด PET สีขาว ฝาหมุนขาว 100ml",
+    "rate": 500,
+    "price": 8.25,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "oth",
+    "source_row": 64,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 8.25,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 5000,
+        "price": 8.25,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวดยาเม็ดPET 150ml สีขาว ฝาฟลิบขาว",
+    "rate": "500-3000",
+    "price": 10.25,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "oth",
+    "source_row": 69
+  },
+  {
+    "category": "กระปุกยา",
+    "spec": "ขวดยาเม็ดPET 150ml สีชา ฝาฟลิบขาว",
+    "rate": "500-3000",
+    "price": 10.25,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 70
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "หลอดบีบครีมสีขาวเคลือบเงา 150ml ฝาป๊อกแป๊ก",
+    "rate": 500,
+    "price": 8,
+    "lead_time": null,
+    "packing": "120 ml.",
+    "supplier": "OTH Package",
+    "source_row": 3
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "หลอด 3 ชั้น",
+    "rate": 1000,
+    "price": 7.8,
+    "lead_time": null,
+    "packing": null,
+    "supplier": "เพียว",
+    "source_row": 4
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "หลอดบีบครีมขาวเคลือบเงา 250 ml ฝาป๊อกแป๊ก",
+    "rate": "100-500",
+    "price": 9.5,
+    "lead_time": null,
+    "packing": "250 ml.",
+    "supplier": "OTH Package",
+    "source_row": 7
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "หลอด 3 ชั้น",
+    "rate": "1000-5000",
+    "price": 9.3,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 8
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "หลอดบีบครีมสีขาวเคลือบเงา 100ml ฝาป๊อกแป๊ก 5ชั้น",
+    "rate": 100,
+    "price": 10,
+    "lead_time": "เรทราคาตามนี้ค่ะ",
+    "packing": "100 ml.",
+    "supplier": "เพียว",
+    "source_row": 11,
+    "tiers": [
+      {
+        "rate": 5000,
+        "price": 9.5,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 10000,
+        "price": 9,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวดปั๊มสูญญากาศ ขนาด 30ml สีขาว/สีใส/สีดำ",
+    "rate": 500,
+    "price": 19,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "แสนดี",
+    "source_row": 15,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 15,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 5000,
+        "price": 14,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 10000,
+        "price": 13,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวดปั๊มมูสสีขาว 60ml",
+    "rate": 100,
+    "price": 14,
+    "lead_time": null,
+    "packing": "60 ml.",
+    "supplier": "dble",
+    "source_row": 20,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 14,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 3000,
+        "price": 12,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 10000,
+        "price": 11.5,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวดปั๊มมูสสีขาว 100ml",
+    "rate": 500,
+    "price": 9,
+    "lead_time": null,
+    "packing": "100 ml.",
+    "supplier": "dble",
+    "source_row": 25,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 8,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 3000,
+        "price": 8,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 10000,
+        "price": 7,
+        "lead_time": "รวมขวด+ปั๊ม",
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ฝาปั๊มมูส",
+    "rate": 500,
+    "price": 7,
+    "lead_time": 16,
+    "packing": null,
+    "supplier": null,
+    "source_row": 29,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 6.5,
+        "lead_time": 14.5,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 3000,
+        "price": 6.5,
+        "lead_time": 14.5,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 10000,
+        "price": 5.5,
+        "lead_time": 12.5,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "หลอดโฟม 30 กรัมสีขาว ก้นโค้ง หลอด 3ชั้น",
+    "rate": "100 ขึ้นไป",
+    "price": 6,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "เพียว",
+    "source_row": 36,
+    "tiers": [
+      {
+        "rate": "10,000 ขึ้นไป",
+        "price": 6.25,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวด PET สีขาวทรงสูง 15 ml. ฝาปั๊มขาว",
+    "rate": 1000,
+    "price": 9.05,
+    "lead_time": null,
+    "packing": "15 ml.",
+    "supplier": "OTH",
+    "source_row": 42,
+    "tiers": [
+      {
+        "rate": 5000,
+        "price": 8.75,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวด PET สีขาวทรงเตี้ย 15 ml. ฝาปั๊มขาว",
+    "rate": 1000,
+    "price": 8.05,
+    "lead_time": null,
+    "packing": "15 ml.",
+    "supplier": "OTH",
+    "source_row": 47,
+    "tiers": [
+      {
+        "rate": 5000,
+        "price": 7.75,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวด PET สีขาว 200ml ฝาเงินเงา พร้อมฝาครอบใส",
+    "rate": 1000,
+    "price": 15,
+    "lead_time": null,
+    "packing": "200 ml.",
+    "supplier": "เพียว",
+    "source_row": 52,
+    "tiers": [
+      {
+        "rate": 5000,
+        "price": 14.7,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 10000,
+        "price": 14.5,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวด PET 30ml สีใส  หัวสเปรย์ฉีดผม 20mm",
+    "rate": 500,
+    "price": 8,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "OTH",
+    "source_row": 57,
+    "tiers": [
+      {
+        "rate": "1000-3000",
+        "price": 7.6,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 10000,
+        "price": 6.5,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวด PET 30ml สีขาว/ดำ หัวสเปรย์ฉีดผม 20mm",
+    "rate": 500,
+    "price": 8.5,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": null,
+    "source_row": 60,
+    "tiers": [
+      {
+        "rate": "1000-3000",
+        "price": 8.1,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      },
+      {
+        "rate": 10000,
+        "price": 7,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "กระปุกโทนเนอร์แพดสีขาว/ชมพูพร้อมที่คีบ ขนาด 150ml",
+    "rate": 5000,
+    "price": 30,
+    "lead_time": "ผลิต 30-40วัน",
+    "packing": "150 ml.",
+    "supplier": "เพียว",
+    "source_row": 66,
+    "tiers": [
+      {
+        "rate": 10000,
+        "price": 22,
+        "lead_time": "ขั้นต่ำการผลิต 5,000",
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวดปั๊มสูญญากาศ แบบสี ขนาด 30ml",
+    "rate": 500,
+    "price": 21,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "แสนดี",
+    "source_row": 71
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวดปั๊มสูญญากาศ สีทอง ขนาด 30ml",
+    "rate": 500,
+    "price": 21,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "แสนดี",
+    "source_row": 76
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวดปั๊มสูญญากาศ ขวดสีขุ่น ฝาคาดเงิน ขนาด 30ml",
+    "rate": 500,
+    "price": 25,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "แสนดี",
+    "source_row": 80
+  },
+  {
+    "category": "หลอดบีบ",
+    "spec": "ขวดแก้วขุ่น 120ml กลมฝาขาว ปากหัวปั๊ม",
+    "rate": 1000,
+    "price": 24,
+    "lead_time": "20-30 วัน",
+    "packing": "120 ml.",
+    "supplier": "GB CARGO",
+    "source_row": 85,
+    "tiers": [
+      {
+        "rate": null,
+        "price": null,
+        "lead_time": "งานสั่งผลิต เริ่มต้น 1,000",
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มสีชมพูมุก 10 ml จุกขาว ฝาขาว",
+    "rate": 3000,
+    "price": 10,
+    "lead_time": "พร้อมส่ง",
+    "packing": "10 ml.",
+    "supplier": "แสนดี",
+    "source_row": 3
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มสีชมพูมุก 10 ml จุกขาว ฝาเงิน",
+    "rate": 3000,
+    "price": 10,
+    "lead_time": null,
+    "packing": "10 ml.",
+    "supplier": "แสนดี",
+    "source_row": 6
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มขาวทรงเหลี่ยม 10 ml  จุกขาว ฝาเงิน",
+    "rate": "500-10,000",
+    "price": 17,
+    "lead_time": "พร้อมส่ง",
+    "packing": "10 ml.",
+    "supplier": "อริญ",
+    "source_row": 10,
+    "tiers": [
+      {
+        "rate": null,
+        "price": null,
+        "lead_time": "(ถ้าหมดรอ 30 วัน)",
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มสีขาวมุก 15 ml จุกขาว ฝาขาว",
+    "rate": 500,
+    "price": 12,
+    "lead_time": null,
+    "packing": "15 ml.",
+    "supplier": "แสนดี",
+    "source_row": 14,
+    "tiers": [
+      {
+        "rate": "1000-2000",
+        "price": 11,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มสีขาวมุก 30 ml จุกขาว ฝาขาว",
+    "rate": 500,
+    "price": 13,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "แสนดี",
+    "source_row": 18,
+    "tiers": [
+      {
+        "rate": "1000-2000",
+        "price": 12,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มสีขาวขุน 15 ml จุกขาว ฝาขาว",
+    "rate": 500,
+    "price": 11,
+    "lead_time": null,
+    "packing": "15 ml.",
+    "supplier": "แสนดี",
+    "source_row": 22,
+    "tiers": [
+      {
+        "rate": "1000-2000",
+        "price": 12,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มสีขาวขุน 30 ml จุกขาว ฝาขาว",
+    "rate": 500,
+    "price": 13,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "แสนดี",
+    "source_row": 27,
+    "tiers": [
+      {
+        "rate": "1000-2000",
+        "price": 12,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดแก้วเซรั่มสีชาใส 15ml ฝาและจุกขาว",
+    "rate": 500,
+    "price": 12,
+    "lead_time": null,
+    "packing": "15 ml.",
+    "supplier": "แสนดี",
+    "source_row": 31,
+    "tiers": [
+      {
+        "rate": "1000-2000",
+        "price": 11,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดแก้วเซรั่มสีชาใส 30ml ฝาและจุกขาว",
+    "rate": 500,
+    "price": 13,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "แสนดี",
+    "source_row": 35,
+    "tiers": [
+      {
+        "rate": "1000-2000",
+        "price": 12,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มแก้วสีขาวใส 30 ml ดรอปเงินเงาจุกขาว",
+    "rate": 1000,
+    "price": 9,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "เพียว",
+    "source_row": 39
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดแก้วเซรั่มสีชา 50ml จุกดำ ฝาดรอปเงิน",
+    "rate": 500,
+    "price": 10,
+    "lead_time": null,
+    "packing": "50 ml.",
+    "supplier": "เพียว",
+    "source_row": 44,
+    "tiers": [
+      {
+        "rate": 5000,
+        "price": 9.8,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดแก้วเซรั่มสีใส 50ml จุกดำ ฝาดรอปเงิน",
+    "rate": 500,
+    "price": 10,
+    "lead_time": null,
+    "packing": "50 ml.",
+    "supplier": "เพียว",
+    "source_row": 48,
+    "tiers": [
+      {
+        "rate": 5000,
+        "price": 9.8,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดแก้วสีน้ำตาลแบบเงา จุกบีบสีดำเงา 15 ml | คอเกลียวสีดำเงา",
+    "rate": 2600,
+    "price": 6.9,
+    "lead_time": " จากจีน 22-30 วัน",
+    "packing": "15 ml.",
+    "supplier": "อัญชิสา",
+    "source_row": 52
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มจุกหยด JH 10ml. ขวดชาใสก้นขาว | ครอปซิลิโคน",
+    "rate": 100,
+    "price": 8.5,
+    "lead_time": null,
+    "packing": "10 ml.",
+    "supplier": "เพียว",
+    "source_row": 57
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มใส 30ml. ดรอปขาวจุกนมขาว",
+    "rate": 100,
+    "price": 9,
+    "lead_time": null,
+    "packing": "30 ml.",
+    "supplier": "เพียว",
+    "source_row": 61
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "ขวดเซรั่มสีชาขุ่น 15ml. ดรอปคอล็อคขาวจุกนมขาว",
+    "rate": 100,
+    "price": 8.5,
+    "lead_time": null,
+    "packing": "15 ml.",
+    "supplier": "เพียว",
+    "source_row": 65
+  },
+  {
+    "category": "ขวดเซรั่ม",
+    "spec": "สูญญากาศ 10ml เงินชุด (ตรงกลางเงินด้าน ฝาครอบเงินเงา)",
+    "rate": 100,
+    "price": 18,
+    "lead_time": null,
+    "packing": "10 ml.",
+    "supplier": "OTH",
+    "source_row": 69
+  },
+  {
+    "category": "กระปุกครีม",
+    "spec": "กระปุกแก้วG6 15g ฝ้า+ฝาเงิน",
+    "rate": 100,
+    "price": 8.5,
+    "lead_time": "ถ้าของหมดรอ 45 วัน",
+    "packing": "15 g.",
+    "supplier": "OTH",
+    "source_row": 3,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 8,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกครีม",
+    "spec": "กระปุกแก้วG6 15g ใส+ฝาเงิน",
+    "rate": 100,
+    "price": 8,
+    "lead_time": "ถ้าของหมดรอ 45 วัน",
+    "packing": "15 g.",
+    "supplier": "OTH",
+    "source_row": 7,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 7.8,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกครีม",
+    "spec": "กระปุกแก้วG6 30g ฝ้า+ฝาเงิน",
+    "rate": 100,
+    "price": 10,
+    "lead_time": null,
+    "packing": "30 g.",
+    "supplier": "OTH",
+    "source_row": 11,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 9.5,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกครีม",
+    "spec": "กระปุกแก้วG6 30g ฝ้า+ฝาขาว",
+    "rate": 100,
+    "price": 9,
+    "lead_time": null,
+    "packing": "30 g.",
+    "supplier": "OTH",
+    "source_row": 16,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 8.8,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกครีม",
+    "spec": "กระปุกแก้วG6 30g ใส+ฝาเงิน",
+    "rate": 100,
+    "price": 9.5,
+    "lead_time": null,
+    "packing": "30 g.",
+    "supplier": "OTH",
+    "source_row": 20,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 9.3,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกครีม",
+    "spec": "กระปุกแก้วG6 30g ใส+ฝาขาว",
+    "rate": 100,
+    "price": 8.5,
+    "lead_time": null,
+    "packing": "30 g.",
+    "supplier": "OTH",
+    "source_row": 24,
+    "tiers": [
+      {
+        "rate": 1000,
+        "price": 8.3,
+        "lead_time": null,
+        "packing": null,
+        "supplier": null
+      }
+    ]
+  },
+  {
+    "category": "กระปุกครีม",
+    "spec": "กระปุกใส่ครีมสีขาว ฝาขาว ขนาด 200ml",
+    "rate": "1,000-5,000",
+    "price": 18,
+    "lead_time": null,
+    "packing": "200 ml.",
+    "supplier": "TSH",
+    "source_row": 29
+  },
+  {
+    "category": "กระปุกครีม",
+    "spec": "กระปุกใส่ครีมสีใส ฝาใส ขนาด 200ml",
+    "rate": "1,000-5,000",
+    "price": 18,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 30
+  },
+  {
+    "category": "กระปุกครีม",
+    "spec": "กระปุกใส่ครีมสีชา ฝาดำ ขนาด 200ml",
+    "rate": "1,000-5,000",
+    "price": 18,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 31
+  },
+  {
+    "category": "กระปุกครีม",
+    "spec": "กระปุกฝ้า ฝาเงินเงา 5 กรัม",
+    "rate": 100,
+    "price": 15,
+    "lead_time": null,
+    "packing": "5 g.",
+    "supplier": "OTH",
+    "source_row": 34
+  },
+  {
+    "category": "สติ๊กเกอร์",
+    "spec": "ขนาด 16.5x6 cm สติ๊กเกอร์ PP ขาวมัน | แบบม้วน พิมพ์ 4 สีเคลือบ UV",
+    "rate": 1000,
+    "price": 4.8,
+    "lead_time": "7-10วัน",
+    "packing": null,
+    "supplier": "เวเบอร์",
+    "source_row": 3
+  },
+  {
+    "category": "สติ๊กเกอร์",
+    "spec": "ขนาด 7x17 cm สติ๊กเกอร์ PP ขาวมัน | แบบม้วน พิมพ์ 4 สีเคลือบ UV",
+    "rate": 1000,
+    "price": 4.9,
+    "lead_time": "7-10วัน",
+    "packing": null,
+    "supplier": "เวเบอร์",
+    "source_row": 8
+  },
+  {
+    "category": "สติ๊กเกอร์",
+    "spec": "ขนาด 7.9 x 3.2 cm. Sticker pvc ขาวมัน | แบบแผ่น พิมพ์ 4/0 สี",
+    "rate": 3000,
+    "price": 0.8,
+    "lead_time": "10-15วัน",
+    "packing": null,
+    "supplier": "อุดมโภค",
+    "source_row": 13
+  },
+  {
+    "category": "สติ๊กเกอร์",
+    "spec": "ขนาด11x40 cm. | PVC ขาวมัน พิมพ์ 4 สี เคลือบลามิเนตเงา",
+    "rate": 300,
+    "price": 16,
+    "lead_time": null,
+    "packing": null,
+    "supplier": "จรัสแสง",
+    "source_row": 17
+  },
+  {
+    "category": "สติ๊กเกอร์",
+    "spec": "สติ๊กเกอร์ PP ขาวมัน ขนาด 11.4 x 3.3 CM | พิมพ์ 4/0 สี ไดคัท 50%",
+    "rate": 2000,
+    "price": 2.4,
+    "lead_time": null,
+    "packing": null,
+    "supplier": "เวเบอร์",
+    "source_row": 21
+  },
+  {
+    "category": "กล่อง",
+    "spec": "กล่องกระดาษอาร์ตการ์ด 350 แกรม ขนาดกางออก 17 . 5 X 7 . 5 x17cm | พิมพ์ 4 สี ปั้มนูน , เคลือบ PVC เงา ไดคัท ปะกาว",
+    "rate": 2700,
+    "price": 5.99,
+    "lead_time": "ผลิต 20-25 วัน",
+    "packing": "360 g.",
+    "supplier": "สมาร์ท แพคเกจ ",
+    "source_row": 3,
+    "สำหรับ": "ชงดื่ม / โปรตีน",
+    "ปริมาณต่อซอง": "24 g.",
+    "จำนวนซอง": "15 ซอง"
+  },
+  {
+    "category": "กล่อง",
+    "spec": "สเปค กล่อง กระดาษ art card 350 แกรม เคลือบด้าน ปั๊มเคเงิน ปะกาว | ขนาดกล่อง 14.5x10.2x4 cm",
+    "rate": 700,
+    "price": 14,
+    "lead_time": "ผลิต 20-25 วัน",
+    "packing": null,
+    "supplier": "สมาร์ท แพคเกจ ",
+    "source_row": 9,
+    "สำหรับ": null,
+    "ปริมาณต่อซอง": null,
+    "จำนวนซอง": null
+  },
+  {
+    "category": "กล่อง",
+    "spec": "ขนาดกางออก 25.32 X 27.16 CM พิมพ์ 3 สี | เคลือบด้าน  ปั๊มนูน spot uv",
+    "rate": 1350,
+    "price": 7.59,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "สมาร์ท แพคเกจ ",
+    "source_row": 14,
+    "สำหรับ": "แคปซูล / ตอกเม็ด",
+    "ปริมาณต่อซอง": null,
+    "จำนวนซอง": null
+  },
+  {
+    "category": "กล่อง",
+    "spec": "กล่องขนาด กว้าง 16 x 9.9 x 3 cm (25.5x27.3cm) | พิมพ์หน้า 5 สี+ UV เงา ปั๊มนูน+เคเงิน ไดคัท +ปะกาว | กระดาษอาร์ตการ์ต 1 หน้า 350 แกรม เงินเงา",
+    "rate": 5000,
+    "price": 7.5,
+    "lead_time": null,
+    "packing": "30 เม็ด",
+    "supplier": "จรัสแสง",
+    "source_row": 21,
+    "สำหรับ": "แคปซูล / ตอกเม็ด",
+    "ปริมาณต่อซอง": null,
+    "จำนวนซอง": null
+  },
+  {
+    "category": "กล่อง",
+    "spec": "กล่องขนาด 10x4x4cm. พิมพ์4สี | เคลือบเงา ปั๊มนูน กระดาษ 350 แกรม",
+    "rate": 400,
+    "price": 15,
+    "lead_time": null,
+    "packing": "15 ml.",
+    "supplier": "สมาร์ท แพคเกจ ",
+    "source_row": 26,
+    "สำหรับ": "ใส่ขวดเซรั่ม",
+    "ปริมาณต่อซอง": null,
+    "จำนวนซอง": null
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "pet12/alu7/lldpe70 ขนาด 9x14 cm | หน้า 90 ยาว 500 เมตร ซีลกลาง",
+    "rate": 24,
+    "price": 1850,
+    "lead_time": "10-15 วัน",
+    "packing": "10 g.",
+    "supplier": "เค",
+    "source_row": 3,
+    "จำนวนที่เดินซองได้": 3200
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "พิมพ์ 8 สี | พิมพ์กราเวียร์",
+    "rate": "ค่าบล็อกสี",
+    "price": 5500,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 5,
+    "จำนวนที่เดินซองได้": null
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "Pet12/alu7/lldpe70  ขนาด 9x15 cm  ความหนารวม 89 | หน้า 90 ยาว 500 เมตร ซีลกลาง",
+    "rate": 25,
+    "price": 1450,
+    "lead_time": "20-25 วัน",
+    "packing": "15 g.",
+    "supplier": "ทีเอ็นบี",
+    "source_row": 8,
+    "จำนวนที่เดินซองได้": 3000
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "พิมพ์ 4 สี | พิมพ์กราเวียร์",
+    "rate": "ค่าบล็อกสี",
+    "price": 4500,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 10,
+    "จำนวนที่เดินซองได้": null
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "PET/AL/LLDPE70  ขนาด 12x14 cm | หน้า 120 ยาว 500 เมตร ซีล 3 ด้าน",
+    "rate": 24,
+    "price": 1850,
+    "lead_time": null,
+    "packing": "15 g.",
+    "supplier": "มินเลี่ยน",
+    "source_row": 13,
+    "จำนวนที่เดินซองได้": 3200
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "พิมพ์ 4 สี | พิมพ์กราเวียร์",
+    "rate": "ค่าบล็อกสี",
+    "price": 4000,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 15,
+    "จำนวนที่เดินซองได้": null
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "PET12//ALU7//LLDPE70 | หน้า 160 ยาว 500 เมตร ซีลกลาง",
+    "rate": 24,
+    "price": 1800,
+    "lead_time": "20-20 วัน",
+    "packing": "35 g.",
+    "supplier": "P",
+    "source_row": 18,
+    "จำนวนที่เดินซองได้": 2800
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "พิมพ์ 7 สี",
+    "rate": "ค่าบล็อกสี",
+    "price": 4000,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 20,
+    "จำนวนที่เดินซองได้": null
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "Pet12/alu7/lldpe70  ความหนามรวม 89 | หน้า 120 ยาว 500 เมตร ซีลกลาง",
+    "rate": 25,
+    "price": 1450,
+    "lead_time": "20-25 วัน",
+    "packing": null,
+    "supplier": "ทีเอ็นบี",
+    "source_row": 23,
+    "จำนวนที่เดินซองได้": 2700
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "พิมพ์ 4 สี | พิมพ์กราเวียร์",
+    "rate": "ค่าบล็อกสี",
+    "price": 4500,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 25,
+    "จำนวนที่เดินซองได้": null
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "Pet12/alu7/lldpe70 | หน้า 160 ยาว 500 m. ระยะตัด 175 mm.",
+    "rate": 20,
+    "price": 2950,
+    "lead_time": "25วัน",
+    "packing": null,
+    "supplier": "บริษัท อินเตอร์ฟอยล์ ",
+    "source_row": 28,
+    "จำนวนที่เดินซองได้": 2500
+  },
+  {
+    "category": "ม้วนอลู",
+    "spec": "พิมพ์ 8 สี | พิมพ์กราเวียร์",
+    "rate": "ค่าบล็อกสี",
+    "price": 4500,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 30,
+    "จำนวนที่เดินซองได้": null
+  },
+  {
+    "category": "ถุง",
+    "spec": "PET12/MPET12/LLDPEC4 60 ติดซิปก้นตั้ง | ขนาด 150มม.x220มม.xก้นลึก45มม.",
+    "rate": 20000,
+    "price": 3.4,
+    "lead_time": "10-15 วัน",
+    "packing": null,
+    "supplier": "เค",
+    "source_row": 3
+  },
+  {
+    "category": "ถุง",
+    "spec": "พิมพ์ 8 สี",
+    "rate": "ค่าบล็อกสี",
+    "price": 5500,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 5
+  },
+  {
+    "category": "ถุง",
+    "spec": "PET 12 / MPET12/ LLDPE60 ติดซิปก้นตั้ง | ขนาด 170*230*ก้น40+40",
+    "rate": 10000,
+    "price": 3.85,
+    "lead_time": "20 วัน",
+    "packing": null,
+    "supplier": "P",
+    "source_row": 9
+  },
+  {
+    "category": "ถุง",
+    "spec": "พิมพ์ 8 สี",
+    "rate": "ค่าบล็อกสี",
+    "price": 4500,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 11
+  },
+  {
+    "category": "ถุง",
+    "spec": "pet12/mpet12/lldpe70 ซองก้นตั้งในตัวติดซิป เจาะรูหูหิ้ว | size:240mm.x365mm. + ก้น 55 mm.",
+    "rate": 12000,
+    "price": 7.2,
+    "lead_time": "14วัน",
+    "packing": null,
+    "supplier": "เค",
+    "source_row": 16
+  },
+  {
+    "category": "ถุง",
+    "spec": "พิมพ์ 8 สี",
+    "rate": "ค่าบล็อกสี",
+    "price": 6300,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 18
+  },
+  {
+    "category": "ถุง",
+    "spec": "ซองก้นตั้งติดซิป YU-CHA Spec: PET 12 / MPET 12 / LLDPE 75",
+    "rate": 10000,
+    "price": 8.3,
+    "lead_time": "20-25 วัน",
+    "packing": null,
+    "supplier": "P",
+    "source_row": 23
+  },
+  {
+    "category": "ถุง",
+    "spec": "ขนาด 153 ( 65+65 ) x 300 ( 65+65) ซอง Flat Bottom + Zip | แม่พิมพ์แยก Body และ จีบข้าง ตามจำนวนสี",
+    "rate": 30000,
+    "price": 8.1,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 24
+  },
+  {
+    "category": "ถุง",
+    "spec": "พิมพ์ 8 สี",
+    "rate": "ค่าบล็อกสี",
+    "price": 4500,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 26
+  },
+  {
+    "category": "ถุง",
+    "spec": "PET12xMPET12xLLPDE(C4)60 ซฮงติดซิปก้นตั้ง | ขนาด 220มม. x 280มม. ก้นลึก 45มม.",
+    "rate": 18000,
+    "price": 3.65,
+    "lead_time": "30-35วัน",
+    "packing": null,
+    "supplier": "บ.เดอะมิลเลี่ยน",
+    "source_row": 29
+  },
+  {
+    "category": "ถุง",
+    "spec": "พิมพ์ 7 สี",
+    "rate": "ค่าบล็อกสี",
+    "price": 3800,
+    "lead_time": null,
+    "packing": null,
+    "supplier": null,
+    "source_row": 31
+  },
+  {
+    "category": "ซอง",
+    "spec": "ซองบรรจุครีม 10ml   PET12/ALU7/LLDPE70  size 6.4x11cm | ค่าพิมพ์สีละ/ 2,500 พิมพ์ 7 สี",
+    "rate": 30000,
+    "price": 2.64,
+    "lead_time": "เวลาพิมพ์ 25-30 วัน",
+    "packing": null,
+    "supplier": "Nattarinee ซอง",
+    "source_row": 3
+  },
+  {
+    "category": "ซอง",
+    "spec": "Spec.BOPP20/PET12/ALU7/LL65 เคลือบเงา  ซีล 3ด้าน ติดซิปเงา  พิมพ์ดิจิตอล | ขนาด : 100*160mm. แบบพิมพ์รวมกันกับงาน heppaW",
+    "rate": 1500,
+    "price": 7.5,
+    "lead_time": "14-20วัน",
+    "packing": null,
+    "supplier": "ฮั้วฟ้า",
+    "source_row": 8
+  },
+  {
+    "category": "ซอง",
+    "spec": "Spec.BOPP20/PET12/ALU7/LL65 เคลือบเงา  ซีล 3ด้าน ติดซิปเงา  พิมพ์ดิจิตอล | ขนาด : 100*160mm. แบบพิมพ์รวมกันกับงาน heppaX",
+    "rate": 1500,
+    "price": 7.5,
+    "lead_time": "14-20วัน",
+    "packing": null,
+    "supplier": "ฮั้วฟ้า",
+    "source_row": 12
+  }
+]
