@@ -427,6 +427,63 @@ def _copy_excel_row_style(ws, source_row:int, target_row:int):
         dst.protection=copy(src.protection)
         dst.number_format=src.number_format
 
+def expand_formula_inactive_rows(ws, active_extra:int, inactive_extra:int):
+    """Grow F-RD-002's Inactive Ingredient section past its 3-row template
+    (rows 39-41, before any active-ingredient expansion). Mirrors
+    expand_formula_ingredient_rows, but for the inactive block: it inserts
+    rows right after the last inactive template row and shifts the
+    subtotal/total/summary/sign rows below it down accordingly, so an
+    "unlimited inactive ingredients" count (like the existing unlimited
+    active-ingredient system) survives the real Excel export intact instead
+    of overwriting the subtotal rows that follow.
+    """
+    if inactive_extra<=0:
+        return
+
+    insert_at=42+active_extra
+    template_row=41+active_extra
+
+    original_merges=[CellRange(str(rng)) for rng in list(ws.merged_cells.ranges)]
+
+    template_merges=[]
+    for cr in original_merges:
+        if cr.min_row==template_row and cr.max_row==template_row:
+            template_merges.append(CellRange(str(cr)))
+
+    for cr in original_merges:
+        if cr.min_row>=insert_at:
+            try:
+                ws.unmerge_cells(str(cr))
+            except Exception:
+                pass
+
+    ws.insert_rows(insert_at, amount=inactive_extra)
+
+    for offset in range(inactive_extra):
+        row=insert_at+offset
+        _copy_excel_row_style(ws,template_row,row)
+
+        for tcr in template_merges:
+            new_cr=CellRange(
+                min_col=tcr.min_col,
+                min_row=row,
+                max_col=tcr.max_col,
+                max_row=row
+            )
+            try:
+                ws.merge_cells(str(new_cr))
+            except Exception:
+                pass
+
+    for cr in original_merges:
+        if cr.min_row>=insert_at:
+            shifted=CellRange(str(cr))
+            shifted.shift(row_shift=inactive_extra,col_shift=0)
+            try:
+                ws.merge_cells(str(shifted))
+            except Exception:
+                pass
+
 def expand_formula_ingredient_rows(ws, production:bool, ingredient_count:int):
     capacity=12 if production else 20
     if ingredient_count<=capacity:
@@ -558,20 +615,28 @@ def fill_formula(ws,d,production=False):
         capacity=20
         extra=max(0,count-capacity)
 
+        # Inactive Ingredient section: same "unlimited count" treatment as the
+        # active section above (template capacity 3 rows). Insert real rows
+        # into the workbook for anything beyond that, then shift every row
+        # constant below it accordingly.
+        inactive_extra=max(0,len(inactive)-3)
+        if inactive_extra:
+            expand_formula_inactive_rows(ws,extra,inactive_extra)
+
         active_subtotal_row=36+extra
         inactive_header_row=37+extra
         inactive_label_row=38+extra
         inactive_start=39+extra
         inactive_end=inactive_start+max(len(inactive),3)-1
-        inactive_subtotal_row=42+extra
-        total_row=43+extra
+        inactive_subtotal_row=42+extra+inactive_extra
+        total_row=43+extra+inactive_extra
 
-        qty_summary_row=44+extra
-        prod_summary_row=45+extra
-        cost_row=47+extra
-        sale_row=48+extra
-        profit_row=49+extra
-        date_sign_row=54+extra
+        qty_summary_row=44+extra+inactive_extra
+        prod_summary_row=45+extra+inactive_extra
+        cost_row=47+extra+inactive_extra
+        sale_row=48+extra+inactive_extra
+        profit_row=49+extra+inactive_extra
+        date_sign_row=54+extra+inactive_extra
 
         active_last=15+max(count,1)
 
@@ -633,9 +698,9 @@ def fill_formula(ws,d,production=False):
         put(ws,f"AO{profit_row}",f"=SUM(AO{sale_row}-AO{cost_row})")
         put(ws,f"AJ{date_sign_row}",f"=AG7")
 
-        put(ws,f"B{51+extra}",d.get("rate_text"))
-        put(ws,f"S{51+extra}",d.get("formula_note"))
-        put(ws,f"AJ{53+extra}",d.get("signature_name"))
+        put(ws,f"B{51+extra+inactive_extra}",d.get("rate_text"))
+        put(ws,f"S{51+extra+inactive_extra}",d.get("formula_note"))
+        put(ws,f"AJ{53+extra+inactive_extra}",d.get("signature_name"))
 
 def fill_003(ws,d):
     put(ws,"C5",d.get("quotation_no"));put(ws,"H5",d.get("formula_no"));put(ws,"C7",d.get("customer_name"));put(ws,"H7",d.get("receipt_no"))
