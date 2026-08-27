@@ -21,13 +21,18 @@ class FormSave(BaseModel):
     record_no:str
     status:str="DRAFT"
     data:dict
+    # F-RD-002 only: which month ("YYYY-MM") the user chose to file this
+    # record under. F-RD-002.1 only: which person's name the user chose to
+    # file it under. Both optional, both user-selected at save time.
+    filed_month:str|None=None
+    filed_person_name:str|None=None
 
 
 def require_person_key(
     x_person_key: str | None = Header(default=None, alias="X-Person-Key")
 ):
     if not x_person_key:
-        raise HTTPException(401, "กรุณาเลือกคนที่ 1-4 และใส่รหัสก่อน")
+        raise HTTPException(401, "เซสชันหมดอายุ กรุณาล็อกอินใหม่")
     return x_person_key.strip().upper()
 
 
@@ -104,7 +109,9 @@ def save(
         payload_json=json.dumps(p.data, ensure_ascii=False, default=str),
         created_by=u.id,
         workspace_user_id=None,
-        owner_person_key=person_key
+        owner_person_key=person_key,
+        filed_month=(p.filed_month.strip() or None) if code == "F-RD-002" and p.filed_month else None,
+        filed_person_name=(p.filed_person_name.strip() or None) if code == "F-RD-002.1" and p.filed_person_name else None,
     )
     try:
         db.add(x)
@@ -211,17 +218,32 @@ def formula_link_for_qp(
 @router.get("/{code}")
 def list_records(
     code: str,
+    month: str | None = None,
+    person_name: str | None = None,
     db: Session = Depends(get_db),
     u=Depends(get_current_user),
     person_key: str = Depends(require_person_key),
 ):
+    """List this person's own records for a form.
+
+    F-RD-002 records can optionally be filtered by `month` (the "YYYY-MM"
+    they were filed under); F-RD-002.1 records can optionally be filtered by
+    `person_name` (the name they were filed under) -- both independent of
+    who is actually logged in.
+    """
+    conditions = [
+        SourceFormRecord.form_code == code,
+        SourceFormRecord.created_by == u.id,
+        SourceFormRecord.owner_person_key == person_key,
+    ]
+    if code == "F-RD-002" and month:
+        conditions.append(SourceFormRecord.filed_month == month)
+    if code == "F-RD-002.1" and person_name:
+        conditions.append(SourceFormRecord.filed_person_name == person_name)
+
     rows = db.scalars(
         select(SourceFormRecord)
-        .where(
-            SourceFormRecord.form_code == code,
-            SourceFormRecord.created_by == u.id,
-            SourceFormRecord.owner_person_key == person_key
-        )
+        .where(*conditions)
         .order_by(SourceFormRecord.id.desc())
     ).all()
     return [{
@@ -230,7 +252,9 @@ def list_records(
         "status": x.status,
         "data": json.loads(x.payload_json or "{}"),
         "created_at": x.created_at,
-        "owner": u.full_name
+        "owner": u.full_name,
+        "filed_month": x.filed_month,
+        "filed_person_name": x.filed_person_name,
     } for x in rows]
 
 @router.get("/record/{record_id}")
@@ -248,7 +272,9 @@ def get_record(
         "form_code": x.form_code,
         "record_no": x.record_no,
         "status": x.status,
-        "data": json.loads(x.payload_json or "{}")
+        "data": json.loads(x.payload_json or "{}"),
+        "filed_month": x.filed_month,
+        "filed_person_name": x.filed_person_name,
     }
 
 
@@ -271,6 +297,10 @@ def update_record(
     x.status = p.status
     x.owner_person_key = person_key
     x.payload_json = json.dumps(p.data, ensure_ascii=False, default=str)
+    if x.form_code == "F-RD-002" and p.filed_month is not None:
+        x.filed_month = p.filed_month.strip() or None
+    if x.form_code == "F-RD-002.1" and p.filed_person_name is not None:
+        x.filed_person_name = p.filed_person_name.strip() or None
 
     # F-RD-001 always updates/syncs Customer master data.
     if x.form_code == "F-RD-001":

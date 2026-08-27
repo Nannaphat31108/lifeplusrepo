@@ -189,6 +189,19 @@ def users(db: Session = Depends(get_db), u=Depends(require_roles("ADMIN"))):
     } for x in db.scalars(select(User).order_by(User.id)).all()]
 
 
+@router.get("/employees")
+def employees(db: Session = Depends(get_db), u=Depends(get_current_user)):
+    """Minimal employee list (name + department only) for any logged-in
+    user -- used to populate a "file this record under" picker (e.g. F-RD-002.1
+    production formula), not for account management (see /users for that,
+    ADMIN only)."""
+    return [{
+        "full_name": x.full_name, "department": x.department
+    } for x in db.scalars(
+        select(User).where(User.is_active == True).order_by(User.full_name)
+    ).all()]
+
+
 @router.get("/audit")
 def audit(db: Session = Depends(get_db), u=Depends(require_roles("ADMIN", "RD_HEAD"))):
     rows = db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(200)).all()

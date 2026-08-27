@@ -244,6 +244,14 @@ def ensure_source_form_owner_schema():
                 conn.execute(text(
                     "ALTER TABLE source_form_records ADD COLUMN owner_person_key VARCHAR(40)"
                 ))
+            if "filed_month" not in cols:
+                conn.execute(text(
+                    "ALTER TABLE source_form_records ADD COLUMN filed_month VARCHAR(7)"
+                ))
+            if "filed_person_name" not in cols:
+                conn.execute(text(
+                    "ALTER TABLE source_form_records ADD COLUMN filed_person_name VARCHAR(120)"
+                ))
 
         elif engine.dialect.name == "postgresql":
             conn.execute(text(
@@ -253,6 +261,14 @@ def ensure_source_form_owner_schema():
             conn.execute(text(
                 "ALTER TABLE source_form_records "
                 "ADD COLUMN IF NOT EXISTS owner_person_key VARCHAR(40)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE source_form_records "
+                "ADD COLUMN IF NOT EXISTS filed_month VARCHAR(7)"
+            ))
+            conn.execute(text(
+                "ALTER TABLE source_form_records "
+                "ADD COLUMN IF NOT EXISTS filed_person_name VARCHAR(120)"
             ))
 
 ensure_source_form_owner_schema()
