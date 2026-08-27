@@ -1,8 +1,11 @@
+import base64
+import io
 import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -15,6 +18,8 @@ router = APIRouter(prefix="/api/packaging", tags=["Packaging Database"])
 
 MARKUP = 1.20  # ราคาจริง = ต้นทุน + 20%
 CATALOG_FILE = Path(__file__).resolve().parents[1] / "static" / "package_catalog.json"
+MAX_IMAGE_DIMENSION = 900  # px, longest side after resize
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB raw upload cap, before resize/compress
 
 
 def _sell_price(cost) -> Optional[float]:
@@ -81,6 +86,10 @@ def serialize(x: PackagingItem) -> dict:
         "packing": x.packing or "",
         "tiers": _serialize_tiers(x.tiers_json),
         "is_active": x.is_active,
+        # Image bytes are never inlined into the list payload (they're
+        # already resized/compressed but still too big for a list of
+        # hundreds of rows) — the browser fetches them lazily via <img src>.
+        "image_url": f"/api/packaging/{x.id}/image" if x.image_data else "",
     }
 
 
@@ -179,6 +188,67 @@ def delete_packaging(
     if not x:
         raise HTTPException(404, "Packaging item not found")
     x.is_active = False
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/{item_id}/image")
+async def upload_packaging_image(
+    item_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("ADMIN", "PURCHASE")),
+):
+    x = db.get(PackagingItem, item_id)
+    if not x:
+        raise HTTPException(404, "Packaging item not found")
+
+    raw = await file.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(400, "ไฟล์รูปใหญ่เกินไป (จำกัด 8MB)")
+
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(raw))
+        img = img.convert("RGB")
+        img.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=82)
+        encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+        mime = "image/jpeg"
+    except Exception as e:
+        raise HTTPException(400, f"ไฟล์นี้ไม่ใช่รูปภาพที่ใช้ได้: {type(e).__name__}: {e}")
+
+    x.image_data = encoded
+    x.image_mime = mime
+    db.commit()
+    return {"ok": True, "image_url": f"/api/packaging/{x.id}/image"}
+
+
+@router.get("/{item_id}/image")
+def get_packaging_image(item_id: int, db: Session = Depends(get_db)):
+    # Deliberately not behind get_current_user: a plain <img src="..."> tag
+    # can't attach an Authorization header, and these are just packaging
+    # product photos (not sensitive), matching how FDAMaterial.image_url
+    # already links out to unauthenticated external images.
+    x = db.get(PackagingItem, item_id)
+    if not x or not x.image_data:
+        raise HTTPException(404, "No image for this packaging item")
+    raw = base64.b64decode(x.image_data)
+    return Response(content=raw, media_type=x.image_mime or "image/jpeg")
+
+
+@router.delete("/{item_id}/image")
+def delete_packaging_image(
+    item_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("ADMIN", "PURCHASE")),
+):
+    x = db.get(PackagingItem, item_id)
+    if not x:
+        raise HTTPException(404, "Packaging item not found")
+    x.image_data = None
+    x.image_mime = None
     db.commit()
     return {"ok": True}
 

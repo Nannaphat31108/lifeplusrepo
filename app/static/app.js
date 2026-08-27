@@ -1140,8 +1140,8 @@ async function openPackageDatabase(){
 }
 function renderPackageDatabase(rows){
   const canManage=["ADMIN","PURCHASE"].includes(me?.role);
-  const out=(rows||[]).map(x=>`<tr><td>${esc(x.category||"")}</td><td>${esc(x.spec||"")}</td><td>${esc(x.official_name||"")}</td><td>${esc(x.rate??"")}</td><td>${x.price??""}</td><td>${esc(x.lead_time??"")}</td><td>${esc(x.packing??"")}</td><td>${esc(x.supplier??"")}</td>${canManage?`<td class="mini-actions"><button onclick="openPackageItemEditor(${x.id})">แก้ไข</button><button onclick="deletePackageItem(${x.id})">ลบ</button></td>`:""}</tr>`);
-  const headers=["ประเภท","สเปค","ชื่อทางการ","เรท","ราคา (ต้นทุน+20%)","ระยะเวลา","การบรรจุ","Supplier"];
+  const out=(rows||[]).map(x=>`<tr><td>${x.image_url?`<img class="pkg-thumb" src="${esc(x.image_url)}" alt="${esc(x.spec||"")}">`:'<span class="muted">ไม่มีรูป</span>'}</td><td>${esc(x.category||"")}</td><td>${esc(x.spec||"")}</td><td>${esc(x.official_name||"")}</td><td>${esc(x.rate??"")}</td><td>${x.price??""}</td><td>${esc(x.lead_time??"")}</td><td>${esc(x.packing??"")}</td><td>${esc(x.supplier??"")}</td>${canManage?`<td class="mini-actions"><button onclick="openPackageItemEditor(${x.id})">แก้ไข</button><button onclick="deletePackageItem(${x.id})">ลบ</button></td>`:""}</tr>`);
+  const headers=["รูป","ประเภท","สเปค","ชื่อทางการ","เรท","ราคา (ต้นทุน+20%)","ระยะเวลา","การบรรจุ","Supplier"];
   if(canManage)headers.push("จัดการ");
   const box=document.getElementById("packageDbTable");
   if(box)box.innerHTML=table(headers,out);
@@ -1170,6 +1170,11 @@ function openPackageItemEditor(id=null){
         <div class="fda-field"><label>ระยะเวลา</label><input id="pkg_lead_time" value="${esc(d.lead_time||"")}"></div>
         <div class="fda-field"><label>การบรรจุ</label><input id="pkg_packing" value="${esc(d.packing||"")}"></div>
         <div class="fda-field"><label>Supplier</label><input id="pkg_supplier" value="${esc(d.supplier||"")}"></div>
+        <div class="fda-field">
+          <label>รูปภาพ</label>
+          <input id="pkg_image_file" type="file" accept="image/*">
+          ${d.image_url?`<img class="pkg-thumb" id="pkg_image_preview" src="${esc(d.image_url)}" alt="">`:""}
+        </div>
       </div>
       <div class="actions">
         <button class="primary" onclick="savePackageItem()">บันทึก</button>
@@ -1182,6 +1187,19 @@ function closePackageItemEditor(){
   packageDbEditingId=null;
   const box=document.getElementById("packageDbEditor");
   if(box)box.innerHTML="";
+}
+async function uploadPackagingImage(id,file){
+  const fd=new FormData();
+  fd.append("file",file);
+  const headers={};
+  if(token)headers.Authorization="Bearer "+token;
+  const r=await fetch(`/api/packaging/${id}/image`,{method:"POST",headers,body:fd});
+  if(!r.ok){
+    let msg=`HTTP ${r.status}`;
+    try{const d=await r.json();msg=d?.detail||msg;}catch{}
+    throw new Error(msg);
+  }
+  return r.json();
 }
 async function savePackageItem(){
   const val=id=>document.getElementById(id)?.value?.trim()||"";
@@ -1198,10 +1216,16 @@ async function savePackageItem(){
     supplier:val("pkg_supplier")||null,
   };
   try{
+    let saved;
     if(packageDbEditingId){
-      await api(`/api/packaging/${packageDbEditingId}`,{method:"PUT",body:payload});
+      saved=await api(`/api/packaging/${packageDbEditingId}`,{method:"PUT",body:payload});
     }else{
-      await api("/api/packaging",{method:"POST",body:payload});
+      saved=await api("/api/packaging",{method:"POST",body:payload});
+    }
+    const file=document.getElementById("pkg_image_file")?.files?.[0];
+    if(file){
+      try{ await uploadPackagingImage(saved.id,file); }
+      catch(e){ toast("บันทึกข้อมูลสำเร็จ แต่อัปโหลดรูปไม่สำเร็จ: "+(e?.message||e)); }
     }
     toast("บันทึก Package สำเร็จ");
     closePackageItemEditor();
@@ -1918,12 +1942,14 @@ function fdaDbFields(){
     ["supplier_category","หมวด Supplier"],
     ["product_name","Product name"],
     ["supplier_company","บริษัท Supplier"],
+    ["supplier_code","รหัส Supplier"],
     ["coa","COA"],
     ["fda_number","FDA NUMBER"],
     ["registered_name","ชื่อขึ้นทะเบียนของสาร"],
     ["origin_country","ประเทศที่มา"],
     ["price_per_kg","ราคา / กก."],
     ["halal","Halal"],
+    ["purity","PURITY"],
     ["assay","สารสำคัญ ASSAY"],
     ["ratio","อัตราส่วน"],
     ["percentage","เปอร์เซ็น %"],
@@ -1945,32 +1971,44 @@ async function importFDAMasterNow(){
 }
 
 let fdaDbCategory="";
+let fdaDbCategoryPanelOpen=false;
 async function openFDADatabase(){
   fdaDbEditingId=null;
   fdaDbCategory="";
+  fdaDbCategoryPanelOpen=false;
   $("pageTitle").textContent="PURCHASE — FDA + รหัสสาร Database";
   $("pageSubtitle").textContent="ฐานข้อมูลกลาง FDA และรหัสสาร • จัดการโดย PURCHASE • R&D ใช้ฐานเดียวกันในการค้นหา";
   $("pageContent").innerHTML=`
     <div class="card fda-db-card">
       <div class="toolbar">
-        <input id="fdaDbSearch" placeholder="ค้นหา รหัสสาร / Product / ชื่อขึ้นทะเบียน / Supplier / FDA NUMBER" oninput="fdaDbDebouncedSearch()">
+        <input id="fdaDbSearchCode" placeholder="ค้นหาด้วยรหัสสาร เช่น A0001" oninput="fdaDbDebouncedSearch()">
+        <input id="fdaDbSearchName" placeholder="ค้นหาด้วยชื่อสาร / ชื่อขึ้นทะเบียน" oninput="fdaDbDebouncedSearch()">
         <div class="actions">
+          <button id="fdaCategoryToggleBtn" onclick="toggleFDACategoryPanel()">เลือกหมวดหมู่ ▾</button>
           <button class="primary" onclick="openFDAMaterialEditor()">+ เพิ่มข้อมูล</button>
           <button onclick="loadFDADatabase()">รีเฟรช</button>
           <button onclick="importFDAMasterNow()">นำเข้า FDA Master</button>
         </div>
       </div>
-      <div id="fdaDbCategoryTabs" class="fda-category-tabs"></div>
+      <div id="fdaDbCategoryTabs" class="fda-category-tabs hidden"></div>
       <div id="fdaDbEditor"></div>
       <div id="fdaDbTable"><div class="muted">กำลังโหลดฐานข้อมูล...</div></div>
     </div>`;
-  loadFDACategoryTabs();
   await loadFDADatabase();
+}
+
+function toggleFDACategoryPanel(){
+  fdaDbCategoryPanelOpen=!fdaDbCategoryPanelOpen;
+  loadFDACategoryTabs();
 }
 
 async function loadFDACategoryTabs(){
   const box=document.getElementById("fdaDbCategoryTabs");
+  const btn=document.getElementById("fdaCategoryToggleBtn");
   if(!box)return;
+  box.classList.toggle("hidden",!fdaDbCategoryPanelOpen);
+  if(btn)btn.textContent=fdaDbCategory?`หมวด: ${fdaDbCategory} ▾`:"เลือกหมวดหมู่ ▾";
+  if(!fdaDbCategoryPanelOpen)return;
   try{
     const cats=await api("/api/fda-materials/categories");
     const tab=(label,value)=>`<button class="fda-cat-tab${fdaDbCategory===value?" active":""}" onclick="selectFDACategory('${esc(value)}')">${esc(label)}</button>`;
@@ -1979,6 +2017,7 @@ async function loadFDACategoryTabs(){
 }
 function selectFDACategory(category){
   fdaDbCategory=category;
+  fdaDbCategoryPanelOpen=false;
   loadFDACategoryTabs();
   loadFDADatabase();
 }
@@ -1991,20 +2030,23 @@ function fdaDbDebouncedSearch(){
 
 async function loadFDADatabase(){
   try{
-    const q=document.getElementById("fdaDbSearch")?.value||"";
-    const rows=await api(`/api/fda-materials?q=${encodeURIComponent(q)}&category=${encodeURIComponent(fdaDbCategory)}&limit=1000`);
-    const headers=["รหัสสาร","หมวด Supplier","Product name","ชื่อขึ้นทะเบียนของสาร","บริษัท Supplier","ประเทศที่มา","ราคา/กก.","Halal","COA","FDA NUMBER","ASSAY","อัตราส่วน","เปอร์เซ็น %","หมายเหตุ","รูป","จัดการ"];
+    const code=document.getElementById("fdaDbSearchCode")?.value||"";
+    const name=document.getElementById("fdaDbSearchName")?.value||"";
+    const rows=await api(`/api/fda-materials?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}&category=${encodeURIComponent(fdaDbCategory)}&limit=1000`);
+    const headers=["รหัสสาร","หมวด Supplier","Product name","ชื่อขึ้นทะเบียนของสาร","บริษัท Supplier","รหัส Supplier","ประเทศที่มา","ราคา/กก.","Halal","COA","FDA NUMBER","PURITY","ASSAY","อัตราส่วน","เปอร์เซ็น %","หมายเหตุ","รูป","จัดการ"];
     const tr=rows.map(x=>`<tr>
       <td><b>${esc(x.material_code)}</b></td>
       <td>${esc(x.supplier_category)}</td>
       <td>${esc(x.product_name)}</td>
       <td>${esc(x.registered_name)}</td>
       <td>${esc(x.supplier_company)}</td>
+      <td>${esc(x.supplier_code)}</td>
       <td>${esc(x.origin_country)}</td>
       <td>${esc(x.price_per_kg)}</td>
       <td>${esc(x.halal)}</td>
       <td>${esc(x.coa)}</td>
       <td>${esc(x.fda_number)}</td>
+      <td>${esc(x.purity)}</td>
       <td>${esc(x.assay)}</td>
       <td>${esc(x.ratio)}</td>
       <td>${esc(x.percentage)}</td>
@@ -2025,19 +2067,23 @@ async function openFDAMaterialEditor(id=null){
   fdaDbEditingId=id;
   let d={};
   if(id)d=await api(`/api/fda-materials/${id}`);
+  let suppliers=[];
+  try{suppliers=await api("/api/suppliers");}catch{}
   const fields=fdaDbFields().map(([key,label])=>`
     <div class="fda-field ${key==="note"||key==="coa"?"wide":""}">
       <label>${label}</label>
       ${key==="note"||key==="coa"
         ? `<textarea id="fda_${key}">${esc(d[key]||"")}</textarea>`
-        : `<input id="fda_${key}" value="${esc(d[key]||"")}" placeholder="ใส่ข้อมูล">`}
+        : `<input id="fda_${key}" value="${esc(d[key]||"")}" placeholder="ใส่ข้อมูล" ${key==="supplier_code"?'list="fdaSupplierCodeList"':""}>`}
     </div>`).join("");
   $("fdaDbEditor").innerHTML=`
     <div class="fda-editor">
       <div class="fda-editor-title">${id?"แก้ไข FDA / รหัสสาร":"เพิ่ม FDA / รหัสสารใหม่"}</div>
       <div class="fda-editor-grid">${fields}</div>
+      <datalist id="fdaSupplierCodeList">${suppliers.map(s=>`<option value="${esc(s.supplier_code)}">${esc(s.name)}</option>`).join("")}</datalist>
       <div class="actions">
         <button class="primary" onclick="saveFDAMaterial()">บันทึกข้อมูล</button>
+        <button onclick="openSupplierCodeManager()">จัดการรหัส Supplier</button>
         <button onclick="closeFDAEditor()">ยกเลิก</button>
       </div>
     </div>`;
@@ -2047,6 +2093,64 @@ async function openFDAMaterialEditor(id=null){
 function closeFDAEditor(){
   fdaDbEditingId=null;
   if($("fdaDbEditor"))$("fdaDbEditor").innerHTML="";
+}
+
+async function openSupplierCodeManager(){
+  openModal("จัดการรหัส Supplier","กำลังโหลด...");
+  await renderSupplierCodeManager();
+}
+async function renderSupplierCodeManager(){
+  let suppliers=[];
+  try{suppliers=await api("/api/suppliers");}catch(e){$("modalBody").innerHTML=`<div class="error">โหลดไม่สำเร็จ: ${esc(e?.message||e)}</div>`;return;}
+  const trRows=suppliers.map(s=>`<tr>
+    <td><input id="sup_code_${s.id}" value="${esc(s.supplier_code)}" style="width:110px"></td>
+    <td><input id="sup_name_${s.id}" value="${esc(s.name)}"></td>
+    <td><input id="sup_country_${s.id}" value="${esc(s.country||"")}" style="width:110px"></td>
+    <td class="mini-actions">
+      <button onclick="saveSupplierCode(${s.id})">บันทึก</button>
+      <button onclick="deleteSupplierCode(${s.id})">ลบ</button>
+    </td>
+  </tr>`);
+  $("modalBody").innerHTML=`
+    <div class="fda-editor-title">เพิ่มรหัส Supplier ใหม่</div>
+    <div class="fda-editor-grid">
+      <div class="fda-field"><label>รหัส Supplier</label><input id="newSupCode" placeholder="เช่น SUP-001"></div>
+      <div class="fda-field"><label>ชื่อ Supplier</label><input id="newSupName"></div>
+      <div class="fda-field"><label>ประเทศ</label><input id="newSupCountry"></div>
+    </div>
+    <div class="actions"><button class="primary" onclick="addSupplierCode()">+ เพิ่ม Supplier</button></div>
+    <div style="margin-top:14px">${table(["รหัส Supplier","ชื่อ","ประเทศ","จัดการ"],trRows)}</div>
+  `;
+}
+async function addSupplierCode(){
+  const supplier_code=$("newSupCode")?.value?.trim();
+  const name=$("newSupName")?.value?.trim();
+  const country=$("newSupCountry")?.value?.trim()||null;
+  if(!supplier_code||!name){toast("กรอกรหัสและชื่อ Supplier ก่อน");return;}
+  try{
+    await api("/api/suppliers",{method:"POST",body:{supplier_code,name,country}});
+    toast("เพิ่ม Supplier แล้ว");
+    await renderSupplierCodeManager();
+  }catch(e){toast("เพิ่มไม่สำเร็จ: "+(e?.message||e));}
+}
+async function saveSupplierCode(id){
+  const supplier_code=$(`sup_code_${id}`)?.value?.trim();
+  const name=$(`sup_name_${id}`)?.value?.trim();
+  const country=$(`sup_country_${id}`)?.value?.trim()||null;
+  if(!supplier_code||!name){toast("กรอกรหัสและชื่อ Supplier ก่อน");return;}
+  try{
+    await api(`/api/suppliers/${id}`,{method:"PUT",body:{supplier_code,name,country}});
+    toast("บันทึกแล้ว");
+    await renderSupplierCodeManager();
+  }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+async function deleteSupplierCode(id){
+  if(!confirm("ลบ Supplier นี้?"))return;
+  try{
+    await api(`/api/suppliers/${id}`,{method:"DELETE"});
+    toast("ลบแล้ว");
+    await renderSupplierCodeManager();
+  }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
 }
 
 async function saveFDAMaterial(){
@@ -2118,17 +2222,17 @@ async function enterDepartmentUnlocked(code){
 function backToDepartments(){currentDepartment=null;localStorage.removeItem("department");window.formWorkspace=null;window.departmentAccessSession={};$("appShell").classList.add("hidden");$("departmentPortal").classList.remove("hidden");renderDepartmentPortal();}
 async function openDepartmentWorkspace(code){
  const configs={
- RD:{title:"R&D",text:"จัดการสูตร สูตรผลิต Tester และ Rate",cards:[["Package Database","ค้นหา Package จากแคตตาล็อก","openPackageDatabase()"],["F-RD-002 สูตร","แบบฟอร์มสูตร R&D","openExactForm('F-RD-002')"],["F-RD-002.1 สูตรผลิต","สูตรสำหรับผลิตจริง","openExactForm('F-RD-002.1')"],["F-RD-003 Tester","ขอทำสินค้าทดลอง","openExactForm('F-RD-003')"],["F-RD-004 Rate","ขอเรทราคา","openExactForm('F-RD-004')"]]},
+ RD:{title:"R&D",text:"จัดการสูตร สูตรผลิต Tester และ Rate",cards:[["F-RD-002 สูตร","แบบฟอร์มสูตร R&D","openExactForm('F-RD-002')"],["F-RD-002.1 สูตรผลิต","สูตรสำหรับผลิตจริง","openExactForm('F-RD-002.1')"],["F-RD-003 Tester","ขอทำสินค้าทดลอง","openExactForm('F-RD-003')"],["F-RD-004 Rate","ขอเรทราคา","openExactForm('F-RD-004')"]]},
  SALE:{title:"SALE",text:"รับความต้องการลูกค้าและส่งต่อ R&D",cards:[["F-RD-001 Customer Requirement","รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","openExactForm('F-RD-001')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"],["Product Development","ติดตามโครงการลูกค้า","openPage('projects')"]]},
- ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Package Database","ค้นหา Package จากแคตตาล็อก","openPackageDatabase()"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
+ ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
  PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
  STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"]]},
- PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"]]},
+ PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"]]},
  PRODUCTION:{title:"PRODUCTION",text:"สูตรผลิตและคำสั่งผลิต",cards:[["สูตรผลิต","F-RD-002.1","openExactForm('F-RD-002.1')"],["Production / MRP","คำสั่งผลิต","openPage('production')"]]},
  QUALITY:{title:"QUALITY",text:"ระบบคุณภาพ เอกสาร และการขึ้นทะเบียน",cards:[["Registration / FDA","สูตรขึ้นทะเบียน","openPage('registration')"],["Quality Data","ให้ใส่ Data สำหรับ QUALITY","openDepartmentPlaceholder('QUALITY')"]]},
  QC:{title:"QC",text:"ตรวจสอบคุณภาพสินค้า",cards:[["QC Data","ให้ใส่ Data สำหรับ QC","openDepartmentPlaceholder('QC')"]]},
  JOB:{title:"JOB",text:"พื้นที่จัดการงาน",cards:[["JOB Data","ให้ใส่ Data สำหรับ JOB","openDepartmentPlaceholder('JOB')"]]},
- GRAPHIC:{title:"GRAPHIC",text:"พื้นที่งานออกแบบ",cards:[["Package Database","ค้นหา Package จากแคตตาล็อก","openPackageDatabase()"],["GRAPHIC Data","ให้ใส่ Data สำหรับ GRAPHIC","openDepartmentPlaceholder('GRAPHIC')"]]}
+ GRAPHIC:{title:"GRAPHIC",text:"พื้นที่งานออกแบบ",cards:[["GRAPHIC Data","ให้ใส่ Data สำหรับ GRAPHIC","openDepartmentPlaceholder('GRAPHIC')"]]}
  };
  const c=configs[code]||{title:code,text:"พื้นที่ทำงาน",cards:[[`${code} Data`,`ให้ใส่ Data สำหรับ ${code}`,`openDepartmentPlaceholder('${code}')`]]};
  $("pageTitle").textContent=c.title;$("pageSubtitle").textContent=c.text;$("pageContent").innerHTML=`<div class="department-workspace-grid">${c.cards.map(x=>`<button class="workspace-feature-card" onclick="${x[2]}"><b>${x[0]}</b><span>${x[1]}</span><i>→</i></button>`).join("")}</div>`;

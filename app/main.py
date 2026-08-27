@@ -24,6 +24,8 @@ def ensure_fda_material_schema():
         "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS origin_country TEXT",
         "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS price_per_kg TEXT",
         "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS halal TEXT",
+        "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS supplier_code TEXT",
+        "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS purity TEXT",
         "ALTER TABLE fda_materials ALTER COLUMN registered_name TYPE TEXT",
         "ALTER TABLE fda_materials ALTER COLUMN assay TYPE TEXT",
         "ALTER TABLE fda_materials ALTER COLUMN ratio TYPE TEXT",
@@ -41,7 +43,7 @@ def ensure_fda_material_schema():
                 print("[FDA SCHEMA] PostgreSQL FDA text columns expanded")
             elif dialect=="sqlite":
                 cols={r[1] for r in conn.execute(text("PRAGMA table_info(fda_materials)")).fetchall()}
-                for name in ("origin_country","price_per_kg","halal"):
+                for name in ("origin_country","price_per_kg","halal","supplier_code","purity"):
                     if name not in cols:
                         conn.execute(text(f"ALTER TABLE fda_materials ADD COLUMN {name} TEXT"))
                 print("[FDA SCHEMA] SQLite unified FDA/material columns ensured")
@@ -75,6 +77,34 @@ def ensure_customer_address_column():
         print(f"[CUSTOMER SCHEMA] Warning: {type(e).__name__}: {e}")
 
 ensure_customer_address_column()
+
+
+def ensure_packaging_image_columns():
+    """Add packaging_items.image_data/image_mime for existing databases
+    created before packaging images were supported."""
+    from sqlalchemy import text
+    from app.db.session import engine
+
+    try:
+        with engine.begin() as conn:
+            dialect = conn.dialect.name
+            if dialect == "postgresql":
+                conn.execute(text("ALTER TABLE packaging_items ADD COLUMN IF NOT EXISTS image_data TEXT"))
+                conn.execute(text("ALTER TABLE packaging_items ADD COLUMN IF NOT EXISTS image_mime VARCHAR(60)"))
+                print("[PACKAGING SCHEMA] PostgreSQL image columns ensured")
+            elif dialect == "sqlite":
+                cols = {r[1] for r in conn.execute(text("PRAGMA table_info(packaging_items)")).fetchall()}
+                if "image_data" not in cols:
+                    conn.execute(text("ALTER TABLE packaging_items ADD COLUMN image_data TEXT"))
+                if "image_mime" not in cols:
+                    conn.execute(text("ALTER TABLE packaging_items ADD COLUMN image_mime VARCHAR(60)"))
+                print("[PACKAGING SCHEMA] SQLite image columns ensured")
+            else:
+                print(f"[PACKAGING SCHEMA] No migration needed for {dialect}")
+    except Exception as e:
+        print(f"[PACKAGING SCHEMA] Warning: {type(e).__name__}: {e}")
+
+ensure_packaging_image_columns()
 
 
 def ensure_packaging_database():

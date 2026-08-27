@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,6 +12,16 @@ from app.db.session import get_db
 from app.core.security import get_current_user
 from app.models.entities import FDAMaterial
 
+
+def _natural_code_key(code: str):
+    """Sort key so A0002 < A0010 < A0100 (numeric, not lexicographic) while
+    still grouping by letter prefix: A0001, A0002, ..., B0001, ...
+    """
+    raw = str(code or "").strip().upper()
+    m = re.match(r"^([A-Z]*)0*(\d+)(.*)$", raw)
+    if m:
+        return (m.group(1), int(m.group(2)), m.group(3))
+    return (raw, -1, "")
 
 
 def normalize_material_code(value: str) -> str:
@@ -37,12 +48,14 @@ class FDAMaterialPayload(BaseModel):
     supplier_category: Optional[str] = None
     product_name: Optional[str] = None
     supplier_company: Optional[str] = None
+    supplier_code: Optional[str] = None
     coa: Optional[str] = None
     fda_number: Optional[str] = None
     registered_name: Optional[str] = None
     origin_country: Optional[str] = None
     price_per_kg: Optional[str] = None
     halal: Optional[str] = None
+    purity: Optional[str] = None
     assay: Optional[str] = None
     ratio: Optional[str] = None
     percentage: Optional[str] = None
@@ -57,12 +70,14 @@ def serialize(x: FDAMaterial):
         "supplier_category":x.supplier_category or "",
         "product_name":x.product_name or "",
         "supplier_company":x.supplier_company or "",
+        "supplier_code":x.supplier_code or "",
         "coa":x.coa or "",
         "fda_number":x.fda_number or "",
         "registered_name":x.registered_name or "",
         "origin_country":x.origin_country or "",
         "price_per_kg":x.price_per_kg or "",
         "halal":x.halal or "",
+        "purity":x.purity or "",
         "assay":x.assay or "",
         "ratio":x.ratio or "",
         "percentage":x.percentage or "",
@@ -76,6 +91,8 @@ def serialize(x: FDAMaterial):
 @router.get("")
 def list_fda_materials(
     q: str = Query(default=""),
+    code: str = Query(default=""),
+    name: str = Query(default=""),
     category: str = Query(default=""),
     limit: int = Query(default=300,ge=1,le=3000),
     db: Session = Depends(get_db),
@@ -93,11 +110,26 @@ def list_fda_materials(
             FDAMaterial.registered_name.ilike(like),
             FDAMaterial.origin_country.ilike(like),
         ))
+    # Separate code/name search boxes, usable together or on their own.
+    code_term=(code or "").strip()
+    if code_term:
+        query=query.filter(FDAMaterial.material_code.ilike(f"%{code_term}%"))
+    name_term=(name or "").strip()
+    if name_term:
+        like=f"%{name_term}%"
+        query=query.filter(or_(
+            FDAMaterial.product_name.ilike(like),
+            FDAMaterial.registered_name.ilike(like),
+        ))
     cat=(category or "").strip()
     if cat:
         query=query.filter(FDAMaterial.supplier_category.ilike(cat))
-    rows=query.order_by(FDAMaterial.material_code.asc()).limit(limit).all()
-    return [serialize(x) for x in rows]
+    # Natural (numeric) sort so A0002 < A0010 < A0100 — plain string sort
+    # would put A0100 before A0002. Fetch matching rows unsorted from the DB
+    # and sort in Python; the FDA table tops out around a few thousand rows.
+    rows=query.limit(max(limit,3000)).all()
+    rows.sort(key=lambda x: _natural_code_key(x.material_code))
+    return [serialize(x) for x in rows[:limit]]
 
 
 @router.get("/categories")

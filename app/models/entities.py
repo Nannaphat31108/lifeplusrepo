@@ -276,12 +276,14 @@ class FDAMaterial(Base, TimestampMixin):
     supplier_category: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     product_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     supplier_company: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    supplier_code: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
     coa: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     fda_number: Mapped[Optional[str]] = mapped_column(Text, nullable=True, index=True)
     registered_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     origin_country: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     price_per_kg: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     halal: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    purity: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     assay: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ratio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     percentage: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -309,6 +311,12 @@ class PackagingItem(Base, TimestampMixin):
     tiers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     source_row: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Image stored as base64 in the DB rather than on local disk: this app's
+    # Render deployment has no declared persistent disk, so anything saved
+    # to the filesystem would vanish on the next deploy. Kept small via the
+    # resize/compress step in app/api/packaging.py before it's ever stored.
+    image_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    image_mime: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
 
 
 class AuditLog(Base):

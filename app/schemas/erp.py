@@ -15,6 +15,11 @@ class SupplierCreate(BaseModel):
     name: str
     country: Optional[str] = None
 
+class SupplierUpdate(BaseModel):
+    supplier_code: str
+    name: str
+    country: Optional[str] = None
+
 class MaterialCreate(BaseModel):
     material_code: str
     trade_name: str
