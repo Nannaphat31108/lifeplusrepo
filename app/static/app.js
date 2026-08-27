@@ -1060,6 +1060,45 @@ function renderExtraIngredientExcelRow(code,form,index){
   return html+"</tr>";
 }
 
+function renderExtraInactiveIngredientExcelRow(code,form,index){
+  const templateRow=39;
+  const mergeTL={},covered=new Set();
+
+  for(const mg of form.merges||[]){
+    if(mg.r1===templateRow && mg.r2===templateRow){
+      mergeTL[mg.c1]=mg;
+      for(let c=mg.c1+1;c<=mg.c2;c++)covered.add(c);
+    }
+  }
+
+  let html=`<tr class="dynamic-excel-ingredient" data-dynamic-index="${index}" style="height:${Number(form.heights?.[templateRow]||15)*1.33}px">`;
+
+  for(let c=1;c<=form.maxCol;c++){
+    if(covered.has(c))continue;
+
+    const addr=xlAddr(templateRow,c);
+    const ce=form.cells[addr]||{};
+    const mg=mergeTL[c];
+    // Column AI (35) is "row cost" for extra rows: the original 3 template rows
+    // use a real master address (AI39/AI40/AI41, via FORMULA_AUTO_CELLS) instead,
+    // so it is not part of inactiveIngredientCellField's own row-39-41 mapping.
+    const field=inactiveIngredientCellField(code,xlAddr(templateRow,c))
+      || (c===35 ? {group:"inactive_ingredients",sub:"row_cost",type:"number_auto"} : null);
+    const indexedField=field?{...field,index}:null;
+
+    let content="";
+    if(c===2){
+      content=`<span class="excel-cell-text">${index+1}</span>`;
+    }else if(indexedField){
+      content=exactInput(indexedField,`DYN-INACTIVE-${code}-${index}-${c}`,"");
+    }
+
+    html+=`<td ${mg?`colspan="${mg.c2-mg.c1+1}"`:""} style="${cellStyle(ce)}">${content}</td>`;
+  }
+
+  return html+"</tr>";
+}
+
 
 let adminQPFormulaNo="";
 function qpExactEl(i,sub){return document.querySelector(`.excel-input[data-group="qp_ingredients"][data-index="${i}"][data-sub="${sub}"]`)}
@@ -1335,6 +1374,11 @@ async function openPrivateExactForm(code){
     if(cap && r>=16 && r<=formulaIngredientEndRow(code) && r>=16+Math.min(selected,cap)){
       continue;
     }
+    // F-RD-002 only: same "hide unused" treatment for the Inactive Ingredient
+    // rows (39-41, template capacity 3), independent of the active count above.
+    if(code==="F-RD-002" && r>=39 && r<=41 && r>=39+Math.min(selectedInactiveIngredientCount(code),3)){
+      continue;
+    }
 
     rows += `<tr style="height:${Number(form.heights?.[r]||15)*1.33}px">`;
     for(let c=1;c<=form.maxCol;c++){
@@ -1358,6 +1402,17 @@ async function openPrivateExactForm(code){
     if(appendCap && r===formulaIngredientEndRow(code) && appendSelected>appendCap){
       for(let i=appendCap;i<appendSelected;i++){
         rows+=renderExtraIngredientExcelRow(code,form,i);
+      }
+    }
+
+    // F-RD-002 only: append extra Inactive Ingredient rows right after row 41
+    // (template capacity 3), independent of the active-ingredient append above.
+    if(code==="F-RD-002" && r===41){
+      const appendInactiveSelected=selectedInactiveIngredientCount(code);
+      if(appendInactiveSelected>3){
+        for(let i=3;i<appendInactiveSelected;i++){
+          rows+=renderExtraInactiveIngredientExcelRow(code,form,i);
+        }
       }
     }
   }
@@ -2420,15 +2475,29 @@ function formulaMaxIngredients(code){
   if(code==="F-RD-002" || code==="F-RD-002.1")return Number.POSITIVE_INFINITY;
   return null;
 }
+window.formulaInactiveIngredientCount = window.formulaInactiveIngredientCount || {};
+function selectedInactiveIngredientCount(code){
+  if(code!=="F-RD-002")return 0;
+  let n=Number(window.formulaInactiveIngredientCount?.[code]||3);
+  if(!Number.isFinite(n))n=3;
+  return Math.max(1,Math.floor(n));
+}
+
 async function askFormulaIngredientCount(code){
   if(code!=="F-RD-002" && code!=="F-RD-002.1")return openExactFormAccount(code);
   const current=Math.max(1,Number(window.formulaIngredientCount[code]||1));
+  const inactiveField=code==="F-RD-002"?`
+      <h3>ส่วนประกอบที่ไม่สำคัญ (Inactive Ingredient) กี่ตัว?</h3>
+      <p>ต้นฉบับมี 3 แถว — พิมพ์มากกว่านี้ได้ ไม่จำกัดจำนวนเช่นกัน</p>
+      <input id="formulaInactiveIngredientCountInput" type="number" min="1" step="1" value="${selectedInactiveIngredientCount(code)}" placeholder="เช่น 3, 5, 10">
+  `:"";
   openModal(`จำนวนสารใน ${code}`,`
     <div class="ingredient-count-dialog">
       <h3>ต้องการใช้สารกี่ตัว?</h3>
       <p>ไม่จำกัดจำนวนสาร — แถวที่เกินจากฟอร์มเดิมจะต่อท้ายแถวสารสุดท้าย</p>
       <input id="formulaIngredientCountInput" type="number" min="1" step="1" value="${current}" placeholder="เช่น 5, 25, 50, 100">
       <div class="ingredient-count-hint">ไม่จำกัดจำนวนสาร</div>
+      ${inactiveField}
       <button class="primary full" onclick="confirmFormulaIngredientCount('${code}')">เปิดฟอร์ม</button>
     </div>`);
 }
@@ -2437,6 +2506,11 @@ async function confirmFormulaIngredientCount(code){
   if(!Number.isFinite(n))n=1;
   n=Math.max(1,Math.floor(n));
   window.formulaIngredientCount ??= {}; window.formulaIngredientCount[code]=n;
+  if(code==="F-RD-002"){
+    let ni=Number(document.getElementById("formulaInactiveIngredientCountInput")?.value||3);
+    if(!Number.isFinite(ni))ni=3;
+    window.formulaInactiveIngredientCount[code]=Math.max(1,Math.floor(ni));
+  }
   closeModal();
   return openExactFormAccount(code);
 }
@@ -2949,29 +3023,42 @@ recalculateFormulaBoth=function(){
     const ad36=sumRangeIndexes(active,1,19,"percent");
     forceCalcAddr("T36",t36,6); forceCalcAddr("Z36",z36,6); forceCalcAddr("AD36",ad36,6);
 
-    // Original inactive rows 39-41. Production and row cost follow the same row formulas.
+    // Original inactive rows 39-41 (idx 0-2), plus however many extra rows the
+    // user chose beyond the 3-row template capacity (idx 3+, appended via
+    // renderExtraInactiveIngredientExcelRow). Production and row cost follow
+    // the same row formulas either way.
     // The original workbook references T54 for inactive %, which is blank in the supplied master;
     // therefore the web shows 0 instead of a stale/#DIV0 value until that master denominator exists.
+    const inactiveMax=Math.max(2,selectedInactiveIngredientCount(currentExactForm)-1);
     for(const i of inactive){
-      if(i<0||i>2)continue;
+      if(i<0||i>inactiveMax)continue;
       const qty=readNumber(formulaField("inactive_ingredients",i,"quantity_mg"));
       const prodKg=qty*orderQty/1000000;
       applyTieredPriceForRow("inactive_ingredients",i,prodKg);
       const price=readNumber(formulaField("inactive_ingredients",i,"price_kg"));
       forceCalcValue(formulaField("inactive_ingredients",i,"production_kg"),prodKg,6);
       forceCalcValue(formulaField("inactive_ingredients",i,"percent"),0,6);
-      forceCalcAddr(`AI${39+i}`,price/1000000*qty,9);
+      const rowCost=price/1000000*qty;
+      // Rows 0-2 are the original master cells (real AI39/AI40/AI41 addresses);
+      // extra appended rows (idx 3+) have no master address, so their row cost
+      // is stored/read via the same group/index/sub field system as everything else.
+      if(i<=2){
+        forceCalcAddr(`AI${39+i}`,rowCost,9);
+      }else{
+        forceCalcValue(formulaField("inactive_ingredients",i,"row_cost"),rowCost,9);
+      }
     }
 
     // T42 = SUM(T23:Y41), Z42 = SUM(Z23:AC41), AD42 = SUM(AD23:AD41)
-    // This means active rows 23-35 (indexes 7..19) + inactive rows 39-41.
+    // This means active rows 23-35 (indexes 7..19) + inactive rows 39-41
+    // (plus any extra inactive rows the user added beyond the 3-row template).
     // EXACT master ranges:
     // T42 = SUM(T23:Y41) = rows 23-35 + T36 total + inactive rows 39-41.
     // Z42 = SUM(Z23:AC41) = rows 23-35 + Z36 total + inactive rows 39-41.
     // AD42 = SUM(AD23:AD41) = rows 23-35 + AD36 total + inactive rows 39-41.
-    const inactiveQty39to41=sumRangeIndexes(inactive,0,2,"quantity_mg","inactive_ingredients");
-    const inactiveProd39to41=sumRangeIndexes(inactive,0,2,"production_kg","inactive_ingredients");
-    const inactivePct39to41=sumRangeIndexes(inactive,0,2,"percent","inactive_ingredients");
+    const inactiveQty39to41=sumRangeIndexes(inactive,0,inactiveMax,"quantity_mg","inactive_ingredients");
+    const inactiveProd39to41=sumRangeIndexes(inactive,0,inactiveMax,"production_kg","inactive_ingredients");
+    const inactivePct39to41=sumRangeIndexes(inactive,0,inactiveMax,"percent","inactive_ingredients");
     const t42=sumRangeIndexes(active,7,19,"quantity_mg")+t36+inactiveQty39to41;
     const z42=sumRangeIndexes(active,7,19,"production_kg")+z36+inactiveProd39to41;
     const ad42=sumRangeIndexes(active,7,19,"percent")+ad36+inactivePct39to41;
