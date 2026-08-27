@@ -12,6 +12,7 @@ FILES={
  "F-RD-003":"F-RD-003.xlsx",
  "F-RD-004":"F-RD-004.xlsx",
  "ADMIN-QP":"ADMIN-QP-SOURCE.xls",
+ "ADMIN-INVOICE":"ADMIN-QP-SOURCE.xls",
 }
 @router.get("/{code}")
 def download_original(code:str,u=Depends(get_current_user)):

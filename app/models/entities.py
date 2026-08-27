@@ -31,6 +31,7 @@ class Customer(Base, TimestampMixin):
     contact_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 class Supplier(Base, TimestampMixin):
@@ -287,6 +288,28 @@ class FDAMaterial(Base, TimestampMixin):
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+class PackagingItem(Base, TimestampMixin):
+    """Packaging master data (บรรจุภัณฑ์), managed by ADMIN/PURCHASE.
+
+    `cost` is the internal cost from the supplier catalog. The real/selling
+    price shown to forms is derived at read time as cost * 1.20 (20% markup)
+    — see app/api/packaging.py — so it never drifts out of sync with cost.
+    """
+    __tablename__ = "packaging_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    spec: Mapped[str] = mapped_column(String(500), index=True)
+    official_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6), nullable=True)
+    supplier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    rate: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    lead_time: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    packing: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    tiers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source_row: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
