@@ -76,6 +76,7 @@ def serialize(x: FDAMaterial):
 @router.get("")
 def list_fda_materials(
     q: str = Query(default=""),
+    category: str = Query(default=""),
     limit: int = Query(default=300,ge=1,le=3000),
     db: Session = Depends(get_db),
     u=Depends(get_current_user),
@@ -92,8 +93,26 @@ def list_fda_materials(
             FDAMaterial.registered_name.ilike(like),
             FDAMaterial.origin_country.ilike(like),
         ))
+    cat=(category or "").strip()
+    if cat:
+        query=query.filter(FDAMaterial.supplier_category.ilike(cat))
     rows=query.order_by(FDAMaterial.material_code.asc()).limit(limit).all()
     return [serialize(x) for x in rows]
+
+
+@router.get("/categories")
+def fda_categories(db: Session = Depends(get_db), u=Depends(get_current_user)):
+    """Distinct supplier_category values (A, B, C, ...) with item counts, for
+    building category tabs in the PURCHASE FDA + material-code database."""
+    from sqlalchemy import func
+    rows=(
+        db.query(FDAMaterial.supplier_category, func.count(FDAMaterial.id))
+        .group_by(FDAMaterial.supplier_category)
+        .all()
+    )
+    out=[{"category": (c or "").strip(), "count": n} for c, n in rows if (c or "").strip()]
+    out.sort(key=lambda x: x["category"])
+    return out
 
 
 @router.get("/map")

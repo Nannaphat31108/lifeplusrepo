@@ -487,10 +487,21 @@ if(token) bootstrap();
 let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
- if(!exactFormsCache) exactFormsCache=await fetch("/static/exact_forms.json?v=31.23",{cache:"no-store"}).then(r=>r.json());
- if(!exactFieldsCache) exactFieldsCache=await fetch("/static/exact_fields.json?v=31.23",{cache:"no-store"}).then(r=>r.json());
+ if(!exactFormsCache){
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.23",{cache:"no-store"}).then(r=>r.json());
+   // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
+   // same cells) — only the title text differs, which the export step
+   // rewrites server-side. Alias it here instead of duplicating the file.
+   if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
+ }
+ if(!exactFieldsCache){
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.23",{cache:"no-store"}).then(r=>r.json());
+   if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
+ }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
- if(!window.packageCatalogData) try{window.packageCatalogData=await fetch("/static/package_catalog.json").then(r=>r.json())}catch{window.packageCatalogData=[]}
+ // Package master data now lives in a real database (with cost -> +20% real
+ // price, and an official name) instead of the static catalog JSON.
+ if(!window.packageCatalogData) try{window.packageCatalogData=await api("/api/packaging")}catch{window.packageCatalogData=[]}
 }
 function xlCol(n){let s="";while(n){n--;s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)}return s}
 function xlAddr(r,c){return xlCol(c)+r}
@@ -532,11 +543,11 @@ function exactInput(field,addr,cellValue){
  if(field.type==="date_text") return `<input ${common} type="text" inputmode="numeric" placeholder="DD/MM/YYYY" oninput="this.value=this.value.replace(/[^0-9\/\-]/g,'')">`;
  if(field.type==="package") return `<input ${common} type="text" list="exactPackageList" placeholder="พิมพ์ค้นหา Package" oninput="applyPackageSelection(this)">`;
  if(field.type==="number_auto") return `<input ${common} class="excel-input" type="number" step="0.000000001" placeholder="คำนวณอัตโนมัติ" readonly tabindex="-1">`;
- if(field.type==="number") return `<input ${common} type="number" step="0.000001" placeholder="${esc(placeholder)}" oninput="${currentExactForm==='ADMIN-QP'?'recalculateAdminQP()':'recalculateFormulaBoth()'}" onchange="${currentExactForm==='ADMIN-QP'?'recalculateAdminQP()':'recalculateFormulaBoth()'}">`;
+ if(field.type==="number") return `<input ${common} type="number" step="0.000001" placeholder="${esc(placeholder)}" oninput="${isQPLikeForm(currentExactForm)?'recalculateAdminQP()':'recalculateFormulaBoth()'}" onchange="${isQPLikeForm(currentExactForm)?'recalculateAdminQP()':'recalculateFormulaBoth()'}">`;
  if(field.type==="supplier") return `<input ${common} type="text" placeholder="ลิงก์อัตโนมัติ / แก้เองได้">`;
  if(field.type==="supplement_code") return `<input ${common} list="exactSupplementCodeList" placeholder="ค้นหารหัสสาร" oninput="${field.group==='inactive_ingredients'?'autoLinkInactiveIngredient(this)':'autoLinkIngredient(this)'};recalculateFormulaBoth()">`;
  if(field.type==="supplement"){
-   if(currentExactForm==="ADMIN-QP" && field.group==="qp_ingredients"){
+   if(isQPLikeForm(currentExactForm) && field.group==="qp_ingredients"){
      return `<div class="qp-ingredient-master-cell"><input ${common} list="exactSupplementNameList" placeholder="ชื่อสาร" oninput="linkQPIngredientInput(this);recalculateAdminQP()"><input class="excel-input qp-origin-input" data-group="qp_ingredients" data-index="${field.index}" data-sub="origin" type="text" placeholder="ประเทศที่มา"></div>`;
    }
    return `<input ${common} list="exactSupplementNameList" placeholder="ค้นหาชื่อสาร" oninput="${field.group==='items'?'linkQPIngredientInput(this)':(field.group==='inactive_ingredients'?'autoLinkInactiveIngredient(this)':'autoLinkIngredient(this)')};${field.group==='items'?'recalculateAdminQP()':'recalculateFormulaBoth()'}">`;
@@ -549,7 +560,7 @@ async function openExactFormLegacy(code){
   if(code==='F-RD-002'||code==='F-RD-002.1') setTimeout(()=>scheduleFDAFormulaLink(false),50);
  document.querySelectorAll(".nav").forEach(x=>x.classList.remove("active"));document.querySelector(`.exact-form-nav[data-form="${code}"]`)?.classList.add("active");
  const titles={"F-RD-001":"รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","F-RD-002":"สูตร","F-RD-002.1":"สูตรผลิต","F-RD-003":"แบบฟอร์มขอทำสินค้าทดลอง","F-RD-004":"แบบฟอร์มการขอเรทราคา",
-    "ADMIN-QP":"QP / Quotation"};
+    "ADMIN-QP":"QP / Quotation","ADMIN-INVOICE":"Invoice / ใบแจ้งหนี้"};
  $("pageTitle").textContent=`${code} — ${titles[code]}`;$("pageSubtitle").textContent="หน้ากรอกข้อมูลยึด Layout จาก Excel ต้นฉบับจริง";
  const form=exactFormsCache[code],fmap=exactFieldMap(code,form),skip=new Set(),mergeTL={};
  for(const m of form.merges||[]){mergeTL[xlAddr(m.r1,m.c1)]=m;for(let r=m.r1;r<=m.r2;r++)for(let c=m.c1;c<=m.c2;c++)if(!(r===m.r1&&c===m.c1))skip.add(xlAddr(r,c))}
@@ -1031,7 +1042,7 @@ let adminQPFormulaNo="";
 function qpExactEl(i,sub){return document.querySelector(`.excel-input[data-group="qp_ingredients"][data-index="${i}"][data-sub="${sub}"]`)}
 function qpLineEl(i,sub){return document.querySelector(`.excel-input[data-group="qp_lines"][data-index="${i}"][data-sub="${sub}"]`)}
 function recalculateAdminQP(){
- if(currentExactForm!=="ADMIN-QP")return;
+ if(!isQPLikeForm(currentExactForm))return;
  const get=k=>document.querySelector(`.excel-input[data-key="${k}"]`);
  const set=(k,v,d=2)=>{const e=get(k);if(e&&e.dataset.manualOverride!=="1")e.value=fmtCalc(v,d)};
  let ingredientTotal=0;
@@ -1084,7 +1095,7 @@ async function linkAdminQPFormula(force=false){
    recalculateAdminQP();toast(`VLOOKUP รหัสสูตร ${linked.formula_no} สำเร็จ • สารสำคัญ ${active.length} + สารไม่สำคัญ ${inactive.length} รายการ • ลิงก์ชื่อสาร / ปริมาณ / ประเทศ`);
  }catch(err){if(force)alert("ลิงก์เลขที่สูตรไม่ได้: "+(err?.message||err))}
 }
-function collectAdminQPExactFormulaNo(d){if(currentExactForm==="ADMIN-QP")d.formula_no=adminQPFormulaNo||document.getElementById("qpExactFormulaNo")?.value||document.querySelector('.excel-input[data-key="formula_no"]')?.value||"";return d}
+function collectAdminQPExactFormulaNo(d){if(isQPLikeForm(currentExactForm))d.formula_no=adminQPFormulaNo||document.getElementById("qpExactFormulaNo")?.value||document.querySelector('.excel-input[data-key="formula_no"]')?.value||"";return d}
 
 
 
@@ -1118,17 +1129,22 @@ function applyPackageSelection(inp){
   }
 }
 async function openPackageDatabase(){
+  window.packageCatalogData=null; // force a fresh load from the DB, not a stale cache
   await loadExactAssets();
   const rows=window.packageCatalogData||[];
+  const canManage=["ADMIN","PURCHASE"].includes(me?.role);
   $("pageTitle").textContent="Package Database";
-  $("pageSubtitle").textContent="ข้อมูล Package จากแคตตาล็อก.xlsx • พิมพ์ค้นหาได้ทันที";
-  $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input id="packageDbSearch" class="search" placeholder="พิมพ์ค้นหา สเปค / ประเภท / Supplier / ราคา..." oninput="filterPackageDatabase()"><span>${rows.length} รายการ</span></div><div id="packageDbTable"></div></div>`;
+  $("pageSubtitle").textContent="ราคาจริง = ต้นทุน + 20% • พิมพ์ค้นหาได้ทันที";
+  $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input id="packageDbSearch" class="search" placeholder="พิมพ์ค้นหา สเปค / ชื่อทางการ / ประเภท / Supplier..." oninput="filterPackageDatabase()"><span>${rows.length} รายการ</span>${canManage?'<button class="primary" onclick="openPackageItemEditor()">+ เพิ่มรายการ</button>':""}</div><div id="packageDbEditor"></div><div id="packageDbTable"></div></div>`;
   renderPackageDatabase(rows);
 }
 function renderPackageDatabase(rows){
-  const out=(rows||[]).map(x=>`<tr><td>${esc(x.category||"")}</td><td>${esc(x.spec||"")}</td><td>${esc(x.rate??"")}</td><td>${esc(x.price??"")}</td><td>${esc(x.lead_time??"")}</td><td>${esc(x.packing??"")}</td><td>${esc(x.supplier??"")}</td></tr>`);
+  const canManage=["ADMIN","PURCHASE"].includes(me?.role);
+  const out=(rows||[]).map(x=>`<tr><td>${esc(x.category||"")}</td><td>${esc(x.spec||"")}</td><td>${esc(x.official_name||"")}</td><td>${esc(x.rate??"")}</td><td>${x.price??""}</td><td>${esc(x.lead_time??"")}</td><td>${esc(x.packing??"")}</td><td>${esc(x.supplier??"")}</td>${canManage?`<td class="mini-actions"><button onclick="openPackageItemEditor(${x.id})">แก้ไข</button><button onclick="deletePackageItem(${x.id})">ลบ</button></td>`:""}</tr>`);
+  const headers=["ประเภท","สเปค","ชื่อทางการ","เรท","ราคา (ต้นทุน+20%)","ระยะเวลา","การบรรจุ","Supplier"];
+  if(canManage)headers.push("จัดการ");
   const box=document.getElementById("packageDbTable");
-  if(box)box.innerHTML=table(["ประเภท","สเปค","เรท","ราคา","ระยะเวลา","การบรรจุ","Supplier"],out);
+  if(box)box.innerHTML=table(headers,out);
 }
 function filterPackageDatabase(){
   const q=String(document.getElementById("packageDbSearch")?.value||"").trim().toLowerCase();
@@ -1136,12 +1152,91 @@ function filterPackageDatabase(){
   renderPackageDatabase(rows);
 }
 
+let packageDbEditingId=null;
+function openPackageItemEditor(id=null){
+  packageDbEditingId=id;
+  const d=id?((window.packageCatalogData||[]).find(x=>x.id===id)||{}):{};
+  const box=document.getElementById("packageDbEditor");
+  if(!box)return;
+  box.innerHTML=`
+    <div class="fda-editor">
+      <div class="fda-editor-title">${id?"แก้ไข Package":"เพิ่ม Package ใหม่"}</div>
+      <div class="fda-editor-grid">
+        <div class="fda-field"><label>ประเภท</label><input id="pkg_category" value="${esc(d.category||"")}"></div>
+        <div class="fda-field"><label>สเปค</label><input id="pkg_spec" value="${esc(d.spec||"")}"></div>
+        <div class="fda-field"><label>ชื่อทางการของบรรจุภัณฑ์</label><input id="pkg_official_name" value="${esc(d.official_name||"")}"></div>
+        <div class="fda-field"><label>ต้นทุน</label><input id="pkg_cost" type="number" step="0.01" value="${esc(d.cost??"")}"></div>
+        <div class="fda-field"><label>เรท</label><input id="pkg_rate" value="${esc(d.rate||"")}"></div>
+        <div class="fda-field"><label>ระยะเวลา</label><input id="pkg_lead_time" value="${esc(d.lead_time||"")}"></div>
+        <div class="fda-field"><label>การบรรจุ</label><input id="pkg_packing" value="${esc(d.packing||"")}"></div>
+        <div class="fda-field"><label>Supplier</label><input id="pkg_supplier" value="${esc(d.supplier||"")}"></div>
+      </div>
+      <div class="actions">
+        <button class="primary" onclick="savePackageItem()">บันทึก</button>
+        <button onclick="closePackageItemEditor()">ยกเลิก</button>
+      </div>
+    </div>`;
+  document.getElementById("pkg_spec")?.focus();
+}
+function closePackageItemEditor(){
+  packageDbEditingId=null;
+  const box=document.getElementById("packageDbEditor");
+  if(box)box.innerHTML="";
+}
+async function savePackageItem(){
+  const val=id=>document.getElementById(id)?.value?.trim()||"";
+  const spec=val("pkg_spec");
+  if(!spec){toast("กรอกสเปคก่อน");return;}
+  const payload={
+    category:val("pkg_category")||null,
+    spec,
+    official_name:val("pkg_official_name")||null,
+    cost:val("pkg_cost")?Number(val("pkg_cost")):null,
+    rate:val("pkg_rate")||null,
+    lead_time:val("pkg_lead_time")||null,
+    packing:val("pkg_packing")||null,
+    supplier:val("pkg_supplier")||null,
+  };
+  try{
+    if(packageDbEditingId){
+      await api(`/api/packaging/${packageDbEditingId}`,{method:"PUT",body:payload});
+    }else{
+      await api("/api/packaging",{method:"POST",body:payload});
+    }
+    toast("บันทึก Package สำเร็จ");
+    closePackageItemEditor();
+    window.packageCatalogData=null;
+    await loadExactAssets();
+    renderPackageDatabase(window.packageCatalogData||[]);
+  }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+async function deletePackageItem(id){
+  if(!confirm("ลบรายการ Package นี้?"))return;
+  try{
+    await api(`/api/packaging/${id}`,{method:"DELETE"});
+    toast("ลบสำเร็จ");
+    window.packageCatalogData=null;
+    await loadExactAssets();
+    renderPackageDatabase(window.packageCatalogData||[]);
+  }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
+}
+
 function isExactFormCode(code){
-  return ["F-RD-001","F-RD-002","F-RD-002.1","F-RD-003","F-RD-004","ADMIN-QP"].includes(code);
+  return ["F-RD-001","F-RD-002","F-RD-002.1","F-RD-003","F-RD-004","ADMIN-QP","ADMIN-INVOICE"].includes(code);
+}
+
+// ADMIN-INVOICE is a clone of ADMIN-QP: same Excel layout, same calculation
+// behavior, just a different label ("ใบแจ้งหนี้"/Invoice instead of
+// "ใบเสนอราคา"/Quotation). Every place that only cares about that shared
+// behavior should check isQPLikeForm(); places that show a label still
+// branch on the exact code.
+function isQPLikeForm(code){
+  return code==="ADMIN-QP" || code==="ADMIN-INVOICE";
 }
 
 function exactFormDisplayName(code,form){
   if(code==="ADMIN-QP") return "Quotation / Purchase Order";
+  if(code==="ADMIN-INVOICE") return "Invoice";
   return form?.display_name || form?.title || form?.name || form?.description || "แบบฟอร์ม";
 }
 
@@ -1158,7 +1253,8 @@ async function openPrivateExactForm(code){
     "F-RD-002.1":"สูตรผลิต",
     "F-RD-003":"แบบฟอร์มขอทำสินค้าทดลอง",
     "F-RD-004":"แบบฟอร์มการขอเรทราคา",
-    "ADMIN-QP":"Quotation / Purchase Order"
+    "ADMIN-QP":"Quotation / Purchase Order",
+    "ADMIN-INVOICE":"Invoice / ใบแจ้งหนี้"
   };
 
   $("pageTitle").textContent = `${code} — ${titles[code] || exactFormDisplayName(code,exactFormsCache?.[code])}`;
@@ -1233,7 +1329,7 @@ async function openPrivateExactForm(code){
       <div class="actions">
         <input id="exactRecordNo" placeholder="เลขที่รายการ เช่น ${code}-001">
         <button onclick="showSourceRecords('${code}')">ฟอร์มของฉัน</button>
-        ${(code==="ADMIN-QP")?`<div class="qp-exact-link"><input id="qpExactFormulaNo" placeholder="คีย์รหัสสูตร เช่น F-RD-002-001"><button onclick="linkAdminQPFormula(true)">VLOOKUP จากไฟล์สูตร</button></div>`:""}
+        ${isQPLikeForm(code)?`<div class="qp-exact-link"><input id="qpExactFormulaNo" placeholder="คีย์รหัสสูตร เช่น F-RD-002-001"><button onclick="linkAdminQPFormula(true)">VLOOKUP จากไฟล์สูตร</button></div>`:""}
         ${(code==="F-RD-002"||code==="F-RD-002.1")?`<button class="ai-formula-btn" onclick="openAIFormulaAssistant('${code}')">AI คิดสูตร</button>`:""}
         <button class="primary" onclick="saveExactForm('${code}')">บันทึก</button>
         <button onclick="window.formWorkspace=null;openWorkspaceChooser('${code}')">เปลี่ยนคน</button>
@@ -1269,7 +1365,7 @@ async function openPrivateExactForm(code){
     setTimeout(()=>linkFDAForExactFormula(false),200);
     setTimeout(()=>linkFDAForExactFormula(false),600);
   }
-  if(code==="ADMIN-QP") setTimeout(recalculateAdminQP,0);
+  if(isQPLikeForm(code)) setTimeout(recalculateAdminQP,0);
 }
 
 function buildAliasPanel(code){ return ""; }
@@ -1520,7 +1616,7 @@ function populateExactForm(d){
    if(e && v!==undefined && v!==null)e.value=v;
  }
 
- if(currentExactForm==="ADMIN-QP"){
+ if(isQPLikeForm(currentExactForm)){
    for(const group of ["qp_ingredients","qp_lines"]){
      (d[group]||[]).forEach((x,i)=>{
        for(const [k,v] of Object.entries(x||{})){
@@ -1588,7 +1684,7 @@ saveExactForm=async function(code){
 
     const data=collectExactPayload();
 
-    if(code==="ADMIN-QP"){
+    if(isQPLikeForm(code)){
       const formulaToolbar=document.getElementById("adminQPFormulaNo");
       if(formulaToolbar?.value?.trim()){
         data.formula_no=formulaToolbar.value.trim();
@@ -1621,8 +1717,8 @@ saveExactForm=async function(code){
 
     toast(`บันทึก ${result?.record_no||recordNo} สำเร็จ`);
 
-    // ADMIN-QP: Save first, then download the freshly saved Excel automatically.
-    if(code==="ADMIN-QP"){
+    // ADMIN-QP / ADMIN-INVOICE: Save first, then download the freshly saved Excel automatically.
+    if(isQPLikeForm(code)){
       const recordId=result?.id || window.editingSourceRecordId;
       if(!recordId){
         throw new Error("บันทึกสำเร็จ แต่ไม่พบ Record ID สำหรับสร้าง Excel");
@@ -1848,8 +1944,10 @@ async function importFDAMasterNow(){
   }
 }
 
+let fdaDbCategory="";
 async function openFDADatabase(){
   fdaDbEditingId=null;
+  fdaDbCategory="";
   $("pageTitle").textContent="PURCHASE — FDA + รหัสสาร Database";
   $("pageSubtitle").textContent="ฐานข้อมูลกลาง FDA และรหัสสาร • จัดการโดย PURCHASE • R&D ใช้ฐานเดียวกันในการค้นหา";
   $("pageContent").innerHTML=`
@@ -1862,10 +1960,27 @@ async function openFDADatabase(){
           <button onclick="importFDAMasterNow()">นำเข้า FDA Master</button>
         </div>
       </div>
+      <div id="fdaDbCategoryTabs" class="fda-category-tabs"></div>
       <div id="fdaDbEditor"></div>
       <div id="fdaDbTable"><div class="muted">กำลังโหลดฐานข้อมูล...</div></div>
     </div>`;
+  loadFDACategoryTabs();
   await loadFDADatabase();
+}
+
+async function loadFDACategoryTabs(){
+  const box=document.getElementById("fdaDbCategoryTabs");
+  if(!box)return;
+  try{
+    const cats=await api("/api/fda-materials/categories");
+    const tab=(label,value)=>`<button class="fda-cat-tab${fdaDbCategory===value?" active":""}" onclick="selectFDACategory('${esc(value)}')">${esc(label)}</button>`;
+    box.innerHTML=[tab("ทั้งหมด",""),...cats.map(c=>tab(`${c.category} (${c.count})`,c.category))].join("");
+  }catch{box.innerHTML="";}
+}
+function selectFDACategory(category){
+  fdaDbCategory=category;
+  loadFDACategoryTabs();
+  loadFDADatabase();
 }
 
 let fdaDbSearchTimer=null;
@@ -1877,7 +1992,7 @@ function fdaDbDebouncedSearch(){
 async function loadFDADatabase(){
   try{
     const q=document.getElementById("fdaDbSearch")?.value||"";
-    const rows=await api(`/api/fda-materials?q=${encodeURIComponent(q)}&limit=1000`);
+    const rows=await api(`/api/fda-materials?q=${encodeURIComponent(q)}&category=${encodeURIComponent(fdaDbCategory)}&limit=1000`);
     const headers=["รหัสสาร","หมวด Supplier","Product name","ชื่อขึ้นทะเบียนของสาร","บริษัท Supplier","ประเทศที่มา","ราคา/กก.","Halal","COA","FDA NUMBER","ASSAY","อัตราส่วน","เปอร์เซ็น %","หมายเหตุ","รูป","จัดการ"];
     const tr=rows.map(x=>`<tr>
       <td><b>${esc(x.material_code)}</b></td>
@@ -2005,7 +2120,7 @@ async function openDepartmentWorkspace(code){
  const configs={
  RD:{title:"R&D",text:"จัดการสูตร สูตรผลิต Tester และ Rate",cards:[["Package Database","ค้นหา Package จากแคตตาล็อก","openPackageDatabase()"],["F-RD-002 สูตร","แบบฟอร์มสูตร R&D","openExactForm('F-RD-002')"],["F-RD-002.1 สูตรผลิต","สูตรสำหรับผลิตจริง","openExactForm('F-RD-002.1')"],["F-RD-003 Tester","ขอทำสินค้าทดลอง","openExactForm('F-RD-003')"],["F-RD-004 Rate","ขอเรทราคา","openExactForm('F-RD-004')"]]},
  SALE:{title:"SALE",text:"รับความต้องการลูกค้าและส่งต่อ R&D",cards:[["F-RD-001 Customer Requirement","รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","openExactForm('F-RD-001')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"],["Product Development","ติดตามโครงการลูกค้า","openPage('projects')"]]},
- ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Package Database","ค้นหา Package จากแคตตาล็อก","openPackageDatabase()"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
+ ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Package Database","ค้นหา Package จากแคตตาล็อก","openPackageDatabase()"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
  PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
  STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"]]},
  PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"]]},
@@ -2062,7 +2177,7 @@ async function confirmFormulaIngredientCount(code){
 
 
 openExactForm = async function(code){
-  if(code==="ADMIN-QP"){
+  if(isQPLikeForm(code)){
     return openExactFormAccount(code);
   }
   if(code==="F-RD-002" || code==="F-RD-002.1"){
@@ -2641,15 +2756,15 @@ document.addEventListener("input",function(e){
     if(el.classList?.contains("excel-input") || el.classList?.contains("manual-cell-input")){
       recalculateFormulaBoth();
     }
-  }else if(currentExactForm==="ADMIN-QP" && el.classList?.contains("excel-input")){
+  }else if(isQPLikeForm(currentExactForm) && el.classList?.contains("excel-input")){
     recalculateAdminQP();
   }
 },true);
 
 
-// v31.19 ADMIN-QP derived fields also always follow current inputs.
+// v31.19 ADMIN-QP derived fields also always follow current inputs (ADMIN-INVOICE too).
 recalculateAdminQP=function(){
-  if(currentExactForm!=="ADMIN-QP")return;
+  if(!isQPLikeForm(currentExactForm))return;
   const get=k=>document.querySelector(`.excel-input[data-key="${k}"]`);
   const force=(k,v,d=2)=>{const e=get(k);if(e){delete e.dataset.manualOverride;e.value=fmtCalc(v,d);}};
   let ingredientTotal=0;

@@ -43,6 +43,49 @@ def _record_data_dict(x):
     raw2=getattr(x,"data",None)
     return raw2 if isinstance(raw2,dict) else {}
 
+def _upsert_customer_from_form(db: Session, data: dict, owner_id: int, record_id: int):
+    """Persist the company/customer fields typed into a form into the shared
+    Customer master table, instead of leaving them only inside this one
+    record's JSON blob. Matches by customer_code first, then by name.
+    """
+    customer_name = str(data.get("customer_name") or "").strip()
+    if not customer_name:
+        return
+    customer_code = str(data.get("customer_code") or "").strip()
+    address = str(data.get("address") or "").strip()
+    phone = str(data.get("phone_fax") or data.get("phone") or "").strip()
+
+    customer = None
+    if customer_code:
+        customer = db.scalar(select(Customer).where(Customer.customer_code == customer_code))
+    if not customer:
+        customer = db.scalar(select(Customer).where(Customer.name == customer_name))
+
+    if customer:
+        customer.name = customer_name
+        if address:
+            customer.address = address
+        if phone:
+            customer.phone = phone
+        if customer_code and customer.customer_code != customer_code:
+            exists = db.scalar(
+                select(Customer).where(
+                    Customer.customer_code == customer_code,
+                    Customer.id != customer.id
+                )
+            )
+            if not exists:
+                customer.customer_code = customer_code
+    else:
+        generated_code = customer_code or f"CUST-{owner_id}-{record_id:06d}"
+        db.add(Customer(
+            customer_code=generated_code,
+            name=customer_name,
+            address=address or None,
+            phone=phone or None,
+        ))
+
+
 @router.post("/{code}")
 def save(
     code: str,
@@ -70,39 +113,13 @@ def save(
         db.rollback()
         raise HTTPException(500, f"Save flush failed: {type(e).__name__}: {e}")
 
-    # F-RD-001: Customer entered in the original form becomes master customer data.
-    if code == "F-RD-001":
-        customer_name = str(p.data.get("customer_name") or "").strip()
-        customer_code = str(p.data.get("customer_code") or "").strip()
-
-        if customer_name:
-            customer = None
-            if customer_code:
-                customer = db.scalar(
-                    select(Customer).where(Customer.customer_code == customer_code)
-                )
-            if not customer:
-                customer = db.scalar(
-                    select(Customer).where(Customer.name == customer_name)
-                )
-
-            if customer:
-                customer.name = customer_name
-                if customer_code and customer.customer_code != customer_code:
-                    exists = db.scalar(
-                        select(Customer).where(
-                            Customer.customer_code == customer_code,
-                            Customer.id != customer.id
-                        )
-                    )
-                    if not exists:
-                        customer.customer_code = customer_code
-            else:
-                generated_code = customer_code or f"CUST-{u.id}-{x.id:06d}"
-                db.add(Customer(
-                    customer_code=generated_code,
-                    name=customer_name
-                ))
+    # Company/customer info typed into a form becomes reusable master data
+    # instead of only living inside this record's JSON blob. F-RD-001 has
+    # always done this for the customer's name/code; ADMIN-QP (Quotation /
+    # Purchase Order) and ADMIN-INVOICE also collect a company name, address
+    # and phone, so the same upsert applies to those too.
+    if code in {"F-RD-001", "ADMIN-QP", "ADMIN-INVOICE"}:
+        _upsert_customer_from_form(db, p.data, owner_id=u.id, record_id=x.id)
 
     # Store another name/alias against the same extract code.
     for ingredient in (p.data.get("ingredients") or []):
@@ -881,8 +898,11 @@ def _patch_xlsx_cells_preserve_package(master_path: Path, sheet_name: str, updat
         return out.getvalue()
 
 
-def _admin_qp_export_preserve_master(master_path: Path, data: dict) -> bytes:
-    """Build ADMIN-QP from the master while preserving every embedded image."""
+def _admin_qp_export_preserve_master(master_path: Path, data: dict, is_invoice: bool = False) -> bytes:
+    """Build ADMIN-QP (or the cloned ADMIN-INVOICE) from the master while
+    preserving every embedded image. Both forms share the exact same layout
+    and cells — the invoice variant only overwrites the title text.
+    """
     wb = load_workbook(master_path, data_only=False)
     if "ใบราคา" not in wb.sheetnames:
         raise ValueError("Sheet not found: ใบราคา")
@@ -896,6 +916,10 @@ def _admin_qp_export_preserve_master(master_path: Path, data: dict) -> bytes:
             before[cell.coordinate] = cell.value
 
     fill_admin_qp(ws, data)
+    if is_invoice:
+        # Same document, relabeled: "ใบเสนอราคา / ใบสั่งซื้อ" -> "ใบแจ้งหนี้".
+        put(ws, "B5", "ใบแจ้งหนี้")
+        put(ws, "B7", "Invoice")
     fill_manual_cells(ws, data, False)
 
     updates = {}
@@ -973,6 +997,7 @@ def export_record(
       "F-RD-003":("F-RD-003.xlsx","Sheet1"),
       "F-RD-004":("F-RD-004.xlsx","Sheet1"),
       "ADMIN-QP":("ADMIN-QP_MASTER.xlsx","ใบราคา"),
+      "ADMIN-INVOICE":("ADMIN-QP_MASTER.xlsx","ใบราคา"),
     }
 
     if x.form_code not in templates:
@@ -984,11 +1009,11 @@ def export_record(
         raise HTTPException(500,f"Template not found: {fn}")
 
     try:
-        if x.form_code == "ADMIN-QP":
+        if x.form_code in ("ADMIN-QP", "ADMIN-INVOICE"):
             # Do NOT save the visual quotation master through openpyxl.
             # Patch only worksheet cell XML inside a copy of the original XLSX
             # package so logos/images/drawings remain untouched on Render too.
-            output_bytes = _admin_qp_export_preserve_master(src, d)
+            output_bytes = _admin_qp_export_preserve_master(src, d, is_invoice=(x.form_code == "ADMIN-INVOICE"))
             _verify_master_media_preserved(src, output_bytes)
             output = BytesIO(output_bytes)
             output.seek(0)

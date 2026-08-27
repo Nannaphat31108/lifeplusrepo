@@ -53,6 +53,47 @@ def ensure_fda_material_schema():
 ensure_fda_material_schema()
 
 
+def ensure_customer_address_column():
+    """Add customers.address for existing databases created before it existed."""
+    from sqlalchemy import text
+    from app.db.session import engine
+
+    try:
+        with engine.begin() as conn:
+            dialect = conn.dialect.name
+            if dialect == "postgresql":
+                conn.execute(text("ALTER TABLE customers ADD COLUMN IF NOT EXISTS address TEXT"))
+                print("[CUSTOMER SCHEMA] PostgreSQL address column ensured")
+            elif dialect == "sqlite":
+                cols = {r[1] for r in conn.execute(text("PRAGMA table_info(customers)")).fetchall()}
+                if "address" not in cols:
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN address TEXT"))
+                print("[CUSTOMER SCHEMA] SQLite address column ensured")
+            else:
+                print(f"[CUSTOMER SCHEMA] No migration needed for {dialect}")
+    except Exception as e:
+        print(f"[CUSTOMER SCHEMA] Warning: {type(e).__name__}: {e}")
+
+ensure_customer_address_column()
+
+
+def ensure_packaging_database():
+    from app.db.session import SessionLocal
+    from app.api.packaging import import_package_catalog
+
+    db = SessionLocal()
+    try:
+        result = import_package_catalog(db)
+        print(f"[PACKAGING STARTUP] {result}")
+    except Exception as e:
+        db.rollback()
+        print(f"[PACKAGING STARTUP] Warning: {type(e).__name__}: {e}")
+    finally:
+        db.close()
+
+ensure_packaging_database()
+
+
 def normalize_existing_fda_material_codes():
     """Convert legacy database codes such as A001 to canonical A0001."""
     from app.db.session import SessionLocal
