@@ -2063,10 +2063,32 @@ async function loadFDADatabase(){
   }
 }
 
+let fdaDbTierRows=[];
+function renderFdaTierRows(){
+  const box=document.getElementById("fdaTierRows");
+  if(!box)return;
+  box.innerHTML=fdaDbTierRows.map((t,i)=>`
+    <div class="fda-tier-row">
+      <input type="number" step="0.01" min="0" value="${esc(t.min_qty_kg??"")}" placeholder="ปริมาณขั้นต่ำ (กก.)" oninput="fdaDbTierRows[${i}].min_qty_kg=this.value">
+      <input type="number" step="0.01" value="${esc(t.price_per_kg??"")}" placeholder="ราคา/กก. ที่ปริมาณนี้" oninput="fdaDbTierRows[${i}].price_per_kg=this.value">
+      <button onclick="removeFdaTierRow(${i})">ลบ</button>
+    </div>`).join("")
+    || '<div class="muted">ยังไม่มีระดับราคาตามปริมาณ — จะใช้ "ราคา / กก." ปกติด้านบนเสมอ</div>';
+}
+function addFdaTierRow(){
+  fdaDbTierRows.push({min_qty_kg:"",price_per_kg:""});
+  renderFdaTierRows();
+}
+function removeFdaTierRow(i){
+  fdaDbTierRows.splice(i,1);
+  renderFdaTierRows();
+}
+
 async function openFDAMaterialEditor(id=null){
   fdaDbEditingId=id;
   let d={};
   if(id)d=await api(`/api/fda-materials/${id}`);
+  fdaDbTierRows=(d.price_tiers||[]).map(t=>({...t}));
   let suppliers=[];
   try{suppliers=await api("/api/suppliers");}catch{}
   const fields=fdaDbFields().map(([key,label])=>`
@@ -2081,12 +2103,18 @@ async function openFDAMaterialEditor(id=null){
       <div class="fda-editor-title" id="fdaEditorTitle">${id?"แก้ไข FDA / รหัสสาร":"เพิ่ม FDA / รหัสสารใหม่"}</div>
       <div class="fda-editor-grid">${fields}</div>
       <datalist id="fdaSupplierCodeList">${suppliers.map(s=>`<option value="${esc(s.supplier_code)}">${esc(s.name)}</option>`).join("")}</datalist>
+      <div class="fda-tier-section">
+        <div class="fda-editor-title">ราคาตามปริมาณ (สารรหัส/FDA เดียวกัน ปริมาณต่างกัน ราคาต่างกัน)</div>
+        <div id="fdaTierRows"></div>
+        <button onclick="addFdaTierRow()">+ เพิ่มระดับราคา</button>
+      </div>
       <div class="actions">
         <button class="primary" onclick="saveFDAMaterial()">บันทึกข้อมูล</button>
         <button onclick="openSupplierCodeManager()">จัดการรหัส Supplier</button>
         <button onclick="closeFDAEditor()">ยกเลิก</button>
       </div>
     </div>`;
+  renderFdaTierRows();
   document.getElementById("fda_material_code")?.focus();
   // Only while adding a brand-new record: as the code is typed, check if it
   // already exists and auto-link the existing data in instead of making the
@@ -2118,6 +2146,8 @@ async function fdaDbTryAutoLink(){
       const el=document.getElementById(`fda_${key}`);
       if(el)el.value=found[key]||"";
     }
+    fdaDbTierRows=(found.price_tiers||[]).map(t=>({...t}));
+    renderFdaTierRows();
     fdaDbEditingId=found.id;
     if(titleEl)titleEl.textContent=`แก้ไข FDA / รหัสสาร (พบรหัส ${esc(found.material_code)} อยู่แล้ว — ลิงก์ข้อมูลเดิมมาให้)`;
     toast(`พบรหัส ${found.material_code} อยู่แล้ว ลิงก์ข้อมูลเดิมมาให้แล้ว ไม่ต้องกรอกใหม่`);
@@ -2125,6 +2155,8 @@ async function fdaDbTryAutoLink(){
     // Was auto-linked to something a moment ago, but the code no longer
     // matches any existing record — back to creating a genuinely new one.
     fdaDbEditingId=null;
+    fdaDbTierRows=[];
+    renderFdaTierRows();
     if(titleEl)titleEl.textContent="เพิ่ม FDA / รหัสสารใหม่";
   }
 }
@@ -2194,6 +2226,9 @@ async function saveFDAMaterial(){
       body[key]=document.getElementById(`fda_${key}`)?.value||"";
     }
     if(!body.material_code.trim())throw new Error("กรุณาใส่รหัสวัตถุดิบ");
+    body.price_tiers=fdaDbTierRows
+      .filter(t=>String(t.min_qty_kg||"").trim()!=="" && String(t.price_per_kg||"").trim()!=="")
+      .map(t=>({min_qty_kg:Number(t.min_qty_kg)||0,price_per_kg:Number(t.price_per_kg)}));
     if(fdaDbEditingId){
       await api(`/api/fda-materials/${fdaDbEditingId}`,{method:"PUT",body});
     }else{
@@ -2756,6 +2791,41 @@ function sumRangeIndexes(indexes,from,to,sub,group="ingredients"){
   for(const i of indexes){if(i>=from&&i<=to)x+=readNumber(formulaField(group,i,sub));}
   return x;
 }
+// Same material_code/FDA number, different total quantity needed for this
+// production run -> a different price_per_kg when bulk tiers are set up for
+// it (see PURCHASE > FDA + รหัสสาร Database > ราคาตามปริมาณ).
+function resolveTieredPrice(item,qtyKg){
+  if(!item)return "";
+  const base=getSupplementPrice(item);
+  const tiers=Array.isArray(item.price_tiers)?item.price_tiers:[];
+  if(!tiers.length)return base;
+  let applicable=base;
+  const sorted=[...tiers].sort((a,b)=>Number(a.min_qty_kg||0)-Number(b.min_qty_kg||0));
+  for(const t of sorted){
+    if(Number(qtyKg||0)>=Number(t.min_qty_kg||0) && t.price_per_kg!==undefined && t.price_per_kg!==null && String(t.price_per_kg)!==""){
+      applicable=t.price_per_kg;
+    }
+  }
+  return applicable;
+}
+// Re-resolve a row's price_kg from its linked material's quantity tiers, using
+// the total kg this production run needs of it (qty_mg per unit * order qty).
+// Never touches a price the user has manually typed/overridden.
+function applyTieredPriceForRow(group,index,qtyKg){
+  const priceEl=formulaField(group,index,"price_kg");
+  if(!priceEl||priceEl.dataset.manualOverride==="1")return;
+  const codeVal=formulaField(group,index,"material_code")?.value||"";
+  const variant=getFormulaVariant(group,index,"");
+  const item=findSupplementByCode(variant||codeVal);
+  if(!item)return;
+  const tiers=Array.isArray(item.price_tiers)?item.price_tiers:[];
+  if(!tiers.length)return;
+  const resolved=resolveTieredPrice(item,qtyKg);
+  if(resolved!=="" && String(priceEl.value)!==String(resolved)){
+    priceEl.value=resolved;
+  }
+}
+
 recalculateFormulaBoth=function(){
   if(currentExactForm!=="F-RD-002" && currentExactForm!=="F-RD-002.1")return;
   const orderQty=readNumber(document.querySelector('.excel-input[data-key="order_quantity"]'));
@@ -2768,8 +2838,10 @@ recalculateFormulaBoth=function(){
     for(const i of active){
       if(i<0||i>19)continue;
       const qty=readNumber(formulaField("ingredients",i,"quantity_mg"));
+      const prodKg=qty*orderQty/1000000;
+      applyTieredPriceForRow("ingredients",i,prodKg);
       const price=readNumber(formulaField("ingredients",i,"price_kg"));
-      forceCalcValue(formulaField("ingredients",i,"production_kg"),qty*orderQty/1000000,6);
+      forceCalcValue(formulaField("ingredients",i,"production_kg"),prodKg,6);
       forceCalcValue(formulaField("ingredients",i,"row_cost"),price/1000000*qty,9);
     }
 
@@ -2790,8 +2862,10 @@ recalculateFormulaBoth=function(){
     for(const i of inactive){
       if(i<0||i>2)continue;
       const qty=readNumber(formulaField("inactive_ingredients",i,"quantity_mg"));
+      const prodKg=qty*orderQty/1000000;
+      applyTieredPriceForRow("inactive_ingredients",i,prodKg);
       const price=readNumber(formulaField("inactive_ingredients",i,"price_kg"));
-      forceCalcValue(formulaField("inactive_ingredients",i,"production_kg"),qty*orderQty/1000000,6);
+      forceCalcValue(formulaField("inactive_ingredients",i,"production_kg"),prodKg,6);
       forceCalcValue(formulaField("inactive_ingredients",i,"percent"),0,6);
       forceCalcAddr(`AI${39+i}`,price/1000000*qty,9);
     }
@@ -2837,8 +2911,9 @@ recalculateFormulaBoth=function(){
   const ap31=30/0.981; // exact original formula AP31 = 30/0.981
   for(const i of rows){
     const qty=readNumber(formulaField("ingredients",i,"quantity_mg"));
-    const price=readNumber(formulaField("ingredients",i,"price_kg"));
     const prod=qty*orderQty/1000000;
+    applyTieredPriceForRow("ingredients",i,prod);
+    const price=readNumber(formulaField("ingredients",i,"price_kg"));
     const rowCost=price/1000000*qty;
     const packMg=qty*ap31;
     const quantityG=packMg/1000;

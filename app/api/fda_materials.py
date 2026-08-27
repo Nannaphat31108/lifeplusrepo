@@ -43,6 +43,11 @@ def normalize_material_code(value: str) -> str:
 router=APIRouter(prefix="/api/fda-materials",tags=["FDA Material Database"])
 
 
+class PriceTierPayload(BaseModel):
+    min_qty_kg: float = 0
+    price_per_kg: float
+
+
 class FDAMaterialPayload(BaseModel):
     material_code: str
     supplier_category: Optional[str] = None
@@ -61,6 +66,41 @@ class FDAMaterialPayload(BaseModel):
     percentage: Optional[str] = None
     note: Optional[str] = None
     image_url: Optional[str] = None
+    price_tiers: list[PriceTierPayload] = []
+
+
+def _parse_price_tiers(raw: Optional[str]) -> list[dict]:
+    try:
+        tiers = json.loads(raw) if raw else []
+    except Exception:
+        return []
+    out = []
+    for t in tiers or []:
+        try:
+            out.append({"min_qty_kg": float(t.get("min_qty_kg") or 0), "price_per_kg": float(t.get("price_per_kg"))})
+        except (TypeError, ValueError):
+            continue
+    return sorted(out, key=lambda t: t["min_qty_kg"])
+
+
+def resolve_tiered_price(x: FDAMaterial, qty_kg) -> Optional[float]:
+    """Same material_code / fda_number, different total quantity needed ->
+    different price_per_kg (bulk-quantity tiers). Falls back to the flat
+    price_per_kg when there are no tiers, or the quantity doesn't reach any
+    tier's threshold.
+    """
+    try:
+        qty = float(qty_kg)
+    except (TypeError, ValueError):
+        qty = 0.0
+    try:
+        applicable = float(x.price_per_kg) if x.price_per_kg not in (None, "") else None
+    except (TypeError, ValueError):
+        applicable = None
+    for tier in _parse_price_tiers(x.price_tiers_json):
+        if qty >= tier["min_qty_kg"]:
+            applicable = tier["price_per_kg"]
+    return applicable
 
 
 def serialize(x: FDAMaterial):
@@ -83,6 +123,7 @@ def serialize(x: FDAMaterial):
         "percentage":x.percentage or "",
         "note":x.note or "",
         "image_url":x.image_url or "",
+        "price_tiers":_parse_price_tiers(x.price_tiers_json),
         "created_at":x.created_at.isoformat() if x.created_at else None,
         "updated_at":x.updated_at.isoformat() if x.updated_at else None,
     }
@@ -180,7 +221,33 @@ def unified_material_catalog(
         "price":x.price_per_kg or "",
         "halal":x.halal or "",
         "fda":x.fda_number or "",
+        # Bulk-quantity price tiers, embedded so the formula forms can
+        # resolve the right price_per_kg client-side as quantity changes,
+        # without a round trip per keystroke.
+        "price_tiers":_parse_price_tiers(x.price_tiers_json),
     } for x in rows]
+
+
+@router.get("/price")
+def resolve_material_price(
+    code: str = Query(...),
+    qty_kg: float = Query(default=0),
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+):
+    """Resolve the price_per_kg that applies for a given total quantity of a
+    material — same material_code/fda_number, different quantity, different
+    price when bulk tiers are set up for it.
+    """
+    normalized = normalize_material_code(code)
+    x = db.query(FDAMaterial).filter(FDAMaterial.material_code == normalized).first()
+    if not x:
+        raise HTTPException(404, "FDA material not found")
+    return {
+        "material_code": x.material_code,
+        "qty_kg": qty_kg,
+        "price_per_kg": resolve_tiered_price(x, qty_kg),
+    }
 
 
 def _require_purchase_editor(u):
@@ -214,6 +281,12 @@ def get_fda_material(item_id:int,db:Session=Depends(get_db),u=Depends(get_curren
     return serialize(x)
 
 
+def _apply_payload(x: FDAMaterial, p: FDAMaterialPayload, exclude: set[str]):
+    for k, v in p.model_dump(exclude=exclude | {"price_tiers"}).items():
+        setattr(x, k, v)
+    x.price_tiers_json = json.dumps([t.model_dump() for t in p.price_tiers], ensure_ascii=False) if p.price_tiers else None
+
+
 @router.post("")
 def create_fda_material(p:FDAMaterialPayload,db:Session=Depends(get_db),u=Depends(get_current_user)):
     _require_purchase_editor(u)
@@ -223,8 +296,7 @@ def create_fda_material(p:FDAMaterialPayload,db:Session=Depends(get_db),u=Depend
     if db.query(FDAMaterial).filter(FDAMaterial.material_code==code).first():
         raise HTTPException(409,"รหัสวัตถุดิบนี้มีอยู่แล้ว")
     x=FDAMaterial(material_code=code,created_by=u.id)
-    for k,v in p.model_dump(exclude={"material_code"}).items():
-        setattr(x,k,v)
+    _apply_payload(x,p,{"material_code"})
     db.add(x)
     db.commit()
     db.refresh(x)
@@ -241,8 +313,8 @@ def update_fda_material(item_id:int,p:FDAMaterialPayload,db:Session=Depends(get_
     duplicate=db.query(FDAMaterial).filter(FDAMaterial.material_code==code,FDAMaterial.id!=item_id).first()
     if duplicate:
         raise HTTPException(409,"รหัสวัตถุดิบนี้มีอยู่แล้ว")
-    for k,v in p.model_dump().items():
-        setattr(x,k,code if k=="material_code" else v)
+    _apply_payload(x,p,set())
+    x.material_code=code
     db.commit()
     db.refresh(x)
     return serialize(x)

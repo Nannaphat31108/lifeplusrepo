@@ -285,6 +285,11 @@ class FDAMaterial(Base, TimestampMixin):
     halal: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     purity: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     assay: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Bulk-quantity price tiers: same material_code/fda_number, different
+    # total quantity needed -> different price_per_kg. JSON list of
+    # {"min_qty_kg": <number>, "price_per_kg": <number>}; price_per_kg above
+    # remains the flat/base price used below the smallest tier threshold.
+    price_tiers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ratio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     percentage: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
