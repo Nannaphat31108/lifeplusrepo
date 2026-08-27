@@ -2078,7 +2078,7 @@ async function openFDAMaterialEditor(id=null){
     </div>`).join("");
   $("fdaDbEditor").innerHTML=`
     <div class="fda-editor">
-      <div class="fda-editor-title">${id?"แก้ไข FDA / รหัสสาร":"เพิ่ม FDA / รหัสสารใหม่"}</div>
+      <div class="fda-editor-title" id="fdaEditorTitle">${id?"แก้ไข FDA / รหัสสาร":"เพิ่ม FDA / รหัสสารใหม่"}</div>
       <div class="fda-editor-grid">${fields}</div>
       <datalist id="fdaSupplierCodeList">${suppliers.map(s=>`<option value="${esc(s.supplier_code)}">${esc(s.name)}</option>`).join("")}</datalist>
       <div class="actions">
@@ -2088,11 +2088,45 @@ async function openFDAMaterialEditor(id=null){
       </div>
     </div>`;
   document.getElementById("fda_material_code")?.focus();
+  // Only while adding a brand-new record: as the code is typed, check if it
+  // already exists and auto-link the existing data in instead of making the
+  // user re-type everything (and instead of erroring at save time).
+  if(!id){
+    document.getElementById("fda_material_code")?.addEventListener("input",fdaDbDebouncedAutoLink);
+  }
 }
 
 function closeFDAEditor(){
   fdaDbEditingId=null;
   if($("fdaDbEditor"))$("fdaDbEditor").innerHTML="";
+}
+
+let fdaDbAutoLinkTimer=null;
+function fdaDbDebouncedAutoLink(){
+  clearTimeout(fdaDbAutoLinkTimer);
+  fdaDbAutoLinkTimer=setTimeout(fdaDbTryAutoLink,400);
+}
+async function fdaDbTryAutoLink(){
+  const raw=(document.getElementById("fda_material_code")?.value||"").trim();
+  const titleEl=document.getElementById("fdaEditorTitle");
+  if(!raw)return;
+  let found=null;
+  try{found=await api(`/api/fda-materials/lookup/${encodeURIComponent(raw)}`);}catch{found=null;}
+  if(found && found.id){
+    for(const [key] of fdaDbFields()){
+      if(key==="material_code")continue;
+      const el=document.getElementById(`fda_${key}`);
+      if(el)el.value=found[key]||"";
+    }
+    fdaDbEditingId=found.id;
+    if(titleEl)titleEl.textContent=`แก้ไข FDA / รหัสสาร (พบรหัส ${esc(found.material_code)} อยู่แล้ว — ลิงก์ข้อมูลเดิมมาให้)`;
+    toast(`พบรหัส ${found.material_code} อยู่แล้ว ลิงก์ข้อมูลเดิมมาให้แล้ว ไม่ต้องกรอกใหม่`);
+  }else if(fdaDbEditingId){
+    // Was auto-linked to something a moment ago, but the code no longer
+    // matches any existing record — back to creating a genuinely new one.
+    fdaDbEditingId=null;
+    if(titleEl)titleEl.textContent="เพิ่ม FDA / รหัสสารใหม่";
+  }
 }
 
 async function openSupplierCodeManager(){

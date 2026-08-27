@@ -189,6 +189,23 @@ def _require_purchase_editor(u):
         raise HTTPException(403,"ฐาน FDA / รหัสสาร จัดการโดยแผนก PURCHASE")
 
 
+@router.get("/lookup/{code}")
+def lookup_fda_material_by_code(code: str, db: Session = Depends(get_db), u=Depends(get_current_user)):
+    """Exact-match lookup by normalized material_code.
+
+    Used while typing a new material_code in the add form: if it already
+    exists, the editor links the existing record in instead of asking the
+    user to re-enter everything.
+    """
+    normalized = normalize_material_code(code)
+    if not normalized:
+        raise HTTPException(404, "FDA material not found")
+    x = db.query(FDAMaterial).filter(FDAMaterial.material_code == normalized).first()
+    if not x:
+        raise HTTPException(404, "FDA material not found")
+    return serialize(x)
+
+
 @router.get("/{item_id}")
 def get_fda_material(item_id:int,db:Session=Depends(get_db),u=Depends(get_current_user)):
     x=db.get(FDAMaterial,item_id)
