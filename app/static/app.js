@@ -2953,6 +2953,21 @@ function formulaGroupIndexes(group){
 function formulaField(group,index,sub){
   return document.querySelector(`.excel-input[data-group="${group}"][data-index="${index}"][data-sub="${sub}"]`);
 }
+function sumAllIndexes(indexes,sub,group="ingredients"){
+  let x=0;
+  for(const i of indexes)x+=readNumber(formulaField(group,i,sub));
+  return x;
+}
+// F-RD-002 inactive row cost: rows 0-2 are the original master cells (real
+// AI39/AI40/AI41 addresses, auto-formula cells), while any extra appended
+// row (idx 3+) has no master address and stores its row cost via the same
+// group/index/sub field system as everything else.
+function inactiveRowCost(i){
+  if(i<=2){
+    return readNumber(document.querySelector(`.formula-auto-input[data-calc-cell="AI${39+i}"]`));
+  }
+  return readNumber(formulaField("inactive_ingredients",i,"row_cost"));
+}
 function sumRangeIndexes(indexes,from,to,sub,group="ingredients"){
   let x=0;
   for(const i of indexes){if(i>=from&&i<=to)x+=readNumber(formulaField(group,i,sub));}
@@ -3000,10 +3015,15 @@ recalculateFormulaBoth=function(){
 
   if(currentExactForm==="F-RD-002"){
     const inactive=formulaGroupIndexes("inactive_ingredients");
+    const inactiveMax=Math.max(2,selectedInactiveIngredientCount(currentExactForm)-1);
+    const inactiveOn=inactive.filter(i=>i>=0&&i<=inactiveMax);
 
-    // Original rows 16-35: Zr = Tr*$I$11/1,000,000 ; AIr = AEr/1,000,000*Tr
+    // Zr = Tr*$I$11/1,000,000 ; AIr = AEr/1,000,000*Tr -- every active row
+    // that exists, index 0 (row 16) included. The raw master's own T36
+    // formula is "=SUM(T17:Y35)", which SKIPS row 16 -- that's exactly why
+    // entering 10 then 20 in the first two rows showed a subtotal of 20
+    // instead of 30. Corrected below: every active row counts.
     for(const i of active){
-      if(i<0||i>19)continue;
       const qty=readNumber(formulaField("ingredients",i,"quantity_mg"));
       const prodKg=qty*orderQty/1000000;
       applyTieredPriceForRow("ingredients",i,prodKg);
@@ -3012,36 +3032,16 @@ recalculateFormulaBoth=function(){
       forceCalcValue(formulaField("ingredients",i,"row_cost"),price/1000000*qty,9);
     }
 
-    // T36 in the master is SUM(T17:Y35): active indexes 1..19 (row 16 is intentionally excluded).
-    const t36=sumRangeIndexes(active,1,19,"quantity_mg");
-    const z36=sumRangeIndexes(active,1,19,"production_kg");
-    for(const i of active){
-      if(i<0||i>19)continue;
-      const qty=readNumber(formulaField("ingredients",i,"quantity_mg"));
-      forceCalcValue(formulaField("ingredients",i,"percent"),t36?qty*100/t36:0,6);
-    }
-    const ad36=sumRangeIndexes(active,1,19,"percent");
-    forceCalcAddr("T36",t36,6); forceCalcAddr("Z36",z36,6); forceCalcAddr("AD36",ad36,6);
-
-    // Original inactive rows 39-41 (idx 0-2), plus however many extra rows the
-    // user chose beyond the 3-row template capacity (idx 3+, appended via
-    // renderExtraInactiveIngredientExcelRow). Production and row cost follow
-    // the same row formulas either way.
-    // The original workbook references T54 for inactive %, which is blank in the supplied master;
-    // therefore the web shows 0 instead of a stale/#DIV0 value until that master denominator exists.
-    const inactiveMax=Math.max(2,selectedInactiveIngredientCount(currentExactForm)-1);
-    for(const i of inactive){
-      if(i<0||i>inactiveMax)continue;
+    // Same per-row treatment for every inactive row that exists (the
+    // original 3-row template, plus any extra rows from the unlimited-count
+    // feature).
+    for(const i of inactiveOn){
       const qty=readNumber(formulaField("inactive_ingredients",i,"quantity_mg"));
       const prodKg=qty*orderQty/1000000;
       applyTieredPriceForRow("inactive_ingredients",i,prodKg);
       const price=readNumber(formulaField("inactive_ingredients",i,"price_kg"));
       forceCalcValue(formulaField("inactive_ingredients",i,"production_kg"),prodKg,6);
-      forceCalcValue(formulaField("inactive_ingredients",i,"percent"),0,6);
       const rowCost=price/1000000*qty;
-      // Rows 0-2 are the original master cells (real AI39/AI40/AI41 addresses);
-      // extra appended rows (idx 3+) have no master address, so their row cost
-      // is stored/read via the same group/index/sub field system as everything else.
       if(i<=2){
         forceCalcAddr(`AI${39+i}`,rowCost,9);
       }else{
@@ -3049,35 +3049,55 @@ recalculateFormulaBoth=function(){
       }
     }
 
-    // T42 = SUM(T23:Y41), Z42 = SUM(Z23:AC41), AD42 = SUM(AD23:AD41)
-    // This means active rows 23-35 (indexes 7..19) + inactive rows 39-41
-    // (plus any extra inactive rows the user added beyond the 3-row template).
-    // EXACT master ranges:
-    // T42 = SUM(T23:Y41) = rows 23-35 + T36 total + inactive rows 39-41.
-    // Z42 = SUM(Z23:AC41) = rows 23-35 + Z36 total + inactive rows 39-41.
-    // AD42 = SUM(AD23:AD41) = rows 23-35 + AD36 total + inactive rows 39-41.
-    const inactiveQty39to41=sumRangeIndexes(inactive,0,inactiveMax,"quantity_mg","inactive_ingredients");
-    const inactiveProd39to41=sumRangeIndexes(inactive,0,inactiveMax,"production_kg","inactive_ingredients");
-    const inactivePct39to41=sumRangeIndexes(inactive,0,inactiveMax,"percent","inactive_ingredients");
-    const t42=sumRangeIndexes(active,7,19,"quantity_mg")+t36+inactiveQty39to41;
-    const z42=sumRangeIndexes(active,7,19,"production_kg")+z36+inactiveProd39to41;
-    const ad42=sumRangeIndexes(active,7,19,"percent")+ad36+inactivePct39to41;
-    forceCalcAddr("T42",t42,6); forceCalcAddr("Z42",z42,6); forceCalcAddr("AD42",ad42,6);
+    // Active subtotal: every active row, including row 16/index 0 (see
+    // comment above). Inactive subtotal: every inactive row that exists,
+    // kept fully separate from the active total -- this is the "sum active
+    // and inactive separately" fix.
+    const activeQty=sumAllIndexes(active,"quantity_mg","ingredients");
+    const activeProd=sumAllIndexes(active,"production_kg","ingredients");
+    const inactiveQty=sumAllIndexes(inactiveOn,"quantity_mg","inactive_ingredients");
+    const inactiveProd=sumAllIndexes(inactiveOn,"production_kg","inactive_ingredients");
 
-    // EXACT master ranges:
-    // T43 = T42 + T36
-    // Z43 = SUM(Z24:AC42) = rows 24-35 + Z36 + inactive 39-41 + Z42
-    // AD43 = SUM(AD24:AD42) = rows 24-35 + AD36 + inactive 39-41 + AD42
-    const z24to35=sumRangeIndexes(active,8,19,"production_kg");
-    const ad24to35=sumRangeIndexes(active,8,19,"percent");
-    forceCalcAddr("T43",t42+t36,6);
-    forceCalcAddr("Z43",z24to35+z36+inactiveProd39to41+z42,6);
-    forceCalcAddr("AD43",ad24to35+ad36+inactivePct39to41+ad42,6);
+    // Grand total = active subtotal + inactive subtotal, nothing else.
+    // The raw master's T42="SUM(T23:Y41)" range overlaps T36 itself (T36
+    // sits inside T23:T41), so it silently double-counts part of the active
+    // rows on top of the inactive ones -- that's the "Caosule #0" row in the
+    // screenshot showing 30 (itself part active/part inactive mashed
+    // together) on top of an already-wrong active subtotal of 20, for a
+    // "Total" of 50. Corrected: a clean active + inactive sum.
+    const totalQty=activeQty+inactiveQty;
+    const totalProd=activeProd+inactiveProd;
 
-    // Bottom summary in master: K44/K45/K47 all exclude row 16 and use rows 17-35.
-    const k44=t36;
-    const k45=z36;
-    const k47=sumRangeIndexes(active,1,19,"row_cost");
+    // Percent-of-grand-total for every row, active and inactive alike --
+    // both now reference the same grand total, replacing the master's own
+    // broken/blank "T54" reference that inactive rows used to point to.
+    for(const i of active){
+      const qty=readNumber(formulaField("ingredients",i,"quantity_mg"));
+      forceCalcValue(formulaField("ingredients",i,"percent"),totalQty?qty*100/totalQty:0,6);
+    }
+    for(const i of inactiveOn){
+      const qty=readNumber(formulaField("inactive_ingredients",i,"quantity_mg"));
+      forceCalcValue(formulaField("inactive_ingredients",i,"percent"),totalQty?qty*100/totalQty:0,6);
+    }
+    const activePct=sumAllIndexes(active,"percent","ingredients");
+    const inactivePct=sumAllIndexes(inactiveOn,"percent","inactive_ingredients");
+
+    // T36/Z36/AD36 = active subtotal (now correctly includes row 16).
+    forceCalcAddr("T36",activeQty,6); forceCalcAddr("Z36",activeProd,6); forceCalcAddr("AD36",activePct,6);
+    // T42/Z42/AD42 = inactive subtotal only (the cell the raw master mislabels
+    // "Caosule #0" via its broken overlapping SUM range -- see above).
+    forceCalcAddr("T42",inactiveQty,6); forceCalcAddr("Z42",inactiveProd,6); forceCalcAddr("AD42",inactivePct,6);
+    // T43/Z43/AD43 = grand total = active + inactive, no double counting.
+    forceCalcAddr("T43",totalQty,6); forceCalcAddr("Z43",totalProd,6); forceCalcAddr("AD43",activePct+inactivePct,6);
+
+    // Bottom summary: K44/K45 are the grand total (active+inactive); K47 is
+    // the grand total ingredient cost with the master's *120 markup rule --
+    // matches the corrected export formulas (K44=SUM(T<total_row>),
+    // K47=SUM(AI16:AL<inactive_last>)*120, both spanning active+inactive).
+    const rowCostAll=sumAllIndexes(active,"row_cost","ingredients")+inactiveOn.reduce((s,i)=>s+inactiveRowCost(i),0);
+    const k44=totalQty;
+    const k45=totalProd;
+    const k47=rowCostAll*120;
     const k48=readNumber(document.querySelector('.manual-cell-input[data-manual-cell="K48"]'));
     forceCalcAddr("K44",k44,6); forceCalcAddr("K45",k45,6); forceCalcAddr("K47",k47,9);
     forceCalcAddr("AO47",orderQty*k47,2); forceCalcAddr("AO48",orderQty*k48,2);
