@@ -351,11 +351,12 @@ def _shift_formula_addr(addr:str, production:bool, ingredient_count:int):
 
 def fill_tester_qty_formula(ws,d):
     """F-RD-002.1 AP31 ("จำนวน Tester") was a hardcoded master formula
-    "=30/0.981". The web form now collects the raw tester count as a normal
-    manual cell (AP31), so it arrives here as a plain number via
-    fill_manual_cells — this overwrites it with the actual "=<count>/0.981"
-    formula afterward, so AO27/AO28 (which reference AP31) still compute the
-    same way the original spreadsheet always did, not against a raw count.
+    "=30/0.981". The "/0.981" did not generalize to a custom count (confirmed
+    against a real record: 100 testers on a 10mg/200mg formula must give
+    exactly 1000mg/20000mg, not 1019.36/20387.3 — i.e. pack_mg is simply
+    quantity_mg * tester count), so this now writes the plain count itself.
+    AO16..AO27/AO28 keep referencing AP31 by cell, so they still compute
+    correctly off whatever count is entered.
     """
     ingredient_count=int(d.get("ingredient_count") or len(d.get("ingredients",[]) or []) or 0)
     raw=(d.get("manual_cells") or {}).get("AP31")
@@ -366,7 +367,19 @@ def fill_tester_qty_formula(ws,d):
     except (TypeError,ValueError):
         qty=30
     target=_shift_formula_addr("AP31",True,ingredient_count)
-    put(ws,target,f"={qty:g}/0.981")
+    put(ws,target,qty)
+
+
+def fill_margin_percent_formula(ws,d):
+    """New field: overall margin % = K35*100/K34 (profit including
+    packaging cost / selling price), written to Z36 — distinct from the
+    master's existing Z35 which excludes packaging cost (AE31).
+    """
+    ingredient_count=int(d.get("ingredient_count") or len(d.get("ingredients",[]) or []) or 0)
+    target=_shift_formula_addr("Z36",True,ingredient_count)
+    k34=_shift_formula_addr("K34",True,ingredient_count)
+    k35=_shift_formula_addr("K35",True,ingredient_count)
+    put(ws,target,f"={k35}*100/{k34}")
 
 
 def fill_manual_cells(ws,d,production=False):
@@ -1059,6 +1072,7 @@ def export_record(
             fill_manual_cells(ws,d,x.form_code=="F-RD-002.1")
             if x.form_code=="F-RD-002.1":
                 fill_tester_qty_formula(ws,d)
+                fill_margin_percent_formula(ws,d)
             output=BytesIO()
             wb.save(output)
             output.seek(0)
