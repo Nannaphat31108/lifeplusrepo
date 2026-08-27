@@ -373,6 +373,30 @@ class FormWorkspaceUser(Base, TimestampMixin):
     pin_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+class WorkHandoff(Base, TimestampMixin):
+    """A general-purpose "send work to another department" message.
+
+    Deliberately generic (subject/message/optional free-text reference)
+    rather than tied to a specific document type, so any department can send
+    work to any other department without each workflow needing its own
+    bespoke handoff table.
+    """
+    __tablename__ = "work_handoffs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    from_department: Mapped[str] = mapped_column(String(30), index=True)
+    to_department: Mapped[str] = mapped_column(String(30), index=True)
+    from_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    from_user_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    subject: Mapped[str] = mapped_column(String(255))
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Optional loose reference to another document, e.g. "F-RD-002-001" or a
+    # PO number -- free text, not a foreign key, so it works for any form.
+    reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="SENT")  # SENT -> RECEIVED -> DONE
+    received_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    done_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
 class SupplementAlias(Base, TimestampMixin):
     __tablename__ = "supplement_aliases"
     id: Mapped[int] = mapped_column(primary_key=True)

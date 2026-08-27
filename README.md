@@ -1,3 +1,17 @@
+## v31.39 — cross-department work handoff (ส่งงานหากันได้)
+
+Any department can now send a work item to any other department:
+- New `work_handoffs` table + `/api/work-handoffs/*` endpoints: create,
+  inbox (received), sent, mark received, mark done, unread count.
+- Every department's sidebar has **"งานที่ส่งมา"** (inbox, with an unread
+  count badge) and a **"+ ส่งงานไปแผนกอื่น"** button — pick a target
+  department, a subject, an optional message, and an optional free-text
+  reference (e.g. a form record number or PO number).
+- Deliberately generic rather than tied to one specific document type, so
+  it works the same way for every department without a bespoke table per
+  workflow (existing per-workflow handoffs like Planning → Production are
+  untouched).
+
 ## v31.35 — real per-employee login, no more department/person PIN
 
 Every department-code / "คนที่ 1-4" PIN table further down this file

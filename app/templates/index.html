@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>R&D ERP AI</title>
-  <link rel="stylesheet" href="/static/app.css?v=31.38">
+  <link rel="stylesheet" href="/static/app.css?v=31.39">
 </head>
 <body>
 <div id="toast"></div>
@@ -44,7 +44,11 @@
     </div>
     <nav>
       <button class="nav nav-home" onclick="backToDepartments()">← เปลี่ยนแผนก</button>
-      <div class="dept-menu dept-common"><button data-page="dashboard" class="nav" onclick="openPage('dashboard')">Dashboard</button></div>
+      <div class="dept-menu dept-common">
+        <button data-page="dashboard" class="nav" onclick="openPage('dashboard')">Dashboard</button>
+        <button data-page="workInbox" class="nav" onclick="openPage('workInbox')">งานที่ส่งมา <span id="workInboxBadge" class="nav-badge hidden">0</span></button>
+        <button class="nav" onclick="sendWorkForm()">+ ส่งงานไปแผนกอื่น</button>
+      </div>
       <div class="dept-menu" data-dept="RD"><div class="nav-section">R&D</div>
         <button class="nav exact-form-nav" data-form="F-RD-002" onclick="openExactForm('F-RD-002')">F-RD-002 สูตร</button>
         <button class="nav exact-form-nav" data-form="F-RD-002.1" onclick="openExactForm('F-RD-002.1')">F-RD-002.1 สูตรผลิต</button>
@@ -103,6 +107,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=31.38"></script>
+<script src="/static/app.js?v=31.39"></script>
 </body>
 </html>

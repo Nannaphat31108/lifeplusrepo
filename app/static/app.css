@@ -46,6 +46,12 @@ tr:last-child td{border-bottom:0}
 .badge{display:inline-block;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:800;background:#eef2f6}
 .badge.ok{background:#ecfdf3;color:var(--success)}.badge.warn{background:#fffaeb;color:var(--warn)}.badge.bad{background:#fef3f2;color:var(--danger)}
 .diff-red{color:var(--red);font-weight:800}
+.nav-badge{display:inline-block;min-width:18px;padding:1px 6px;border-radius:999px;background:var(--danger,#e11d48);color:#fff;font-size:11px;font-weight:800;text-align:center;margin-left:6px}
+.handoff-card{border:1px solid #e5e7eb;border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.handoff-card .handoff-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.handoff-card .handoff-meta{color:#667085;font-size:12px;margin-top:2px}
+.handoff-card .handoff-message{margin-top:8px;white-space:pre-wrap}
+.handoff-card .handoff-actions{margin-top:10px;display:flex;gap:8px}
 .link{color:var(--primary);cursor:pointer;font-weight:700}
 .empty{text-align:center;color:var(--muted);padding:38px}
 .insight{padding:12px;border-left:4px solid var(--primary);background:#f8fafc;border-radius:8px;margin:8px 0}

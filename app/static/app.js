@@ -194,7 +194,8 @@ const pageMeta={
  registration:["Registration / FDA","สูตรขึ้นทะเบียน อย. และสถานะส่ง Admin / มัดจำ 50%"],
  production:["Production / MRP","สูตรผลิต, Production Order, MRP และ Planning"],
  ai:["AI Insights","สรุปสถานะและจุดที่ควรติดตามจาก ERP"],
- admin:["Admin","Users และ Audit Log"]
+ admin:["Admin","Users และ Audit Log"],
+ workInbox:["งานที่ส่งมา","งานที่แผนกอื่นส่งมาให้แผนกนี้ และงานที่แผนกนี้ส่งออกไป"]
 };
 async function openPage(page){
   currentPage=page;
@@ -413,6 +414,87 @@ async function renderAI(){
  <p>ขั้นต่อไปสามารถต่อ AI Chat ให้ถาม “สูตรไหนยังไม่อนุมัติ?”, “วัตถุดิบไหนขาด?”, “Tester ไหนใกล้ครบกำหนด?” โดยคง Role Permission เดิม</p></div></div>`;
 }
 
+// --- Cross-department work handoff (Phase 5): any department can send a
+// general note + optional reference to any other department's inbox. ---
+async function refreshWorkInboxBadge(){
+  try{
+    const x=await api("/api/work-handoffs/unread-count");
+    const el=$("workInboxBadge");
+    if(!el)return;
+    if(x.count>0){el.textContent=String(x.count);el.classList.remove("hidden");}
+    else{el.classList.add("hidden");}
+  }catch(_){/* badge is best-effort */}
+}
+
+function handoffCard(x,mode){
+  const statusLabel={SENT:"ส่งแล้ว",RECEIVED:"รับทราบแล้ว",DONE:"เสร็จแล้ว"}[x.status]||x.status;
+  const dirLabel=mode==="inbox"?`จาก ${esc(x.from_department)} (${esc(x.from_user_name||"-")})`:`ถึง ${esc(x.to_department)}`;
+  const actions = mode==="inbox"
+    ? (x.status==="SENT" ? `<button class="primary" onclick="markHandoffReceived(${x.id})">รับทราบ</button>`
+      : x.status==="RECEIVED" ? `<button class="primary" onclick="markHandoffDone(${x.id})">เสร็จแล้ว</button>`
+      : "")
+    : "";
+  return `<div class="handoff-card">
+    <div class="handoff-head"><b>${esc(x.subject)}</b>${statusBadge(x.status)}</div>
+    <div class="handoff-meta">${dirLabel} • ${new Date(x.created_at).toLocaleString()}${x.reference?` • อ้างอิง: ${esc(x.reference)}`:""}</div>
+    ${x.message?`<div class="handoff-message">${esc(x.message)}</div>`:""}
+    <div class="handoff-actions">${actions}</div>
+  </div>`;
+}
+
+async function renderWorkInbox(){
+  const [inboxRows,sentRows]=await Promise.all([
+    api("/api/work-handoffs/inbox"),
+    api("/api/work-handoffs/sent")
+  ]);
+  const inboxHtml=inboxRows.length ? inboxRows.map(x=>handoffCard(x,"inbox")).join("") : '<div class="empty">ยังไม่มีงานส่งเข้ามา</div>';
+  const sentHtml=sentRows.length ? sentRows.map(x=>handoffCard(x,"sent")).join("") : '<div class="empty">ยังไม่ได้ส่งงานออกไป</div>';
+  $("pageContent").innerHTML=`
+    <div class="card"><div class="toolbar"><h3>กล่องขาเข้า</h3><button class="primary" onclick="sendWorkForm()">+ ส่งงานไปแผนกอื่น</button></div>${inboxHtml}</div>
+    <div class="card"><h3>ที่ส่งไปแล้ว</h3>${sentHtml}</div>
+  `;
+  refreshWorkInboxBadge();
+}
+
+async function markHandoffReceived(id){
+  try{await api(`/api/work-handoffs/${id}/receive`,{method:"POST"});toast("รับทราบงานแล้ว");await renderWorkInbox();}
+  catch(e){toast("ไม่สำเร็จ: "+(e?.message||e));}
+}
+async function markHandoffDone(id){
+  try{await api(`/api/work-handoffs/${id}/done`,{method:"POST"});toast("ทำเครื่องหมายเสร็จแล้ว");await renderWorkInbox();}
+  catch(e){toast("ไม่สำเร็จ: "+(e?.message||e));}
+}
+
+async function sendWorkForm(){
+  let depts;
+  try{depts=await api("/api/work-handoffs/departments");}
+  catch(e){toast("โหลดรายชื่อแผนกไม่สำเร็จ: "+(e?.message||e));return;}
+  const options=depts.departments.filter(d=>d!==depts.own_department)
+    .map(d=>`<option value="${d}">${d}</option>`).join("");
+  openModal("ส่งงานไปแผนกอื่น",`<div class="form-grid">
+    <div><label>ส่งถึงแผนก</label><select id="wh_to_department">${options}</select></div>
+    <div class="wide"><label>หัวข้องาน</label><input id="wh_subject" placeholder="เช่น ขอซื้อวัตถุดิบ Vitamin C 50kg"></div>
+    <div class="wide"><label>รายละเอียด</label><textarea id="wh_message" placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"></textarea></div>
+    <div class="wide"><label>อ้างอิงเอกสาร (ถ้ามี)</label><input id="wh_reference" placeholder="เช่น F-RD-002-001, PO-12345"></div>
+    <div class="wide"><button class="primary" onclick="saveWorkHandoff()">ส่งงาน</button></div>
+  </div>`);
+}
+async function saveWorkHandoff(){
+  const subject=$("wh_subject").value.trim();
+  if(!subject){toast("กรุณาใส่หัวข้องาน");return;}
+  try{
+    await api("/api/work-handoffs",{method:"POST",body:{
+      to_department:$("wh_to_department").value,
+      subject,
+      message:$("wh_message").value.trim()||null,
+      reference:$("wh_reference").value.trim()||null
+    }});
+    closeModal();
+    toast("ส่งงานแล้ว");
+    if(currentPage==="workInbox")await renderWorkInbox();
+  }catch(e){toast("ส่งงานไม่สำเร็จ: "+(e?.message||e));}
+}
+
 const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","CEO"];
 const EMPLOYEE_ROLES=["RD_HEAD","RD_ASSISTANT","RD_OFFICER","SALES","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","CEO","ADMIN"];
 
@@ -549,7 +631,7 @@ function renderOriginalForms(){
  $("pageContent").innerHTML=`<div class="card"><div class="original-banner"><b>ยึด 5 ไฟล์นี้เป็น Form ต้นฉบับ</b><div>หน้า ERP และ Workflow จะอ้างอิงโครงสร้าง/ชื่อช่องจากแบบฟอร์มจริง ไม่สร้างแบบฟอร์มใหม่แทนต้นฉบับ</div></div>${table(["Form","ชื่อแบบฟอร์ม","ใช้ในระบบ","ข้อมูลหลัก","Original File"],rows)}</div>`;
 }
 
-const renderers={originalForms:renderOriginalForms,customers:renderCustomers,dashboard:renderDashboard,projects:renderProjects,formulas:renderFormulas,testers:renderTesters,rates:renderRates,materials:renderMaterials,suppliers:renderSuppliers,inventory:renderInventory,registration:renderRegistration,production:renderProduction,ai:renderAI,admin:renderAdmin};
+const renderers={originalForms:renderOriginalForms,customers:renderCustomers,dashboard:renderDashboard,projects:renderProjects,formulas:renderFormulas,testers:renderTesters,rates:renderRates,materials:renderMaterials,suppliers:renderSuppliers,inventory:renderInventory,registration:renderRegistration,production:renderProduction,ai:renderAI,admin:renderAdmin,workInbox:renderWorkInbox};
 
 function openModal(title,html){$("modalTitle").textContent=title;$("modalBody").innerHTML=html;$("modal").classList.remove("hidden")}
 function closeModal(){$("modal").classList.add("hidden")}
@@ -2527,6 +2609,7 @@ async function enterDepartmentUnlocked(code){
  if(!allowedDepartments().includes(code)){alert("บัญชีนี้ไม่มีสิทธิ์เข้าแผนก "+code);return;}
  currentDepartment=code;localStorage.setItem("department",code);$("departmentPortal").classList.add("hidden");$("appShell").classList.remove("hidden");$("currentDepartment").textContent=me?.full_name?`${code} • ${me.full_name}`:code;
  document.querySelectorAll(".dept-menu").forEach(x=>x.classList.toggle("dept-visible",x.dataset.dept===code));document.querySelectorAll(".dept-common").forEach(x=>x.classList.add("dept-visible"));
+ refreshWorkInboxBadge();
  if(code==="CEO")await openPage("dashboard");else await openDepartmentWorkspace(code);
 }
 function backToDepartments(){currentDepartment=null;localStorage.removeItem("department");$("appShell").classList.add("hidden");$("departmentPortal").classList.remove("hidden");renderDepartmentPortal();}
