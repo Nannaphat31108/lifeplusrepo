@@ -27,6 +27,23 @@ def create_supplier(p: SupplierCreate, db: Session=Depends(get_db), u=Depends(ge
 def suppliers(db: Session=Depends(get_db), _=Depends(get_current_user)):
     return db.scalars(select(Supplier).order_by(Supplier.name)).all()
 
+@router.put("/suppliers/{supplier_id}")
+def update_supplier(supplier_id: int, p: SupplierUpdate, db: Session=Depends(get_db), u=Depends(get_current_user)):
+    x=db.get(Supplier, supplier_id)
+    if not x:
+        raise HTTPException(404, "Supplier not found")
+    x.supplier_code=p.supplier_code; x.name=p.name; x.country=p.country
+    audit(db,u.id,"UPDATE","Supplier",x.id); db.commit(); db.refresh(x); return x
+
+@router.delete("/suppliers/{supplier_id}")
+def delete_supplier(supplier_id: int, db: Session=Depends(get_db), u=Depends(require_roles("ADMIN","PURCHASE"))):
+    x=db.get(Supplier, supplier_id)
+    if not x:
+        raise HTTPException(404, "Supplier not found")
+    db.delete(x)
+    audit(db,u.id,"DELETE","Supplier",supplier_id); db.commit()
+    return {"ok": True}
+
 @router.post("/materials")
 def create_material(p: MaterialCreate, db: Session=Depends(get_db), u=Depends(get_current_user)):
     x=RawMaterial(**p.model_dump()); db.add(x); db.flush(); audit(db,u.id,"CREATE","RawMaterial",x.id); db.commit(); db.refresh(x); return x
