@@ -750,9 +750,16 @@ const MANUAL_EDIT_CELLS={
  "F-RD-002.1":{
    // Original master inputs: package/capsule cost and selling price.
    "AE31":"number",
+   // แคปซูล/บรรจุภัณฑ์ที่ใช้คิดต้นทุน (master default text: "แคปซูล #00 DRCap")
+   // — editable so it can describe whichever option (capsule size/color,
+   // ชงดื่ม, ตอกเม็ด, ...) actually applies, matching the price in AE31.
+   "B31":"text",
    // จำนวน Tester (master formula was a hardcoded "=30/0.981" — now editable;
    // blank defaults back to the original 30). See recalculateFormulaBoth().
    "AP31":"number",
+   // หน่วยของจำนวน Tester — master default was fixed text "แคปซูล"; now a
+   // real dropdown since a tester batch isn't always capsules.
+   "AQ31":{type:"select",options:["แคปซูล","เม็ด","ซอง","ขวด","กระปุก","ผง","หลอด"]},
    // Cost, selling price, profit and tester cost
    "K34":"number","AO34":"number",
    "K35":"number","AO35":"number",
@@ -773,6 +780,9 @@ function manualInputForCell(code,addr,currentValue){
  const type=MANUAL_EDIT_CELLS?.[code]?.[addr];
  if(!type)return null;
  const val=(currentValue===undefined||currentValue===null||String(currentValue)==="#DIV/0!")?"":String(currentValue);
+ if(typeof type==="object" && type.type==="select"){
+   return `<select class="excel-input manual-cell-input" data-manual-cell="${addr}" oninput="recalculateFormulaBoth()">${(type.options||[]).map(o=>`<option ${val===o?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
+ }
  if(code==="F-RD-002.1" && addr==="AP31"){
    return `<input class="excel-input manual-cell-input" data-manual-cell="${addr}" type="number" step="1" min="1" value="${esc(val==="0"?"":val)}" placeholder="จำนวน Tester (ค่าเริ่มต้น 30)" oninput="recalculateFormulaBoth()">`;
  }
@@ -797,14 +807,18 @@ const FORMULA_AUTO_CELLS={
     // AP31 ("จำนวน Tester") moved to MANUAL_EDIT_CELLS — it's an input now,
     // not an auto-calculated/readonly cell.
     "P28","V28","Z28","AN28","AO28",
-    "K33","O33","AO33","O34","AO34","K35","O35","Z35","AO35","K36","AO36"
+    "K33","O33","AO33","O34","AO34","K35","O35","Z35","AO35","K36","AO36",
+    // New: overall margin % = K35*100/K34 (profit incl. packaging / selling
+    // price), distinct from the master's existing Z35 which excludes AE31.
+    "Z36"
   ])
 };
 
 function formulaAutoInputForCell(code,addr,currentValue){
   if(!FORMULA_AUTO_CELLS?.[code]?.has(addr))return null;
   const val=(currentValue===undefined||currentValue===null||String(currentValue)==="#DIV/0!")?"":String(currentValue);
-  return `<input class="excel-input manual-cell-input formula-auto-input" data-manual-cell="${addr}" data-calc-cell="${addr}" type="number" step="0.000001" value="${esc(val==="0"?"":val)}" placeholder="คำนวณอัตโนมัติ" readonly tabindex="-1">`;
+  const title=(code==="F-RD-002.1" && addr==="Z36")?"กำไรรวมต่อหน่วย % (K35*100/K34)":"";
+  return `<input class="excel-input manual-cell-input formula-auto-input" data-manual-cell="${addr}" data-calc-cell="${addr}" type="number" step="0.000001" value="${esc(val==="0"?"":val)}" placeholder="คำนวณอัตโนมัติ" readonly tabindex="-1" ${title?`title="${esc(title)}"`:""}>`;
 }
 
 function readNumber(el){
@@ -2979,11 +2993,14 @@ recalculateFormulaBoth=function(){
   const rows=active.filter(i=>i>=0&&i<=11);
   let p28=0,v28=0,z28=0;
   // จำนวน Tester: originally a hardcoded "=30/0.981" in the master formula
-  // (AP31). Now user-editable — blank keeps the original default of 30.
+  // (AP31). The "/0.981" did not generalize to a custom count (confirmed
+  // against a real record: 100 testers on a 10mg/200mg formula must give
+  // exactly 1000mg/20000mg, not 1019.36/20387.3) — so pack_mg is now simply
+  // quantity_mg * tester count. Blank keeps the original default of 30.
   const testerQtyEl=document.querySelector('.manual-cell-input[data-manual-cell="AP31"]');
   const testerQtyRaw=testerQtyEl?.value?.trim();
   const testerQty=testerQtyRaw?Number(testerQtyRaw):30;
-  const ap31=(Number.isFinite(testerQty)&&testerQty>0?testerQty:30)/0.981;
+  const ap31=Number.isFinite(testerQty)&&testerQty>0?testerQty:30;
   for(const i of rows){
     const qty=readNumber(formulaField("ingredients",i,"quantity_mg"));
     const prod=qty*orderQty/1000000;
@@ -3026,9 +3043,13 @@ recalculateFormulaBoth=function(){
   const k35=k34-k33;
   const o35=o34-o33;
   const z35=o34?o35*100/o34:0;
+  // Overall margin % including packaging cost: K35*100/K34 (Z35 above is
+  // the ingredient-only margin, which excludes AE31's packaging cost).
+  const z36=k34?k35*100/k34:0;
   forceCalcAddr("K33",k33,9); forceCalcAddr("O33",o33,9); forceCalcAddr("AO33",orderQty*k33,2);
   forceCalcAddr("O34",o34,9); forceCalcAddr("AO34",orderQty*k34,2);
   forceCalcAddr("K35",k35,9); forceCalcAddr("O35",o35,9); forceCalcAddr("Z35",z35,6); forceCalcAddr("AO35",orderQty*k35,2);
+  forceCalcAddr("Z36",z36,6);
 
   // K36 = SUM(AQ20:AQ28): only rows 20-27 have ingredient tester costs in the supplied master.
   const k36=sumRangeIndexes(rows,4,11,"pack_price_mg");
