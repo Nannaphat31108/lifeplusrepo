@@ -1,9 +1,11 @@
+import base64
 from pathlib import Path
 import json
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -11,6 +13,8 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.security import get_current_user
 from app.models.entities import FDAMaterial
+
+MAX_SPEC_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB
 
 
 def _natural_code_key(code: str):
@@ -124,6 +128,10 @@ def serialize(x: FDAMaterial):
         "note":x.note or "",
         "image_url":x.image_url or "",
         "price_tiers":_parse_price_tiers(x.price_tiers_json),
+        # Uploaded อย. spec document (PDF/image) — distinct from image_url,
+        # which is just a free-text external link field.
+        "spec_url":f"/api/fda-materials/{x.id}/spec" if x.spec_data else "",
+        "spec_filename":x.spec_filename or "",
         "created_at":x.created_at.isoformat() if x.created_at else None,
         "updated_at":x.updated_at.isoformat() if x.updated_at else None,
     }
@@ -225,6 +233,12 @@ def unified_material_catalog(
         # resolve the right price_per_kg client-side as quantity changes,
         # without a round trip per keystroke.
         "price_tiers":_parse_price_tiers(x.price_tiers_json),
+        # อย. spec document attached in PURCHASE's FDA database — surfaced
+        # here so R&D sees/opens it right from the formula form the moment
+        # a material code is linked (the original request: "แนบ Spec อย.
+        # พร้อมเลข FDA จาก Supplier เมื่อใส่รหัสสาร").
+        "spec_url":f"/api/fda-materials/{x.id}/spec" if x.spec_data else "",
+        "spec_filename":x.spec_filename or "",
     } for x in rows]
 
 
@@ -327,6 +341,59 @@ def delete_fda_material(item_id:int,db:Session=Depends(get_db),u=Depends(get_cur
     if not x:
         raise HTTPException(404,"FDA material not found")
     db.delete(x)
+    db.commit()
+    return {"ok":True}
+
+
+@router.post("/{item_id}/spec")
+async def upload_fda_spec(
+    item_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+):
+    _require_purchase_editor(u)
+    x=db.get(FDAMaterial,item_id)
+    if not x:
+        raise HTTPException(404,"FDA material not found")
+    raw=await file.read()
+    if len(raw) > MAX_SPEC_UPLOAD_BYTES:
+        raise HTTPException(400,"ไฟล์ Spec ใหญ่เกินไป (จำกัด 8MB)")
+    if not raw:
+        raise HTTPException(400,"ไฟล์ว่างเปล่า")
+    x.spec_data=base64.b64encode(raw).decode("ascii")
+    x.spec_mime=file.content_type or "application/octet-stream"
+    x.spec_filename=file.filename or "spec"
+    db.commit()
+    return {"ok":True,"spec_url":f"/api/fda-materials/{x.id}/spec","spec_filename":x.spec_filename}
+
+
+@router.get("/{item_id}/spec")
+def get_fda_spec(item_id:int,db:Session=Depends(get_db),u=Depends(get_current_user)):
+    # Requires login (unlike packaging photos): an อย. spec document can
+    # carry supplier-confidential formulation/regulatory detail, so this
+    # stays behind auth rather than a plain unauthenticated <img>-style link.
+    x=db.get(FDAMaterial,item_id)
+    if not x or not x.spec_data:
+        raise HTTPException(404,"No spec file for this material")
+    raw=base64.b64decode(x.spec_data)
+    filename=x.spec_filename or "spec"
+    return Response(
+        content=raw,
+        media_type=x.spec_mime or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.delete("/{item_id}/spec")
+def delete_fda_spec(item_id:int,db:Session=Depends(get_db),u=Depends(get_current_user)):
+    _require_purchase_editor(u)
+    x=db.get(FDAMaterial,item_id)
+    if not x:
+        raise HTTPException(404,"FDA material not found")
+    x.spec_data=None
+    x.spec_mime=None
+    x.spec_filename=None
     db.commit()
     return {"ok":True}
 

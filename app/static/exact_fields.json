@@ -3236,6 +3236,24 @@
       "cell": "E18",
       "key": "price",
       "type": "number"
+    },
+    {
+      "cell": "H18",
+      "key": "payin_ref",
+      "type": "text",
+      "placeholder": "Pay-in / เอกสารอ้างอิง"
+    },
+    {
+      "cell": "A20",
+      "key": "requester",
+      "type": "text",
+      "placeholder": "ผู้ขอทำสินค้าตัวทดลอง"
+    },
+    {
+      "cell": "F20",
+      "key": "rd_maker",
+      "type": "text",
+      "placeholder": "ผู้จัดทำสินค้าตัวทดลอง/R&D"
     }
   ],
   "F-RD-004": [
