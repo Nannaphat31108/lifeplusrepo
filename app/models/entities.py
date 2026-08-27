@@ -356,6 +356,13 @@ class SourceFormRecord(Base, TimestampMixin):
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     workspace_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("form_workspace_users.id"), nullable=True, index=True)
     owner_person_key: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    # F-RD-002 (สูตร) only: which month the user chose to file this record
+    # under, format "YYYY-MM". User-selectable at save time, not auto-derived
+    # from created_at.
+    filed_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True, index=True)
+    # F-RD-002.1 (สูตรผลิต) only: which person's name the user chose to file
+    # this record under. Independent of who is actually logged in/saving it.
+    filed_person_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
 
 
 class FormWorkspaceUser(Base, TimestampMixin):

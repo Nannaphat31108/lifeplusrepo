@@ -83,6 +83,13 @@ const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
 
 function money(v){ if(v===undefined || v===null || v==="") return "-"; return Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:4});}
+function currentYearMonth(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;}
+function monthLabel(ym){
+  if(!ym)return "ไม่ระบุเดือน";
+  const [y,m]=ym.split("-");
+  const names=["","ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+  return `${names[Number(m)]||m} ${y}`;
+}
 function statusBadge(s){
   const x=String(s||"-");
   let c=""; if(["APPROVED","DELIVERED","CLOSED","READY","OK","SENT"].includes(x))c="ok";
@@ -572,6 +579,7 @@ async function loadExactAssets(){
  // Package master data now lives in a real database (with cost -> +20% real
  // price, and an official name) instead of the static catalog JSON.
  if(!window.packageCatalogData) try{window.packageCatalogData=await api("/api/packaging")}catch{window.packageCatalogData=[]}
+ if(!window.employeeListCache) try{window.employeeListCache=await api("/api/ui/employees")}catch{window.employeeListCache=[]}
 }
 function xlCol(n){let s="";while(n){n--;s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)}return s}
 function xlAddr(r,c){return xlCol(c)+r}
@@ -1457,6 +1465,8 @@ async function openPrivateExactForm(code){
       </div>
       <div class="actions">
         <input id="exactRecordNo" placeholder="เลขที่รายการ เช่น ${code}-001">
+        ${code==="F-RD-002"?`<input id="exactFiledMonth" type="month" value="${currentYearMonth()}" title="เก็บไว้ในเดือนไหน">`:""}
+        ${code==="F-RD-002.1"?`<input id="exactFiledPerson" list="exactEmployeeList" placeholder="เก็บไว้ในชื่อของใคร" title="เก็บไว้ในชื่อของใคร">`:""}
         <button onclick="showSourceRecords('${code}')">ฟอร์มของฉัน</button>
         ${isQPLikeForm(code)?`<div class="qp-exact-link"><input id="qpExactFormulaNo" placeholder="คีย์รหัสสูตร เช่น F-RD-002-001"><button onclick="linkAdminQPFormula(true)">VLOOKUP จากไฟล์สูตร</button></div>`:""}
         ${(code==="F-RD-002"||code==="F-RD-002.1")?`<button class="ai-formula-btn" onclick="openAIFormulaAssistant('${code}')">AI คิดสูตร</button>`:""}
@@ -1481,6 +1491,9 @@ async function openPrivateExactForm(code){
     </datalist>
     <datalist id="exactPackageList">
       ${(window.packageCatalogData||[]).map(x=>`<option value="${esc(x.spec||"")}">${esc(x.category||"")} — ราคา ${esc(x.price??"-")} — ${esc(x.supplier||"")}</option>`).join("")}
+    </datalist>
+    <datalist id="exactEmployeeList">
+      ${(window.employeeListCache||[]).map(x=>`<option value="${esc(x.full_name)}">${esc(x.department||"")}</option>`).join("")}
     </datalist>
   `;
 
@@ -1762,6 +1775,12 @@ async function editOwnSourceRecord(id){
  }
  await openPrivateExactForm(rec.form_code);
  $("exactRecordNo").value=rec.record_no||"";
+ if(rec.form_code==="F-RD-002" && $("exactFiledMonth")){
+   $("exactFiledMonth").value=rec.filed_month||currentYearMonth();
+ }
+ if(rec.form_code==="F-RD-002.1" && $("exactFiledPerson")){
+   $("exactFiledPerson").value=rec.filed_person_name||"";
+ }
  populateExactForm(rec.data||{});
  toast("เปิดฟอร์มของฉันเพื่อแก้ไขแล้ว");
 }
@@ -1855,6 +1874,12 @@ saveExactForm=async function(code){
     const recordInput=document.getElementById("exactRecordNo");
     const recordNo=(recordInput?.value||"").trim() || `${code}-${Date.now()}`;
     const body={record_no:recordNo,status:"DRAFT",data};
+    if(code==="F-RD-002"){
+      body.filed_month=document.getElementById("exactFiledMonth")?.value||currentYearMonth();
+    }
+    if(code==="F-RD-002.1"){
+      body.filed_person_name=(document.getElementById("exactFiledPerson")?.value||"").trim()||null;
+    }
 
     let result;
     if(window.editingSourceRecordId){
@@ -1902,10 +1927,47 @@ saveExactForm=async function(code){
   }
 };
 
+function sourceRecordRow(x){
+  return `<tr><td>${x.id}</td><td>${esc(x.record_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(x.owner||window.formWorkspace?.display_name||"")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="editOwnSourceRecord(${x.id})">แก้ไข</button><button onclick="exportSourceExcel(${x.id})">Excel ต้นฉบับ</button></td></tr>`;
+}
 showSourceRecords=async function(code){
  const rows=await api(`/api/source-forms/${code}`);
- const tr=rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.record_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(x.owner||window.formWorkspace?.display_name||"")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="editOwnSourceRecord(${x.id})">แก้ไข</button><button onclick="exportSourceExcel(${x.id})">Excel ต้นฉบับ</button></td></tr>`);
- $("pageContent").innerHTML=`<div class="card"><div class="workspace-note">คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น</div><div class="toolbar"><button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button></div>${table(["ID","Record No.","Status","Owner","Saved","Action"],tr)}</div>`;
+ const header=`<div class="card-head"><div class="workspace-note">คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น</div><div class="toolbar"><button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button></div></div>`;
+
+ // F-RD-002: group by the month the user chose to file each record under.
+ if(code==="F-RD-002"){
+   const groups=new Map();
+   for(const x of rows){
+     const k=x.filed_month||"";
+     if(!groups.has(k))groups.set(k,[]);
+     groups.get(k).push(x);
+   }
+   const sortedKeys=[...groups.keys()].sort((a,b)=>b.localeCompare(a));
+   const sections=sortedKeys.length
+     ? sortedKeys.map(k=>`<div class="card"><h3>${esc(monthLabel(k))} <small>(${groups.get(k).length} รายการ)</small></h3>${table(["ID","Record No.","Status","Owner","Saved","Action"],groups.get(k).map(sourceRecordRow))}</div>`).join("")
+     : '<div class="card"><div class="empty">ยังไม่มีข้อมูล</div></div>';
+   $("pageContent").innerHTML=`<div class="card">${header}</div>${sections}`;
+   return;
+ }
+
+ // F-RD-002.1: group by the person the user chose to file each record under.
+ if(code==="F-RD-002.1"){
+   const groups=new Map();
+   for(const x of rows){
+     const k=x.filed_person_name||"";
+     if(!groups.has(k))groups.set(k,[]);
+     groups.get(k).push(x);
+   }
+   const sortedKeys=[...groups.keys()].sort((a,b)=>a.localeCompare(b,"th"));
+   const sections=sortedKeys.length
+     ? sortedKeys.map(k=>`<div class="card"><h3>${esc(k||"ไม่ระบุชื่อ")} <small>(${groups.get(k).length} รายการ)</small></h3>${table(["ID","Record No.","Status","Owner","Saved","Action"],groups.get(k).map(sourceRecordRow))}</div>`).join("")
+     : '<div class="card"><div class="empty">ยังไม่มีข้อมูล</div></div>';
+   $("pageContent").innerHTML=`<div class="card">${header}</div>${sections}`;
+   return;
+ }
+
+ const tr=rows.map(sourceRecordRow);
+ $("pageContent").innerHTML=`<div class="card">${header}${table(["ID","Record No.","Status","Owner","Saved","Action"],tr)}</div>`;
 };
 
 
