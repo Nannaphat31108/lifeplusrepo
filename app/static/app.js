@@ -131,7 +131,7 @@ async function login(){
       : e.message;
   }
 }
-function logout(){localStorage.removeItem("token");localStorage.removeItem("loginUserInfo");token="";me=null;window.loginUserInfo=null;window.departmentAccessSession={};window.currentPersonAccess=null;window.currentPersonAccess=null;$("appShell").classList.add("hidden");$("departmentPortal")?.classList.add("hidden");$("loginPage").classList.remove("hidden");}
+function logout(){localStorage.removeItem("token");localStorage.removeItem("loginUserInfo");token="";me=null;window.loginUserInfo=null;window.currentPersonAccess=null;window.formWorkspace=null;$("appShell").classList.add("hidden");$("departmentPortal")?.classList.add("hidden");$("loginPage").classList.remove("hidden");}
 
 async function bootstrap(){
   try{
@@ -140,17 +140,29 @@ async function bootstrap(){
     $("userRole").textContent=me.role;
     if($("adminNav")) $("adminNav").classList.toggle("hidden",me.role!=="ADMIN" && me.role!=="RD_HEAD");
     $("loginPage").classList.add("hidden");
-    const loginInfo=window.loginUserInfo||{};
-    const forcedDept=departmentFromUsername(loginInfo.username);
-    if(forcedDept && !["ADMIN","CEO"].includes(forcedDept)){
+
+    // Logging in as a real employee IS the identity check now -- no more
+    // "choose department PIN" / "choose คนที่ 1-4 + PIN" gate on top of it.
+    window.currentPersonAccess={person_key:`USER-${me.id}`};
+    window.formWorkspace={
+      workspace_user_id:me.id,
+      display_name:me.full_name,
+      slot_no:1,
+      workspace_token:"account-owner"
+    };
+
+    const allowed=allowedDepartments();
+    if(allowed.length===1){
+      // Only one department available to this account -- skip the picker
+      // grid entirely and go straight in.
       $("departmentPortal").classList.add("hidden");
       $("appShell").classList.remove("hidden");
-      await enterDepartment(forcedDept);
+      await enterDepartment(allowed[0]);
     }else{
       $("appShell").classList.add("hidden");
       $("departmentPortal").classList.remove("hidden");
       renderDepartmentPortal();
-      if(currentDepartment)await enterDepartment(currentDepartment);
+      if(currentDepartment && allowed.includes(currentDepartment))await enterDepartment(currentDepartment);
     }
   }catch(e){
     console.error("Bootstrap error:", e);
@@ -394,13 +406,71 @@ async function renderAI(){
  <p>ขั้นต่อไปสามารถต่อ AI Chat ให้ถาม “สูตรไหนยังไม่อนุมัติ?”, “วัตถุดิบไหนขาด?”, “Tester ไหนใกล้ครบกำหนด?” โดยคง Role Permission เดิม</p></div></div>`;
 }
 
+const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","CEO"];
+const EMPLOYEE_ROLES=["RD_HEAD","RD_ASSISTANT","RD_OFFICER","SALES","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","CEO","ADMIN"];
+
 async function renderAdmin(){
  if(!["ADMIN","RD_HEAD"].includes(me.role)){throw new Error("Permission denied")}
  const audits=await api("/api/ui/audit");
  let users=[]; if(me.role==="ADMIN")users=await api("/api/ui/users");
- const userRows=users.map(x=>`<tr><td>${esc(x.username)}</td><td>${esc(x.full_name)}</td><td>${esc(x.role)}</td><td>${x.is_active?"Active":"Inactive"}</td></tr>`);
+ const userRows=users.map(x=>`<tr><td>${esc(x.username)}</td><td>${esc(x.full_name)}</td><td>${esc(x.role)}</td><td>${dataOr(x.department)}</td><td>${x.is_active?"Active":"Inactive"}</td><td class="mini-actions"><button onclick="editEmployee(${x.id})">แก้ไข</button></td></tr>`);
  const auditRows=audits.map(x=>`<tr><td>${x.id}</td><td>${esc(x.action)}</td><td>${esc(x.entity_type)}</td><td>${x.entity_id??"-"}</td><td>${x.user_id??"-"}</td><td>${x.created_at}</td></tr>`);
- $("pageContent").innerHTML=`${me.role==="ADMIN"?`<div class="card"><h3>Users</h3>${table(["Username","Name","Role","Status"],userRows)}</div>`:""}<div class="card"><h3>Audit Log</h3>${table(["ID","Action","Entity","Entity ID","User ID","Time"],auditRows)}</div>`;
+ $("pageContent").innerHTML=`${me.role==="ADMIN"?`<div class="card"><div class="toolbar"><div><h3>Employees</h3><div class="muted">บัญชีพนักงานจริง — คนละบัญชี คนละรหัสผ่าน แยกตามแผนกจริงของแต่ละคน</div></div><button class="primary" onclick="employeeForm()">+ Employee</button></div>${table(["Username","Name","Role","Department","Status","Action"],userRows)}</div>`:""}<div class="card"><h3>Audit Log</h3>${table(["ID","Action","Entity","Entity ID","User ID","Time"],auditRows)}</div>`;
+ window._employeesCache=users;
+}
+
+function employeeForm(){
+ openModal("เพิ่มพนักงาน",`<div class="form-grid">
+   <div><label>Username</label><input id="emp_username" placeholder="เช่น somchai"></div>
+   <div><label>ชื่อ-นามสกุล</label><input id="emp_name" placeholder="ชื่อจริงของพนักงาน"></div>
+   <div><label>แผนก</label><select id="emp_department">${EMPLOYEE_DEPARTMENTS.map(d=>`<option value="${d}">${d}</option>`).join("")}</select></div>
+   <div><label>Role</label><select id="emp_role">${EMPLOYEE_ROLES.map(r=>`<option value="${r}">${r}</option>`).join("")}</select></div>
+   <div class="wide"><label>รหัสผ่านเริ่มต้น</label><input id="emp_password" type="text" placeholder="อย่างน้อย 8 ตัวอักษร"></div>
+   <div class="wide"><button class="primary" onclick="saveEmployee()">Save</button></div>
+ </div>`);
+}
+async function saveEmployee(){
+ try{
+   await api("/api/auth/register",{method:"POST",body:{
+     username:$("emp_username").value.trim().toLowerCase(),
+     full_name:$("emp_name").value.trim(),
+     department:$("emp_department").value,
+     role:$("emp_role").value,
+     password:$("emp_password").value
+   }});
+   closeModal();toast("เพิ่มพนักงานแล้ว");renderAdmin();
+ }catch(e){toast("เพิ่มไม่สำเร็จ: "+(e?.message||e));}
+}
+function editEmployee(id){
+ const x=(window._employeesCache||[]).find(u=>u.id===id);
+ if(!x)return;
+ openModal(`แก้ไข ${x.username}`,`<div class="form-grid">
+   <div><label>ชื่อ-นามสกุล</label><input id="emp_edit_name" value="${esc(x.full_name)}"></div>
+   <div><label>แผนก</label><select id="emp_edit_department">${EMPLOYEE_DEPARTMENTS.map(d=>`<option value="${d}" ${x.department===d?"selected":""}>${d}</option>`).join("")}</select></div>
+   <div><label>Role</label><select id="emp_edit_role">${EMPLOYEE_ROLES.map(r=>`<option value="${r}" ${x.role===r?"selected":""}>${r}</option>`).join("")}</select></div>
+   <div><label>สถานะ</label><select id="emp_edit_active"><option value="true" ${x.is_active?"selected":""}>Active</option><option value="false" ${!x.is_active?"selected":""}>Inactive (ปิดใช้งาน)</option></select></div>
+   <div class="wide"><button class="primary" onclick="saveEmployeeEdit(${x.id})">Save</button></div>
+   <div class="wide"><hr><label>ตั้งรหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)</label><input id="emp_edit_password" type="text" placeholder="อย่างน้อย 8 ตัวอักษร"><button onclick="resetEmployeePassword('${x.username}')">ตั้งรหัสผ่านใหม่</button></div>
+ </div>`);
+}
+async function saveEmployeeEdit(id){
+ try{
+   await api(`/api/auth/users/${id}`,{method:"PUT",body:{
+     full_name:$("emp_edit_name").value.trim(),
+     department:$("emp_edit_department").value,
+     role:$("emp_edit_role").value,
+     is_active:$("emp_edit_active").value==="true"
+   }});
+   closeModal();toast("บันทึกแล้ว");renderAdmin();
+ }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+async function resetEmployeePassword(username){
+ const pw=$("emp_edit_password").value;
+ if(!pw){toast("กรุณาใส่รหัสผ่านใหม่");return;}
+ try{
+   await api("/api/auth/admin/set-password",{method:"POST",body:{username,new_password:pw}});
+   toast("ตั้งรหัสผ่านใหม่แล้ว");closeModal();
+ }catch(e){toast("ไม่สำเร็จ: "+(e?.message||e));}
 }
 
 
@@ -2420,7 +2490,12 @@ const DEPARTMENTS=[
 ];
 let currentDepartment=localStorage.getItem("department")||null;
 function allowedDepartments(){
- const roleMap={RD_HEAD:["RD"],RD_ASSISTANT:["RD"],RD_OFFICER:["RD"],SALES:["SALE"],JOB:["JOB"],PLANNING:["PLANNING"],STOCK:["STOCK"],PURCHASE:["PURCHASE"],PRODUCTION:["PRODUCTION"],GRAPHIC:["GRAPHIC"],QC:["QC"],QUALITY:["QUALITY"],CEO:DEPARTMENTS.map(x=>x.code),ADMIN:DEPARTMENTS.map(x=>x.code)};
+ // ADMIN/CEO can always see every department. Otherwise prefer the real
+ // employee's own department (set on their account) over the old role->department
+ // guess, so one real person can be created in any department regardless of role.
+ if(["ADMIN","CEO"].includes(me?.role))return DEPARTMENTS.map(x=>x.code);
+ if(me?.department)return [me.department];
+ const roleMap={RD_HEAD:["RD"],RD_ASSISTANT:["RD"],RD_OFFICER:["RD"],SALES:["SALE"],JOB:["JOB"],PLANNING:["PLANNING"],STOCK:["STOCK"],PURCHASE:["PURCHASE"],PRODUCTION:["PRODUCTION"],GRAPHIC:["GRAPHIC"],QC:["QC"],QUALITY:["QUALITY"]};
  return roleMap[me?.role]||[];
 }
 function renderDepartmentPortal(){
@@ -2432,11 +2507,11 @@ function renderDepartmentPortal(){
 
 async function enterDepartmentUnlocked(code){
  if(!allowedDepartments().includes(code)){alert("บัญชีนี้ไม่มีสิทธิ์เข้าแผนก "+code);return;}
- currentDepartment=code;localStorage.setItem("department",code);$("departmentPortal").classList.add("hidden");$("appShell").classList.remove("hidden");$("currentDepartment").textContent=window.currentPersonAccess?`${code} • คนที่ ${window.currentPersonAccess.person_no}`:code;
+ currentDepartment=code;localStorage.setItem("department",code);$("departmentPortal").classList.add("hidden");$("appShell").classList.remove("hidden");$("currentDepartment").textContent=me?.full_name?`${code} • ${me.full_name}`:code;
  document.querySelectorAll(".dept-menu").forEach(x=>x.classList.toggle("dept-visible",x.dataset.dept===code));document.querySelectorAll(".dept-common").forEach(x=>x.classList.add("dept-visible"));
  if(code==="CEO")await openPage("dashboard");else await openDepartmentWorkspace(code);
 }
-function backToDepartments(){currentDepartment=null;localStorage.removeItem("department");window.formWorkspace=null;window.departmentAccessSession={};$("appShell").classList.add("hidden");$("departmentPortal").classList.remove("hidden");renderDepartmentPortal();}
+function backToDepartments(){currentDepartment=null;localStorage.removeItem("department");$("appShell").classList.add("hidden");$("departmentPortal").classList.remove("hidden");renderDepartmentPortal();}
 async function openDepartmentWorkspace(code){
  const configs={
  RD:{title:"R&D",text:"จัดการสูตร สูตรผลิต Tester และ Rate",cards:[["F-RD-002 สูตร","แบบฟอร์มสูตร R&D","openExactForm('F-RD-002')"],["F-RD-002.1 สูตรผลิต","สูตรสำหรับผลิตจริง","openExactForm('F-RD-002.1')"],["F-RD-003 Tester","ขอทำสินค้าทดลอง","openExactForm('F-RD-003')"],["F-RD-004 Rate","ขอเรทราคา","openExactForm('F-RD-004')"]]},
@@ -2539,92 +2614,11 @@ function departmentFromUsername(username){
 const bootstrapV13Original = bootstrap;
 
 
-window.departmentAccessSession = window.departmentAccessSession || {};
-
+// Logging in with a real employee account IS the department/identity check
+// now -- no more per-department PIN, no more "choose คนที่ 1-4 + PIN" gate.
+// enterDepartment() is kept only as the name every call site already uses.
 async function enterDepartment(code){
-  // Ask for a department PIN every time the user chooses a department.
-  openModal(`รหัสเข้าแผนก ${code}`,`
-    <div class="department-pin-box">
-      <div class="department-pin-icon">${esc(code)}</div>
-      <h3>กรอกรหัสแผนก</h3>
-      <p>ต้องใส่รหัสก่อนเข้าสู่พื้นที่ ${esc(code)}</p>
-      <input id="departmentPinInput" type="password" inputmode="numeric" maxlength="8" placeholder="รหัสแผนก">
-      <button class="primary full" onclick="verifyDepartmentPin('${code}')">เข้าสู่แผนก</button>
-      <div id="departmentPinError" class="error"></div>
-    </div>
-  `);
-  setTimeout(()=>document.getElementById("departmentPinInput")?.focus(),50);
-}
-
-async function verifyDepartmentPin(code){
-  const pin=(document.getElementById("departmentPinInput")?.value||"").trim();
-  try{
-    await api("/api/department-access/verify",{
-      method:"POST",
-      body:{department:code,code:pin}
-    });
-    window.departmentAccessSession[code]=true;
-    closeModal();
-    await chooseDepartmentPerson(code);
-  }catch(e){
-    const box=document.getElementById("departmentPinError");
-    if(box)box.textContent=e.message||"รหัสแผนกไม่ถูกต้อง";
-  }
-}
-
-
-window.currentPersonAccess=null;
-
-async function chooseDepartmentPerson(code){
-  const cards=[1,2,3,4].map(n=>`
-    <button class="person-card" onclick="personPinPrompt('${code}',${n})">
-      <div class="person-avatar">${n}</div>
-      <b>คนที่ ${n}</b>
-      <small>ใส่รหัสส่วนตัวก่อนเข้า</small>
-    </button>`).join("");
-  openModal(`${code} — เลือกผู้ใช้งาน`,`
-    <div class="person-grid">${cards}</div>
-    <div class="workspace-note">ข้อมูลของแต่ละคนจะแยกจากกัน คนอื่นจะไม่เห็นฟอร์มของคนนี้</div>
-  `);
-}
-
-function personPinPrompt(dept,personNo){
-  openModal(`${dept} — คนที่ ${personNo}`,`
-    <div class="department-pin-box">
-      <div class="person-avatar large">${personNo}</div>
-      <h3>รหัสของคนที่ ${personNo}</h3>
-      <input id="personPinInput" type="password" inputmode="numeric" maxlength="8" placeholder="รหัสส่วนตัว">
-      <button class="primary full" onclick="verifyPersonPin('${dept}',${personNo})">เข้าสู่พื้นที่ของฉัน</button>
-      <div id="personPinError" class="error"></div>
-    </div>
-  `);
-  setTimeout(()=>document.getElementById("personPinInput")?.focus(),50);
-}
-
-async function verifyPersonPin(dept,personNo){
-  try{
-    const x=await api("/api/department-access/verify-person",{
-      method:"POST",
-      body:{
-        department:dept,
-        person_no:personNo,
-        code:(document.getElementById("personPinInput")?.value||"").trim()
-      }
-    });
-    window.currentPersonAccess=x;
-    window.formWorkspace={
-      workspace_user_id:me?.id,
-      display_name:`${dept} - คนที่ ${personNo}`,
-      slot_no:personNo,
-      workspace_token:"person-owner"
-    };
-    closeModal();
-    toast(`${dept} คนที่ ${personNo}`);
-    await enterDepartmentUnlocked(dept);
-  }catch(e){
-    const box=document.getElementById("personPinError");
-    if(box)box.textContent=e.message||"รหัสไม่ถูกต้อง";
-  }
+  await enterDepartmentUnlocked(code);
 }
 
 

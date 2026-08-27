@@ -1,3 +1,28 @@
+## v31.35 — real per-employee login, no more department/person PIN
+
+Every department-code / "คนที่ 1-4" PIN table further down this file
+(including the `PERSON_CODES.txt` / `DEPARTMENT_CODES.txt` references and the
+`/api/department-access/*` endpoints) documents **retired** behavior:
+
+- `app/api/department_access.py`, `DEPARTMENT_CODES.txt`, and
+  `PERSON_CODES.txt` have been deleted — those were hardcoded department PINs
+  (e.g. RD=1201) and hardcoded per-person PINs (e.g. RD คนที่ 1=211) checked
+  into the repo as plaintext, the same class of problem as the original
+  `LOGIN_ACCOUNTS.txt` issue above.
+- Logging in is now with a real employee account (`ADMIN` creates one per
+  person under **Users / Audit → Employees**: username, full name,
+  department, role, password) — there is no second "enter department PIN"
+  step and no "choose คนที่ 1-4 + personal PIN" step after that anymore.
+  `User.department` on the account decides which department that person
+  lands in.
+- Legacy shared accounts (`rd1`..`rd4`, `admin1`..`ceo4`, etc.) still work
+  side by side with real employee accounts — nothing about them was deleted
+  or force-disabled. An ADMIN can deactivate one once everyone on that
+  department has a real named account (Employees → แก้ไข → Inactive).
+- Old private form records saved under the previous "คนที่ 1-4" workspace
+  system are untouched and still viewable; they are simply not linked to
+  any specific new employee account, since they never had one.
+
 ## SECURITY FIX — credentials are no longer hardcoded
 
 Every plaintext password/account table below this line (going back through

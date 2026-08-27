@@ -26,6 +26,7 @@ def me(u=Depends(get_current_user)):
         "username": u.username,
         "full_name": u.full_name,
         "role": u.role,
+        "department": u.department,
         "can_view_pricing": can_view_pricing(u.role),
     }
 
@@ -184,7 +185,7 @@ def stocks(db: Session = Depends(get_db), u=Depends(get_current_user)):
 def users(db: Session = Depends(get_db), u=Depends(require_roles("ADMIN"))):
     return [{
         "id": x.id, "username": x.username, "full_name": x.full_name,
-        "role": x.role, "is_active": x.is_active
+        "role": x.role, "department": x.department, "is_active": x.is_active
     } for x in db.scalars(select(User).order_by(User.id)).all()]
 
 

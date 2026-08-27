@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.entities import User
-from app.schemas.auth import UserCreate, LoginRequest, ChangePasswordRequest, AdminSetPasswordRequest
+from app.schemas.auth import UserCreate, UserUpdate, LoginRequest, ChangePasswordRequest, AdminSetPasswordRequest
 from app.core.security import (
     hash_password, verify_password, create_access_token,
     require_roles, get_current_user,
@@ -13,14 +13,56 @@ router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 @router.post("/register")
 def register(payload: UserCreate, db: Session = Depends(get_db), _=Depends(require_roles("ADMIN"))):
-    if db.scalar(select(User).where(User.username == payload.username)):
+    """Create a real per-employee account (ADMIN only).
+
+    This is the "Employees" flow: one row per actual person, with their own
+    username/password and a real department — not a shared department
+    account like the legacy "rd1".."rd4" pattern.
+    """
+    username = (payload.username or "").strip().lower()
+    if not username:
+        raise HTTPException(400, "Username is required")
+    if db.scalar(select(User).where(User.username == username)):
         raise HTTPException(409, "Username exists")
+    department = (payload.department or "").strip().upper() or None
     user = User(
-        username=payload.username, full_name=payload.full_name,
-        password_hash=hash_password(payload.password), role=payload.role
+        username=username, full_name=payload.full_name,
+        password_hash=hash_password(payload.password), role=payload.role,
+        department=department,
     )
     db.add(user); db.commit(); db.refresh(user)
-    return {"id": user.id, "username": user.username, "role": user.role}
+    return {
+        "id": user.id, "username": user.username, "full_name": user.full_name,
+        "role": user.role, "department": user.department, "is_active": user.is_active,
+    }
+
+
+@router.put("/users/{user_id}")
+def update_employee(
+    user_id: int,
+    payload: UserUpdate,
+    db: Session = Depends(get_db),
+    _=Depends(require_roles("ADMIN")),
+):
+    """Edit an employee's name/role/department, or activate/deactivate the
+    account (used to retire legacy shared accounts once real employee
+    accounts exist for that department)."""
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+    if payload.full_name is not None:
+        target.full_name = payload.full_name
+    if payload.role is not None:
+        target.role = payload.role
+    if payload.department is not None:
+        target.department = payload.department.strip().upper() or None
+    if payload.is_active is not None:
+        target.is_active = payload.is_active
+    db.commit()
+    return {
+        "id": target.id, "username": target.username, "full_name": target.full_name,
+        "role": target.role, "department": target.department, "is_active": target.is_active,
+    }
 
 
 def department_role_map():
@@ -82,7 +124,12 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     # Department/person metadata is cosmetic labeling only, never an
     # authentication check — the bcrypt verification above already decided.
+    # Real employee accounts carry their department directly on the User
+    # row; legacy shared accounts (rd1..rd4, etc.) fall back to the old
+    # naming-convention map so they keep working until an admin retires them.
     meta = department_role_map().get(username, {})
+    department = user.department or meta.get("department")
+    person_no = meta.get("person_no") if not user.department else None
 
     return {
         "access_token": create_access_token(user.id, user.role),
@@ -92,8 +139,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             "name": user.full_name,
             "role": user.role,
             "username": user.username,
-            "department": meta.get("department"),
-            "person_no": meta.get("person_no"),
+            "department": department,
+            "person_no": person_no,
         }
     }
 
