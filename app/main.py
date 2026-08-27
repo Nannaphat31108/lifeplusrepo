@@ -160,35 +160,45 @@ ensure_source_form_owner_schema()
 
 
 
-def ensure_v13_department_accounts():
+def ensure_bootstrap_admin():
+    """Create exactly one ADMIN account on a brand-new, empty database.
+
+    This never touches an existing account or password — it only fires when
+    the `users` table is completely empty (first boot against a fresh DB).
+    The generated password is printed once to the process log; there is no
+    other way to recover it, by design. Log in with it and immediately call
+    POST /api/auth/change-password, or use `scripts/seed.py` to provision
+    additional department accounts.
+    """
+    import secrets
     from app.db.session import SessionLocal
     from app.models.entities import User
     from app.core.security import hash_password
-    from app.api.auth import department_account_map
 
     db = SessionLocal()
     try:
-        for username, spec in department_account_map().items():
-            user = db.query(User).filter(User.username == username).first()
-            if not user:
-                db.add(User(
-                    username=username,
-                    full_name=spec["full_name"],
-                    password_hash=hash_password(spec["password"]),
-                    role=spec["role"],
-                    is_active=True,
-                ))
-            else:
-                user.full_name = spec["full_name"]
-                user.role = spec["role"]
-                user.is_active = True
-                # Reset to documented demo/UAT password every server start.
-                user.password_hash = hash_password(spec["password"])
+        if db.query(User).first() is not None:
+            return
+        password = secrets.token_urlsafe(12)
+        db.add(User(
+            username="admin",
+            full_name="Administrator",
+            password_hash=hash_password(password),
+            role="ADMIN",
+            is_active=True,
+        ))
         db.commit()
+        print("=" * 60)
+        print("[BOOTSTRAP] Created initial ADMIN account (first boot only):")
+        print(f"[BOOTSTRAP]   username: admin")
+        print(f"[BOOTSTRAP]   password: {password}")
+        print("[BOOTSTRAP] This is shown once and is NOT stored anywhere else.")
+        print("[BOOTSTRAP] Log in, then call POST /api/auth/change-password.")
+        print("=" * 60)
     finally:
         db.close()
 
-ensure_v13_department_accounts()
+ensure_bootstrap_admin()
 
 
 
@@ -225,6 +235,4 @@ def login_check():
     return {
         "build": "FINAL-v31.12-variant-selection-realtime-fix",
         "status": "ready",
-        "test_account": "rd1 / rd11234",
-        "admin_account": "admin / admin1234"
     }

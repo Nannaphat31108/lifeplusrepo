@@ -1,3 +1,29 @@
+## SECURITY FIX — credentials are no longer hardcoded
+
+Every plaintext password/account table below this line (going back through
+the FINAL v6–v14 history) documents **retired** behavior and must not be
+used as real credentials — the source code that generated them is gone.
+
+What changed:
+- `app/api/auth.py` no longer contains a hardcoded username→password map,
+  and the app no longer resets department-account passwords back to fixed
+  values on every server start.
+- On a brand-new database, the app creates exactly one `admin` account on
+  first boot with a random password printed once to the server log. Use it
+  to log in, then call `POST /api/auth/change-password` immediately.
+- To provision the full set of department accounts (rd1..ceo4), run
+  `python scripts/seed.py` — it generates a fresh random password per
+  account (printed once) and never overwrites an existing user.
+- `POST /api/auth/admin/set-password` lets an ADMIN reset another user's
+  password (lost-password recovery).
+- `LOGIN_ACCOUNTS.txt` (which held the old plaintext passwords) has been
+  deleted from the repo.
+
+If any account below was ever deployed with these documented passwords,
+treat those passwords as compromised (this repo was public) and rotate
+them via the endpoints above — deleting the file does not undo the earlier
+exposure.
+
 ## v31.22 RD MASTER FORMULA LIVE FIX
 - Fixed F-RD-002 T42/Z42/AD42 and T43/Z43/AD43 to match attached Excel SUM ranges exactly.
 - Removed editable overlays from calculated inactive cells.
