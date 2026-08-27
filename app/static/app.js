@@ -64,7 +64,7 @@ async function exportSourceExcel(id){
   try{
     if(!id)throw new Error("ไม่พบ Record ID");
     if(!window.currentPersonAccess?.person_key){
-      throw new Error("กรุณาเลือกคนที่ 1-4 และใส่รหัสก่อน");
+      throw new Error("เซสชันหมดอายุ กรุณาล็อกอินใหม่");
     }
     return await exportExcel(`/api/source-forms/record/${id}/excel`);
   }catch(e){
@@ -665,56 +665,13 @@ async function saveExactForm(code){
 }
 
 
+// window.formWorkspace now represents the real logged-in employee (set
+// automatically in bootstrap()/openExactFormAccount()) -- there is no more
+// "choose a workspace slot + PIN" step. See openExactForm() further down,
+// which is the version actually used (askFormulaIngredientCount /
+// openExactFormAccount), and openExactFormAccount() for how formWorkspace
+// is populated from `me`.
 window.formWorkspace = null;
-
-async function openExactForm(code){
-  await openWorkspaceChooser(code);
-}
-
-async function openWorkspaceChooser(code){
-  const slots = await api("/api/form-workspaces");
-  const cards = slots.map(x => `
-    <button class="workspace-card" onclick="workspacePinPrompt(${x.slot_no},'${esc(x.display_name)}','${code}')">
-      <div class="workspace-no">${x.slot_no}</div>
-      <b>${esc(x.display_name)}</b>
-      <small>ใส่รหัสก่อนเข้าฟอร์ม</small>
-    </button>
-  `).join("");
-
-  openModal(`เลือกผู้ใช้งาน — ${code}`, `
-    <div class="workspace-grid">${cards}</div>
-    <div class="workspace-note">
-      แต่ละคนจะเห็น แก้ไข และ Export ได้เฉพาะฟอร์มของตัวเองเท่านั้น
-    </div>
-  `);
-}
-
-function workspacePinPrompt(slot, name, code){
-  openModal(`${name} — ใส่รหัส`, `
-    <div class="pin-box">
-      <div class="workspace-no">${slot}</div>
-      <h3>${esc(name)}</h3>
-      <input id="workspacePin" type="password" inputmode="numeric" placeholder="รหัส PIN" autofocus>
-      <button class="primary full" onclick="workspaceLogin(${slot},'${code}')">เข้าสู่พื้นที่ของฉัน</button>
-      <div id="workspacePinError" class="error"></div>
-    </div>
-  `);
-}
-
-async function workspaceLogin(slot, code){
-  try{
-    const x = await api("/api/form-workspaces/login", {
-      method:"POST",
-      body:{slot_no:slot, pin:$("workspacePin").value}
-    });
-    window.formWorkspace = x;
-    closeModal();
-    toast(`เข้าสู่ ${x.display_name}`);
-    await openPrivateExactForm(code);
-  }catch(e){
-    $("workspacePinError").textContent = e.message;
-  }
-}
 
 
 
@@ -1504,7 +1461,6 @@ async function openPrivateExactForm(code){
         ${isQPLikeForm(code)?`<div class="qp-exact-link"><input id="qpExactFormulaNo" placeholder="คีย์รหัสสูตร เช่น F-RD-002-001"><button onclick="linkAdminQPFormula(true)">VLOOKUP จากไฟล์สูตร</button></div>`:""}
         ${(code==="F-RD-002"||code==="F-RD-002.1")?`<button class="ai-formula-btn" onclick="openAIFormulaAssistant('${code}')">AI คิดสูตร</button>`:""}
         <button class="primary" onclick="saveExactForm('${code}')">บันทึก</button>
-        <button onclick="window.formWorkspace=null;openWorkspaceChooser('${code}')">เปลี่ยนคน</button>
       </div>
     </div>
 
@@ -1884,7 +1840,7 @@ saveExactForm=async function(code){
     if(!code)throw new Error("ไม่พบรหัสฟอร์มที่กำลังเปิด");
 
     if(!window.currentPersonAccess?.person_key){
-      throw new Error("กรุณาเลือกคนที่ 1-4 และใส่รหัสก่อน");
+      throw new Error("เซสชันหมดอายุ กรุณาล็อกอินใหม่");
     }
 
     const data=collectExactPayload();
