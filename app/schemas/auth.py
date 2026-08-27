@@ -5,6 +5,13 @@ class UserCreate(BaseModel):
     full_name: str
     password: str
     role: str = "RD_OFFICER"
+    department: str | None = None
+
+class UserUpdate(BaseModel):
+    full_name: str | None = None
+    role: str | None = None
+    department: str | None = None
+    is_active: bool | None = None
 
 class LoginRequest(BaseModel):
     username: str

@@ -111,6 +111,32 @@ def ensure_packaging_image_columns():
 ensure_packaging_image_columns()
 
 
+def ensure_user_department_column():
+    """Add users.department for existing databases created before real
+    per-employee accounts carried their department directly (previously
+    inferred only from a shared username pattern like "rd1".."rd4")."""
+    from sqlalchemy import text
+    from app.db.session import engine
+
+    try:
+        with engine.begin() as conn:
+            dialect = conn.dialect.name
+            if dialect == "postgresql":
+                conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS department VARCHAR(30)"))
+                print("[USER SCHEMA] PostgreSQL department column ensured")
+            elif dialect == "sqlite":
+                cols = {r[1] for r in conn.execute(text("PRAGMA table_info(users)")).fetchall()}
+                if "department" not in cols:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN department VARCHAR(30)"))
+                print("[USER SCHEMA] SQLite department column ensured")
+            else:
+                print(f"[USER SCHEMA] No migration needed for {dialect}")
+    except Exception as e:
+        print(f"[USER SCHEMA] Warning: {type(e).__name__}: {e}")
+
+ensure_user_department_column()
+
+
 def ensure_packaging_database():
     from app.db.session import SessionLocal
     from app.api.packaging import import_package_catalog

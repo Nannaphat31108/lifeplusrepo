@@ -21,6 +21,10 @@ class User(Base, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(255))
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(30), default="RD_OFFICER")
+    # Real department this employee belongs to (RD, ADMIN, SALE, ...). Replaces
+    # the old convention of inferring department from a shared username
+    # pattern like "rd1".."rd4" — real employee accounts carry it directly.
+    department: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 class Customer(Base, TimestampMixin):
