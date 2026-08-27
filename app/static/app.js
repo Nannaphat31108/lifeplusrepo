@@ -692,7 +692,7 @@ function autoLinkInactiveIngredient(inp){
   setFormulaVariant("inactive_ingredients",i,codeInfo.variant_code);
 
   setLinkedFieldValue("inactive_ingredients",i,"material_code",codeInfo.base_code);
-  setLinkedFieldValue("inactive_ingredients",i,"name",item.name||"");
+  setLinkedFieldValue("inactive_ingredients",i,"name",linkedMaterialDisplayName(item));
   setLinkedFieldValue("inactive_ingredients",i,"supplier",item.vendor||"");
   setLinkedFieldValue("inactive_ingredients",i,"import_country",item.origin||"");
   setLinkedFieldValue("inactive_ingredients",i,"halal",item.halal||"");
@@ -700,7 +700,7 @@ function autoLinkInactiveIngredient(inp){
     "inactive_ingredients",i,"price_kg",getSupplementPrice(item),{clearOverride:true}
   );
 
-  if(inp.dataset.sub==="name")inp.value=item.name||"";
+  if(inp.dataset.sub==="name")inp.value=linkedMaterialDisplayName(item);
 
   const codeEl=document.querySelector(
     `.excel-input[data-group="inactive_ingredients"][data-index="${i}"][data-sub="material_code"]`
@@ -1542,6 +1542,15 @@ function resetLinkedMaterialState(group,index){
   }
 }
 
+// F-RD-002 ("สูตร") is the file submitted for อย. registration, so its
+// ingredient rows link the substance's registered/อย. name; F-RD-002.1
+// ("สูตรผลิต") is for production/costing, so it keeps the product name.
+function linkedMaterialDisplayName(item){
+  if(!item)return "";
+  if(currentExactForm==="F-RD-002")return item.registered_name||item.name||"";
+  return item.name||item.registered_name||"";
+}
+
 function applyLinkedMaterial(index,item){
  resetLinkedMaterialState("ingredients",index);
  if(!item)return;
@@ -1551,7 +1560,7 @@ function applyLinkedMaterial(index,item){
 
  // Visible/base code
  setLinkedFieldValue("ingredients",index,"material_code",codeInfo.base_code);
- setLinkedFieldValue("ingredients",index,"name",item.name||"");
+ setLinkedFieldValue("ingredients",index,"name",linkedMaterialDisplayName(item));
  setLinkedFieldValue("ingredients",index,"supplier",item.vendor||"");
  setLinkedFieldValue("ingredients",index,"import_country",item.origin||"");
  setLinkedFieldValue("ingredients",index,"halal",item.halal||"");
@@ -1609,7 +1618,7 @@ function linkedPanelNameChanged(inp){
  const item=findSupplementByName(inp.value,i,"ingredients");
  if(item){
    applyLinkedMaterial(i,item);
-   inp.value=item.name||"";
+   inp.value=linkedMaterialDisplayName(item);
  }
 }
 function autoLinkIngredient(inp){
@@ -1621,8 +1630,8 @@ function autoLinkIngredient(inp){
  if(item){
    applyLinkedMaterial(i,item);
 
-   // After choosing a unique "name || variant", show the human-readable name only.
-   if(inp.dataset.sub==="name")inp.value=item.name||"";
+   // After choosing a unique "name || variant", show the linked display name only.
+   if(inp.dataset.sub==="name")inp.value=linkedMaterialDisplayName(item);
  }
 }
 function bindAliasPanel(){
