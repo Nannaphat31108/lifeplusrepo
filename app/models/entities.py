@@ -294,6 +294,13 @@ class FDAMaterial(Base, TimestampMixin):
     percentage: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Attached อย. spec document from the supplier (PDF or image), stored as
+    # base64 in the DB — same reasoning as PackagingItem's image: this app's
+    # Render deployment has no persistent disk, so a file saved to disk
+    # would vanish on the next deploy.
+    spec_data: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    spec_mime: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    spec_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 class PackagingItem(Base, TimestampMixin):

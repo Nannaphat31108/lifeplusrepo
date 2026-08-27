@@ -27,6 +27,9 @@ def ensure_fda_material_schema():
         "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS supplier_code TEXT",
         "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS purity TEXT",
         "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS price_tiers_json TEXT",
+        "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS spec_data TEXT",
+        "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS spec_mime VARCHAR(120)",
+        "ALTER TABLE fda_materials ADD COLUMN IF NOT EXISTS spec_filename VARCHAR(255)",
         "ALTER TABLE fda_materials ALTER COLUMN registered_name TYPE TEXT",
         "ALTER TABLE fda_materials ALTER COLUMN assay TYPE TEXT",
         "ALTER TABLE fda_materials ALTER COLUMN ratio TYPE TEXT",
@@ -44,7 +47,7 @@ def ensure_fda_material_schema():
                 print("[FDA SCHEMA] PostgreSQL FDA text columns expanded")
             elif dialect=="sqlite":
                 cols={r[1] for r in conn.execute(text("PRAGMA table_info(fda_materials)")).fetchall()}
-                for name in ("origin_country","price_per_kg","halal","supplier_code","purity","price_tiers_json"):
+                for name in ("origin_country","price_per_kg","halal","supplier_code","purity","price_tiers_json","spec_data","spec_mime","spec_filename"):
                     if name not in cols:
                         conn.execute(text(f"ALTER TABLE fda_materials ADD COLUMN {name} TEXT"))
                 print("[FDA SCHEMA] SQLite unified FDA/material columns ensured")

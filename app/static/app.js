@@ -706,6 +706,7 @@ function autoLinkInactiveIngredient(inp){
     `.excel-input[data-group="inactive_ingredients"][data-index="${i}"][data-sub="material_code"]`
   );
   if(codeEl)updateFDAForMaterialCodeInput(codeEl);
+  updateFDASpecBadge("inactive_ingredients",i,item);
 
   refreshFormulaLinkedCalculations("inactive_ingredients",i);
   recalculateFormulaBoth();
@@ -1556,10 +1557,34 @@ function applyLinkedMaterial(index,item){
    `.excel-input[data-group="ingredients"][data-index="${index}"][data-sub="material_code"]`
  );
  if(codeEl)updateFDAForMaterialCodeInput(codeEl);
+ updateFDASpecBadge("ingredients",index,item);
 
  // Recalculate after DOM has the new price.
  recalculateFormulaBoth();
  setTimeout(recalculateFormulaBoth,0);
+}
+
+// Shows a small "ดาวน์โหลด Spec" link right after the FDA-number cell when
+// the linked material has an attached อย. spec — the original R&D request
+// was "แนบ Spec อย. พร้อมเลข FDA จาก Supplier เมื่อใส่รหัสสาร". Purely an
+// injected sibling element; never touches the fixed Excel cell grid itself.
+function updateFDASpecBadge(group,index,item){
+  const fdaEl=document.querySelector(`.excel-input[data-group="${group}"][data-index="${index}"][data-sub="fda_no"]`);
+  if(!fdaEl)return;
+  let badge=fdaEl.parentElement?.querySelector(".fda-spec-badge");
+  if(item?.spec_url){
+    if(!badge){
+      badge=document.createElement("button");
+      badge.type="button";
+      badge.className="fda-spec-badge";
+      fdaEl.insertAdjacentElement("afterend",badge);
+    }
+    badge.textContent="📎 Spec";
+    badge.title=item.spec_filename||"ดาวน์โหลด Spec อย.";
+    badge.onclick=()=>downloadFDASpec(item.id);
+  }else if(badge){
+    badge.remove();
+  }
 }
 function linkedPanelCodeChanged(inp){
  const i=Number(inp.dataset.index),item=findSupplementByCode(inp.value);
@@ -2041,7 +2066,7 @@ async function loadFDADatabase(){
     const code=document.getElementById("fdaDbSearchCode")?.value||"";
     const name=document.getElementById("fdaDbSearchName")?.value||"";
     const rows=await api(`/api/fda-materials?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}&category=${encodeURIComponent(fdaDbCategory)}&limit=1000`);
-    const headers=["รหัสสาร","หมวด Supplier","Product name","ชื่อขึ้นทะเบียนของสาร","บริษัท Supplier","รหัส Supplier","ประเทศที่มา","ราคา/กก.","Halal","COA","FDA NUMBER","PURITY","ASSAY","อัตราส่วน","เปอร์เซ็น %","หมายเหตุ","รูป","จัดการ"];
+    const headers=["รหัสสาร","หมวด Supplier","Product name","ชื่อขึ้นทะเบียนของสาร","บริษัท Supplier","รหัส Supplier","ประเทศที่มา","ราคา/กก.","Halal","COA","FDA NUMBER","PURITY","ASSAY","อัตราส่วน","เปอร์เซ็น %","หมายเหตุ","รูป","Spec อย.","จัดการ"];
     const tr=rows.map(x=>`<tr>
       <td><b>${esc(x.material_code)}</b></td>
       <td>${esc(x.supplier_category)}</td>
@@ -2060,6 +2085,7 @@ async function loadFDADatabase(){
       <td>${esc(x.percentage)}</td>
       <td>${esc(x.note)}</td>
       <td>${x.image_url?`<a href="${esc(x.image_url)}" target="_blank" rel="noopener">เปิดรูป</a>`:""}</td>
+      <td>${x.spec_url?`<button onclick="downloadFDASpec(${x.id})" title="${esc(x.spec_filename)}">ดาวน์โหลด Spec</button>`:'<span class="muted">ไม่มี</span>'}</td>
       <td class="mini-actions">
         <button onclick="openFDAMaterialEditor(${x.id})">แก้ไข</button>
         <button onclick="deleteFDAMaterial(${x.id},'${esc(x.material_code)}')">ลบ</button>
@@ -2115,6 +2141,11 @@ async function openFDAMaterialEditor(id=null){
         <div class="fda-editor-title">ราคาตามปริมาณ (สารรหัส/FDA เดียวกัน ปริมาณต่างกัน ราคาต่างกัน)</div>
         <div id="fdaTierRows"></div>
         <button onclick="addFdaTierRow()">+ เพิ่มระดับราคา</button>
+      </div>
+      <div class="fda-tier-section">
+        <div class="fda-editor-title">แนบ Spec อย. (PDF / รูปภาพ จาก Supplier)</div>
+        <input id="fda_spec_file" type="file" accept="application/pdf,image/*">
+        ${d.spec_url?`<div style="margin-top:6px"><button onclick="downloadFDASpec(${id})">ดาวน์โหลดไฟล์ปัจจุบัน: ${esc(d.spec_filename||"spec")}</button> <button onclick="removeFDASpec(${id})">ลบไฟล์</button></div>`:'<div class="muted" style="margin-top:6px">ยังไม่มีไฟล์แนบ</div>'}
       </div>
       <div class="actions">
         <button class="primary" onclick="saveFDAMaterial()">บันทึกข้อมูล</button>
@@ -2237,10 +2268,16 @@ async function saveFDAMaterial(){
     body.price_tiers=fdaDbTierRows
       .filter(t=>String(t.min_qty_kg||"").trim()!=="" && String(t.price_per_kg||"").trim()!=="")
       .map(t=>({min_qty_kg:Number(t.min_qty_kg)||0,price_per_kg:Number(t.price_per_kg)}));
+    let saved;
     if(fdaDbEditingId){
-      await api(`/api/fda-materials/${fdaDbEditingId}`,{method:"PUT",body});
+      saved=await api(`/api/fda-materials/${fdaDbEditingId}`,{method:"PUT",body});
     }else{
-      await api("/api/fda-materials",{method:"POST",body});
+      saved=await api("/api/fda-materials",{method:"POST",body});
+    }
+    const specFile=document.getElementById("fda_spec_file")?.files?.[0];
+    if(specFile){
+      try{ await uploadFDASpec(saved.id,specFile); }
+      catch(e){ toast("บันทึกข้อมูลสำเร็จ แต่แนบ Spec ไม่สำเร็จ: "+(e?.message||e)); }
     }
     // Clear cached FDA map so formula forms see the new/edited record immediately.
     fdaCodeMap=null;
@@ -2262,6 +2299,31 @@ async function deleteFDAMaterial(id,code){
   }catch(e){
     alert("ลบไม่สำเร็จ: "+(e?.message||e));
   }
+}
+
+async function uploadFDASpec(id,file){
+  const fd=new FormData();
+  fd.append("file",file);
+  const headers={};
+  if(token)headers.Authorization="Bearer "+token;
+  const r=await fetch(`/api/fda-materials/${id}/spec`,{method:"POST",headers,body:fd});
+  if(!r.ok){
+    let msg=`HTTP ${r.status}`;
+    try{const d=await r.json();msg=d?.detail||msg;}catch{}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+async function downloadFDASpec(id){
+  await exportExcel(`/api/fda-materials/${id}/spec`);
+}
+async function removeFDASpec(id){
+  if(!confirm("ลบไฟล์ Spec ที่แนบไว้?"))return;
+  try{
+    await api(`/api/fda-materials/${id}/spec`,{method:"DELETE"});
+    toast("ลบไฟล์ Spec แล้ว");
+    await openFDAMaterialEditor(id);
+  }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
 }
 
 const DEPARTMENTS=[
