@@ -349,6 +349,26 @@ def _shift_formula_addr(addr:str, production:bool, ingredient_count:int):
         row+=extra
     return f"{col}{row}"
 
+def fill_tester_qty_formula(ws,d):
+    """F-RD-002.1 AP31 ("จำนวน Tester") was a hardcoded master formula
+    "=30/0.981". The web form now collects the raw tester count as a normal
+    manual cell (AP31), so it arrives here as a plain number via
+    fill_manual_cells — this overwrites it with the actual "=<count>/0.981"
+    formula afterward, so AO27/AO28 (which reference AP31) still compute the
+    same way the original spreadsheet always did, not against a raw count.
+    """
+    ingredient_count=int(d.get("ingredient_count") or len(d.get("ingredients",[]) or []) or 0)
+    raw=(d.get("manual_cells") or {}).get("AP31")
+    try:
+        qty=float(raw) if raw not in (None,"") else 30
+        if qty<=0:
+            qty=30
+    except (TypeError,ValueError):
+        qty=30
+    target=_shift_formula_addr("AP31",True,ingredient_count)
+    put(ws,target,f"={qty:g}/0.981")
+
+
 def fill_manual_cells(ws,d,production=False):
     ingredient_count=int(d.get("ingredient_count") or len(d.get("ingredients",[]) or []) or 0)
     for cell,value in (d.get("manual_cells") or {}).items():
@@ -1037,6 +1057,8 @@ def export_record(
                 raise HTTPException(400,"Unsupported form")
 
             fill_manual_cells(ws,d,x.form_code=="F-RD-002.1")
+            if x.form_code=="F-RD-002.1":
+                fill_tester_qty_formula(ws,d)
             output=BytesIO()
             wb.save(output)
             output.seek(0)

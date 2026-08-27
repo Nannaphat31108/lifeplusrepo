@@ -749,6 +749,9 @@ const MANUAL_EDIT_CELLS={
  "F-RD-002.1":{
    // Original master inputs: package/capsule cost and selling price.
    "AE31":"number",
+   // จำนวน Tester (master formula was a hardcoded "=30/0.981" — now editable;
+   // blank defaults back to the original 30). See recalculateFormulaBoth().
+   "AP31":"number",
    // Cost, selling price, profit and tester cost
    "K34":"number","AO34":"number",
    "K35":"number","AO35":"number",
@@ -769,6 +772,9 @@ function manualInputForCell(code,addr,currentValue){
  const type=MANUAL_EDIT_CELLS?.[code]?.[addr];
  if(!type)return null;
  const val=(currentValue===undefined||currentValue===null||String(currentValue)==="#DIV/0!")?"":String(currentValue);
+ if(code==="F-RD-002.1" && addr==="AP31"){
+   return `<input class="excel-input manual-cell-input" data-manual-cell="${addr}" type="number" step="1" min="1" value="${esc(val==="0"?"":val)}" placeholder="จำนวน Tester (ค่าเริ่มต้น 30)" oninput="recalculateFormulaBoth()">`;
+ }
  if(type==="number"){
    return `<input class="excel-input manual-cell-input" data-manual-cell="${addr}" type="number" step="0.000001" value="${esc(val==="0"?"":val)}" placeholder="พิมพ์ข้อมูล" oninput="recalculateFormulaBoth()">`;
  }
@@ -787,7 +793,9 @@ const FORMULA_AUTO_CELLS={
     "K44","K45","K47","AO47","AO48","K49","AO49"
   ]),
   "F-RD-002.1":new Set([
-    "P28","V28","Z28","AN28","AO28","AP31",
+    // AP31 ("จำนวน Tester") moved to MANUAL_EDIT_CELLS — it's an input now,
+    // not an auto-calculated/readonly cell.
+    "P28","V28","Z28","AN28","AO28",
     "K33","O33","AO33","O34","AO34","K35","O35","Z35","AO35","K36","AO36"
   ])
 };
@@ -2908,7 +2916,12 @@ recalculateFormulaBoth=function(){
   // F-RD-002.1 original main table is rows 16-27 ONLY (12 ingredients).
   const rows=active.filter(i=>i>=0&&i<=11);
   let p28=0,v28=0,z28=0;
-  const ap31=30/0.981; // exact original formula AP31 = 30/0.981
+  // จำนวน Tester: originally a hardcoded "=30/0.981" in the master formula
+  // (AP31). Now user-editable — blank keeps the original default of 30.
+  const testerQtyEl=document.querySelector('.manual-cell-input[data-manual-cell="AP31"]');
+  const testerQtyRaw=testerQtyEl?.value?.trim();
+  const testerQty=testerQtyRaw?Number(testerQtyRaw):30;
+  const ap31=(Number.isFinite(testerQty)&&testerQty>0?testerQty:30)/0.981;
   for(const i of rows){
     const qty=readNumber(formulaField("ingredients",i,"quantity_mg"));
     const prod=qty*orderQty/1000000;
@@ -2932,7 +2945,8 @@ recalculateFormulaBoth=function(){
     z28+=pct;
   }
   forceCalcAddr("P28",p28,6); forceCalcAddr("V28",v28,6); forceCalcAddr("Z28",z28,6);
-  forceCalcAddr("AP31",ap31,9);
+  // AP31 is now the user-editable "จำนวน Tester" input itself — never
+  // force-overwrite it here (that would undo what the user just typed).
 
   // AN28 = SUM(AN20:AN27): price/pack rows indexes 4..11 only.
   const an28=sumRangeIndexes(rows,4,11,"price_pack");
