@@ -495,6 +495,336 @@ async function saveWorkHandoff(){
   }catch(e){toast("ส่งงานไม่สำเร็จ: "+(e?.message||e));}
 }
 
+// ============================================================
+// Purchase Order (ใบสั่งซื้อ, PURCHASE -> external supplier) and
+// Purchase Request (ใบขอซื้อ / PR, STOCK -> PURCHASE). Department-shared
+// documents (like Customers/Suppliers), not private per-person drafts like
+// the F-RD-* exact forms -- so they use their own /api/purchase-docs
+// endpoints rather than the X-Person-Key-scoped source-forms ones.
+// ============================================================
+
+// Standard Thai baht-text conversion, e.g. 1605 -> "หนึ่งพันหกร้อยห้าบาทถ้วน".
+function thaiBahtText(amount){
+  amount=Math.round((Number(amount)||0)*100)/100;
+  const isNeg=amount<0;
+  amount=Math.abs(amount);
+  const baht=Math.floor(amount);
+  const satang=Math.round((amount-baht)*100);
+  const digitThai=["","หนึ่ง","สอง","สาม","สี่","ห้า","หก","เจ็ด","แปด","เก้า"];
+  const positionThai=["","สิบ","ร้อย","พัน","หมื่น","แสน"];
+  function convert(numStr){
+    numStr=String(numStr).replace(/^0+(?=\d)/,"");
+    if(numStr==="0"||numStr==="")return "ศูนย์";
+    let result="";
+    const len=numStr.length;
+    for(let i=0;i<len;i++){
+      const digit=Number(numStr[i]);
+      const pos=len-i-1; // 0 = rightmost (units) digit of the whole number
+      const posInGroup=pos%6;
+      if(digit===0)continue;
+      if(posInGroup===1 && digit===2){result+="ยี่";}
+      else if(posInGroup===1 && digit===1){/* "สิบ" alone */}
+      else if(posInGroup===0 && digit===1 && pos===0 && len>1){result+="เอ็ด";}
+      else{result+=digitThai[digit];}
+      result+=positionThai[posInGroup];
+      if(pos>0 && pos%6===0)result+="ล้าน";
+    }
+    return result;
+  }
+  let text=convert(baht)+"บาท";
+  text += satang===0 ? "ถ้วน" : convert(String(satang).padStart(2,"0"))+"สตางค์";
+  return (isNeg?"ลบ":"")+text;
+}
+
+// Generic Excel-like keyboard navigation for a table of inputs marked with
+// data-row/data-col. Arrow keys move focus in that direction; Enter moves
+// down a row (the common spreadsheet convention). Left/Right only hijack
+// the arrow when the caret is already at that edge of the text, so normal
+// in-text cursor movement still works. Skips <select> elements so their
+// native arrow-key behavior (changing the selected option) isn't broken.
+function purchaseDocKeyNav(e){
+  const t=e.target;
+  if(!t.dataset || t.dataset.row===undefined || t.dataset.col===undefined)return;
+  const row=Number(t.dataset.row), col=Number(t.dataset.col);
+  let nr=row, nc=col;
+  if(e.key==="ArrowDown"||e.key==="Enter"){nr=row+1;}
+  else if(e.key==="ArrowUp"){nr=row-1;}
+  else if(e.key==="ArrowRight"){
+    if(t.tagName==="SELECT")return;
+    if(t.selectionStart!==t.selectionEnd || t.selectionStart!==t.value.length)return;
+    nc=col+1;
+  }else if(e.key==="ArrowLeft"){
+    if(t.tagName==="SELECT")return;
+    if(t.selectionStart!==t.selectionEnd || t.selectionStart!==0)return;
+    nc=col-1;
+  }else return;
+  const next=document.querySelector(`.purchase-doc-grid [data-row="${nr}"][data-col="${nc}"]`);
+  if(next){e.preventDefault();next.focus();if(next.select)next.select();}
+}
+
+const PURCHASE_DOC_ROW_COUNT=12;
+
+async function loadPurchaseDocAssets(){
+  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
+  if(!window.supplierListCache) try{window.supplierListCache=await api("/api/suppliers")}catch{window.supplierListCache=[]}
+  if(!window.productionOrderCache) try{window.productionOrderCache=await api("/api/ui/production-orders")}catch{window.productionOrderCache=[]}
+}
+
+function purchaseDocCell(row,col,attrs,value=""){
+  return `<input class="excel-input" data-row="${row}" data-col="${col}" ${attrs||""} value="${esc(value)}" onkeydown="purchaseDocKeyNav(event)">`;
+}
+
+async function openPurchaseDocForm(docType,existingId=null){
+  await loadPurchaseDocAssets();
+  window.currentPurchaseDoc=docType;
+  window.editingPurchaseDocId=existingId;
+  let existing=null;
+  if(existingId){
+    try{existing=await api(`/api/purchase-docs/record/${existingId}`);}catch(e){toast("โหลดข้อมูลไม่สำเร็จ: "+(e?.message||e));}
+  }
+  const d=existing?.data||{};
+  const items=Array.isArray(d.items)?d.items:[];
+
+  const supplierOptions=(window.supplierListCache||[]).map(s=>`<option value="${esc(s.supplier_code||"")}">${esc(s.name)}</option>`).join("");
+  const materialOptions=(window.supplementCodeData||[]).map(m=>`<option value="${esc(m.code)}">${esc(m.name)}</option>`).join("");
+  const poOptions=(window.productionOrderCache||[]).map(p=>`<option value="${esc(p.production_order_no)}"></option>`).join("");
+
+  $("pageTitle").textContent=docType==="PO"?"ใบสั่งซื้อ (Purchase Order)":"ใบขอซื้อ (Purchase Request; PR)";
+  $("pageSubtitle").textContent=docType==="PO"?"จัดซื้อ → ผู้จำหน่ายภายนอก":"คลังสินค้า → จัดซื้อ";
+
+  let rows="";
+  const rowCount=Math.max(PURCHASE_DOC_ROW_COUNT,items.length);
+
+  if(docType==="PO"){
+    for(let r=0;r<rowCount;r++){
+      const it=items[r]||{};
+      rows+=`<tr>
+        <td class="col-no">${r+1}</td>
+        <td>${purchaseDocCell(r,0,'data-sub="description" placeholder="รายละเอียดสินค้า"',it.description)}</td>
+        <td>${purchaseDocCell(r,1,'data-sub="quantity" type="number" step="any" oninput="recalcPurchaseDocTotals()"',it.quantity)}</td>
+        <td>${purchaseDocCell(r,2,'data-sub="unit" placeholder="หน่วย เช่น Kg."',it.unit)}</td>
+        <td>${purchaseDocCell(r,3,'data-sub="unit_price" type="number" step="any" oninput="recalcPurchaseDocTotals()"',it.unit_price)}</td>
+        <td><input class="excel-input po-row-amount" data-row="${r}" data-col="4" data-sub="amount" readonly tabindex="-1" value="${esc(it.amount||"")}"></td>
+      </tr>`;
+    }
+    $("pageContent").innerHTML=`
+      <div class="exact-form-toolbar">
+        <div><b>ใบสั่งซื้อ ${existing?`#${esc(existing.doc_no)}`:"(ฉบับใหม่)"}</b><small>ใช้ลูกศร ↑↓←→ และ Enter เพื่อย้ายช่องได้เหมือน Excel</small></div>
+        <div class="actions">
+          <button onclick="listPurchaseDocs('PO')">รายการใบสั่งซื้อทั้งหมด</button>
+          <button class="primary" onclick="savePurchaseDoc('PO')">บันทึก</button>
+        </div>
+      </div>
+      <div class="card purchase-doc-grid">
+        <div class="form-grid">
+          <div><label>เลขที่</label><input id="po_no" value="${esc(existing?.doc_no||"")}" placeholder="PO2026080111"></div>
+          <div><label>วันที่</label><input id="po_date" type="date" value="${esc(d.date||currentDateISO())}"></div>
+          <div><label>ครบกำหนด</label><input id="po_due_date" type="date" value="${esc(d.due_date||"")}"></div>
+          <div><label>ผู้สั่งซื้อ</label><input id="po_buyer_name" value="${esc(d.buyer_name||"Lifeplus Pharmaceutical")}"></div>
+          <div><label>อ้างอิง (เลขที่ PR)</label><input id="po_reference" value="${esc(existing?.linked_reference||d.reference||"")}" placeholder="PR-IC6908-220"></div>
+          <div><label>ผู้ติดต่อ</label><input id="po_contact_person" value="${esc(d.contact_person||"")}"></div>
+          <div><label>รหัสผู้จำหน่าย</label><input id="po_supplier_code" list="poSupplierList" value="${esc(d.supplier_code||"")}" oninput="linkPurchaseDocSupplier(this)"></div>
+          <div><label>เบอร์โทร</label><input id="po_contact_phone" value="${esc(d.contact_phone||"")}"></div>
+          <div class="wide"><label>ผู้จำหน่าย</label><input id="po_supplier_name" value="${esc(d.supplier_name||"")}"></div>
+          <div class="wide"><label>ที่อยู่ผู้จำหน่าย</label><input id="po_supplier_address" value="${esc(d.supplier_address||"")}"></div>
+          <div><label>เลขประจำตัวผู้เสียภาษี</label><input id="po_supplier_tax_id" value="${esc(d.supplier_tax_id||"")}"></div>
+        </div>
+        <datalist id="poSupplierList">${supplierOptions}</datalist>
+
+        <div class="table-wrap">
+          <table class="purchase-doc-table">
+            <colgroup><col style="width:5%"><col style="width:42%"><col style="width:10%"><col style="width:10%"><col style="width:16%"><col style="width:17%"></colgroup>
+            <thead><tr><th>#</th><th>รายละเอียด</th><th>จำนวน</th><th>หน่วย</th><th>ราคาต่อหน่วย</th><th>ยอดรวม</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+
+        <div class="purchase-doc-totals">
+          <div>รวมเป็นเงิน <b id="po_subtotal">0.00</b> บาท</div>
+          <div>ภาษีมูลค่าเพิ่ม 7% <b id="po_vat">0.00</b> บาท</div>
+          <div>จำนวนเงินรวมทั้งสิ้น <b id="po_grand_total">0.00</b> บาท</div>
+          <div class="baht-text" id="po_baht_text">(ศูนย์บาทถ้วน)</div>
+        </div>
+
+        <div class="form-grid">
+          <div><label>ผู้ซื้อ</label><input id="po_buyer_sign" value="${esc(d.buyer_sign||"")}"></div>
+          <div><label>วันที่ (ผู้ซื้อ)</label><input id="po_buyer_sign_date" type="date" value="${esc(d.buyer_sign_date||"")}"></div>
+          <div><label>ผู้อนุมัติ</label><input id="po_approver_sign" value="${esc(d.approver_sign||"")}"></div>
+          <div><label>วันที่ (ผู้อนุมัติ)</label><input id="po_approver_sign_date" type="date" value="${esc(d.approver_sign_date||"")}"></div>
+        </div>
+      </div>
+    `;
+    setTimeout(recalcPurchaseDocTotals,0);
+    return;
+  }
+
+  // PR (ใบขอซื้อ)
+  for(let r=0;r<rowCount;r++){
+    const it=items[r]||{};
+    rows+=`<tr>
+      <td class="col-no">${r+1}</td>
+      <td>${purchaseDocCell(r,0,`data-sub="material_code" list="prMaterialList" placeholder="ค้นหารหัสสินค้า" oninput="linkPurchaseDocMaterial(this)"`,it.material_code)}</td>
+      <td>${purchaseDocCell(r,1,'data-sub="description" placeholder="รายละเอียด"',it.description)}</td>
+      <td>${purchaseDocCell(r,2,'data-sub="quantity" type="number" step="any"',it.quantity)}</td>
+      <td>${purchaseDocCell(r,3,'data-sub="unit" placeholder="Kg"',it.unit)}</td>
+      <td>${purchaseDocCell(r,4,'data-sub="production_order_no" list="prProductionOrderList" placeholder="เลขที่ใบสั่งผลิต"',it.production_order_no)}</td>
+      <td>${purchaseDocCell(r,5,'data-sub="product_name" placeholder="ชื่อผลิตภัณฑ์/แผนก"',it.product_name)}</td>
+      <td>${purchaseDocCell(r,6,'data-sub="po_no" placeholder="เลขที่ PO"',it.po_no)}</td>
+      <td>${purchaseDocCell(r,7,'data-sub="note" placeholder="หมายเหตุ"',it.note)}</td>
+      <td>${purchaseDocCell(r,8,'data-sub="received_date" type="date"',it.received_date)}</td>
+    </tr>`;
+  }
+  $("pageContent").innerHTML=`
+    <div class="exact-form-toolbar">
+      <div><b>ใบขอซื้อ ${existing?`#${esc(existing.doc_no)}`:"(ฉบับใหม่)"}</b><small>ใช้ลูกศร ↑↓←→ และ Enter เพื่อย้ายช่องได้เหมือน Excel</small></div>
+      <div class="actions">
+        <button onclick="listPurchaseDocs('PR')">รายการใบขอซื้อทั้งหมด</button>
+        <button class="primary" onclick="savePurchaseDoc('PR')">บันทึก</button>
+      </div>
+    </div>
+    <div class="card purchase-doc-grid">
+      <div class="form-grid">
+        <div><label>เลขที่แบบฟอร์ม</label><input id="pr_form_no" value="${esc(d.form_no||"F-PU-001-01")}"></div>
+        <div><label>แก้ไขครั้งที่</label><input id="pr_revision_no" value="${esc(d.revision_no||"00")}"></div>
+        <div><label>เลขที่ PR</label><input id="pr_no" value="${esc(existing?.doc_no||"")}" placeholder="PR-IC6908-222"></div>
+        <div><label>วันที่</label><input id="pr_date" type="date" value="${esc(d.date||currentDateISO())}"></div>
+        <div><label>เวลา</label><input id="pr_time" type="time" value="${esc(d.time||"")}"></div>
+        <div><label>เตรียมโดย</label><input id="pr_prepared_by" value="${esc(d.prepared_by||"")}"></div>
+        <div><label>อนุมัติโดย</label><input id="pr_approved_by" value="${esc(d.approved_by||"")}"></div>
+        <div class="wide"><label>อ้างอิงสูตร/ผลิตภัณฑ์</label><input id="pr_product_ref" value="${esc(d.product_ref||"")}" placeholder="P-C69-082#2 VITAOX PLUS ..."></div>
+      </div>
+      <datalist id="prMaterialList">${materialOptions}</datalist>
+      <datalist id="prProductionOrderList">${poOptions}</datalist>
+
+      <div class="table-wrap">
+        <table class="purchase-doc-table">
+          <colgroup><col style="width:4%"><col style="width:9%"><col style="width:22%"><col style="width:6%"><col style="width:6%"><col style="width:11%"><col style="width:14%"><col style="width:9%"><col style="width:11%"><col style="width:8%"></colgroup>
+          <thead><tr><th>ลำดับ</th><th>รหัสสินค้า</th><th>รายละเอียด</th><th>จำนวน</th><th>หน่วย</th><th>เลขที่ใบสั่งผลิต</th><th>ชื่อผลิตภัณฑ์/แผนก</th><th>เลขที่ PO</th><th>หมายเหตุ</th><th>วันที่รับเข้า</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+
+      <div class="purchase-doc-signatures">
+        ${["requester:ผู้ขอซื้อ","warehouse_officer:จนท.คลังสินค้า","purchasing_officer:เจ้าหน้าที่จัดซื้อ","reviewer:ผู้ตรวจสอบ (ผจก.แผนก)","warehouse_manager:ผจก.คลังสินค้า"].map(spec=>{
+          const [key,label]=spec.split(":");
+          return `<div class="handoff-card"><label>${label}</label><input id="pr_sign_${key}" placeholder="ลงชื่อ" value="${esc(d[`sign_${key}`]||"")}"><input id="pr_sign_${key}_date" type="date" value="${esc(d[`sign_${key}_date`]||"")}"></div>`;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function currentDateISO(){return new Date().toISOString().slice(0,10);}
+
+function linkPurchaseDocSupplier(inp){
+  const code=(inp.value||"").trim();
+  const s=(window.supplierListCache||[]).find(x=>String(x.supplier_code||"").toUpperCase()===code.toUpperCase());
+  if(!s)return;
+  const nameEl=$("po_supplier_name");
+  if(nameEl && !nameEl.value)nameEl.value=s.name||"";
+}
+
+function linkPurchaseDocMaterial(inp){
+  const code=(inp.value||"").trim();
+  const m=(window.supplementCodeData||[]).find(x=>String(x.code||"").toUpperCase()===code.toUpperCase());
+  if(!m)return;
+  const row=inp.dataset.row;
+  const descEl=document.querySelector(`.purchase-doc-grid [data-row="${row}"][data-sub="description"]`);
+  if(descEl && !descEl.value)descEl.value=m.name||"";
+}
+
+function recalcPurchaseDocTotals(){
+  if(window.currentPurchaseDoc!=="PO")return;
+  let subtotal=0;
+  document.querySelectorAll('.purchase-doc-grid [data-sub="quantity"]').forEach(qtyEl=>{
+    const row=qtyEl.dataset.row;
+    const priceEl=document.querySelector(`.purchase-doc-grid [data-row="${row}"][data-sub="unit_price"]`);
+    const amountEl=document.querySelector(`.purchase-doc-grid [data-row="${row}"][data-sub="amount"]`);
+    const qty=Number(qtyEl.value)||0, price=Number(priceEl?.value)||0;
+    const amount=qty*price;
+    if(amountEl)amountEl.value=amount?fmtCalc(amount,2):"";
+    subtotal+=amount;
+  });
+  const vat=subtotal*0.07;
+  const grandTotal=subtotal+vat;
+  if($("po_subtotal"))$("po_subtotal").textContent=subtotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  if($("po_vat"))$("po_vat").textContent=vat.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  if($("po_grand_total"))$("po_grand_total").textContent=grandTotal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  if($("po_baht_text"))$("po_baht_text").textContent=`(${thaiBahtText(grandTotal)})`;
+}
+
+function collectPurchaseDocItems(subs){
+  const items=[];
+  for(let r=0;r<PURCHASE_DOC_ROW_COUNT+50;r++){
+    const first=document.querySelector(`.purchase-doc-grid [data-row="${r}"][data-col="0"]`);
+    if(!first)break;
+    const item={};
+    let hasValue=false;
+    for(let c=0;c<subs.length;c++){
+      const el=document.querySelector(`.purchase-doc-grid [data-row="${r}"][data-col="${c}"]`);
+      const v=el?.value||"";
+      item[subs[c]]=v;
+      if(v)hasValue=true;
+    }
+    if(hasValue)items.push(item);
+  }
+  return items;
+}
+
+async function savePurchaseDoc(docType){
+  try{
+    let data,doc_no,linked_reference=null;
+    if(docType==="PO"){
+      doc_no=($("po_no")?.value||"").trim()||`PO-${Date.now()}`;
+      linked_reference=($("po_reference")?.value||"").trim()||null;
+      data={
+        date:$("po_date")?.value||"", due_date:$("po_due_date")?.value||"",
+        buyer_name:$("po_buyer_name")?.value||"", reference:$("po_reference")?.value||"",
+        contact_person:$("po_contact_person")?.value||"", contact_phone:$("po_contact_phone")?.value||"",
+        supplier_code:$("po_supplier_code")?.value||"", supplier_name:$("po_supplier_name")?.value||"",
+        supplier_address:$("po_supplier_address")?.value||"", supplier_tax_id:$("po_supplier_tax_id")?.value||"",
+        buyer_sign:$("po_buyer_sign")?.value||"", buyer_sign_date:$("po_buyer_sign_date")?.value||"",
+        approver_sign:$("po_approver_sign")?.value||"", approver_sign_date:$("po_approver_sign_date")?.value||"",
+        items:collectPurchaseDocItems(["description","quantity","unit","unit_price","amount"])
+      };
+    }else{
+      doc_no=($("pr_no")?.value||"").trim()||`PR-${Date.now()}`;
+      data={
+        form_no:$("pr_form_no")?.value||"", revision_no:$("pr_revision_no")?.value||"",
+        date:$("pr_date")?.value||"", time:$("pr_time")?.value||"",
+        prepared_by:$("pr_prepared_by")?.value||"", approved_by:$("pr_approved_by")?.value||"",
+        product_ref:$("pr_product_ref")?.value||"",
+        items:collectPurchaseDocItems(["material_code","description","quantity","unit","production_order_no","product_name","po_no","note","received_date"])
+      };
+      for(const key of ["requester","warehouse_officer","purchasing_officer","reviewer","warehouse_manager"]){
+        data[`sign_${key}`]=$(`pr_sign_${key}`)?.value||"";
+        data[`sign_${key}_date`]=$(`pr_sign_${key}_date`)?.value||"";
+      }
+    }
+
+    const body={doc_no,status:"DRAFT",data,linked_reference};
+    let result;
+    if(window.editingPurchaseDocId){
+      result=await api(`/api/purchase-docs/record/${window.editingPurchaseDocId}`,{method:"PUT",body});
+    }else{
+      result=await api(`/api/purchase-docs/${docType}`,{method:"POST",body});
+      window.editingPurchaseDocId=result.id;
+    }
+    toast(`บันทึก ${result.doc_no} สำเร็จ`);
+  }catch(e){
+    toast("บันทึกไม่สำเร็จ: "+(e?.message||e));
+  }
+}
+
+async function listPurchaseDocs(docType){
+  currentPage=`purchaseDoc:${docType}`;
+  $("pageTitle").textContent=docType==="PO"?"รายการใบสั่งซื้อ":"รายการใบขอซื้อ";
+  $("pageSubtitle").textContent=docType==="PO"?"เอกสารที่ส่งให้ผู้จำหน่ายภายนอก":"เอกสารที่คลังส่งมาให้จัดซื้อ";
+  const rows=await api(`/api/purchase-docs/${docType}`);
+  const tr=rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.doc_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(x.created_by_name||"")}</td><td>${esc(x.linked_reference||"-")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="openPurchaseDocForm('${docType}',${x.id})">แก้ไข</button></td></tr>`);
+  $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><button class="primary" onclick="openPurchaseDocForm('${docType}')">+ ${docType==="PO"?"ใบสั่งซื้อใหม่":"ใบขอซื้อใหม่"}</button></div>${table(["ID","เลขที่",docType==="PO"?"สถานะ":"สถานะ","ผู้สร้าง","อ้างอิง","บันทึกเมื่อ","จัดการ"],tr)}</div>`;
+}
+
 const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","CEO"];
 const EMPLOYEE_ROLES=["RD_HEAD","RD_ASSISTANT","RD_OFFICER","SALES","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","CEO","ADMIN"];
 
@@ -2619,8 +2949,8 @@ async function openDepartmentWorkspace(code){
  SALE:{title:"SALE",text:"รับความต้องการลูกค้าและส่งต่อ R&D",cards:[["F-RD-001 Customer Requirement","รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","openExactForm('F-RD-001')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"],["Product Development","ติดตามโครงการลูกค้า","openPage('projects')"]]},
  ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
  PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
- STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"]]},
- PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"]]},
+ STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"],["ใบขอซื้อ (PR)","ขอซื้อวัตถุดิบจากจัดซื้อ","listPurchaseDocs('PR')"]]},
+ PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"],["ใบสั่งซื้อ (PO)","ส่งให้ผู้จำหน่ายภายนอก","listPurchaseDocs('PO')"],["ใบขอซื้อ (PR)","ที่คลังส่งเข้ามา","listPurchaseDocs('PR')"]]},
  PRODUCTION:{title:"PRODUCTION",text:"สูตรผลิตและคำสั่งผลิต",cards:[["สูตรผลิต","F-RD-002.1","openExactForm('F-RD-002.1')"],["Production / MRP","คำสั่งผลิต","openPage('production')"]]},
  QUALITY:{title:"QUALITY",text:"ระบบคุณภาพ เอกสาร และการขึ้นทะเบียน",cards:[["Registration / FDA","สูตรขึ้นทะเบียน","openPage('registration')"],["Quality Data","ให้ใส่ Data สำหรับ QUALITY","openDepartmentPlaceholder('QUALITY')"]]},
  QC:{title:"QC",text:"ตรวจสอบคุณภาพสินค้า",cards:[["QC Data","ให้ใส่ Data สำหรับ QC","openDepartmentPlaceholder('QC')"]]},
