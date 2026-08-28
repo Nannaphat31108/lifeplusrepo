@@ -373,6 +373,27 @@ class FormWorkspaceUser(Base, TimestampMixin):
     pin_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+class PurchaseDocument(Base, TimestampMixin):
+    """Purchase Order (ใบสั่งซื้อ, to an external supplier) and Purchase
+    Request (ใบขอซื้อ / PR, Stock -> Purchasing). Unlike SourceFormRecord
+    (private per-person R&D drafts), these are shared department documents:
+    anyone who can see the PURCHASE/STOCK nav can see all of them, same as
+    Customers/Suppliers master data elsewhere in this app.
+    """
+    __tablename__ = "purchase_documents"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    doc_type: Mapped[str] = mapped_column(String(10), index=True)  # "PO" or "PR"
+    doc_no: Mapped[str] = mapped_column(String(100), index=True)
+    status: Mapped[str] = mapped_column(String(30), default="DRAFT")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Free-text cross-reference: a PO's "อ้างอิง" pointing at the PR number it
+    # was raised from, or vice versa -- not a foreign key since either side
+    # can be created first.
+    linked_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+
+
 class WorkHandoff(Base, TimestampMixin):
     """A general-purpose "send work to another department" message.
 

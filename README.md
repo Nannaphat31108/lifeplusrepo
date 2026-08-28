@@ -1,3 +1,35 @@
+## v31.40 — Purchase Order (ใบสั่งซื้อ) and Purchase Request (ใบขอซื้อ) forms
+
+Two new forms, built from the real documents (not the exact_forms.json
+Excel-cell-grid system every other form uses, since no source .xlsx/.xls
+template exists for these two — only screenshots were provided):
+
+- **PO** (PURCHASE → external supplier): header fields (no./date/due
+  date/reference PR no./buyer/supplier + a new supplier code field with a
+  Suppliers-master datalist/contact/phone), a line-item table (qty × unit
+  price → amount, auto), auto subtotal / 7% VAT / grand total, and an
+  automatic Thai amount-in-words line ("(...บาทถ้วน)"), plus buyer/approver
+  signature fields.
+- **PR** (STOCK → PURCHASE): header fields (form no./revision/PR
+  no./date/time/prepared by/approved by/product-formula reference), a
+  line-item table whose material-code column auto-links against the FDA +
+  รหัสสาร Database (same catalog used elsewhere) to fill in the description,
+  a production-order-no. column backed by a Production Order datalist, and
+  5 signature blocks (ผู้ขอซื้อ / จนท.คลังสินค้า / เจ้าหน้าที่จัดซื้อ /
+  ผู้ตรวจสอบ (ผจก.แผนก) / ผจก.คลังสินค้า).
+- Both tables support Excel-style keyboard navigation (arrow keys move
+  between cells, Enter moves down a row).
+- Unlike the private F-RD-* forms, PO/PR are **department-shared**
+  documents (new `/api/purchase-docs/*` endpoints, no `X-Person-Key`
+  scoping) — anyone with PURCHASE/STOCK access sees every PO/PR, the same
+  visibility model as Customers/Suppliers elsewhere in this app.
+- Column widths were set deliberately (wide description column, narrow
+  numeric columns) rather than copied from the screenshots' proportions,
+  per the explicit ask to fix uneven columns rather than replicate them.
+- Not included: Excel export for these two (no master workbook to export
+  into) — saved records are viewable/editable in the browser; printing the
+  page is the practical substitute for now.
+
 ## v31.39 — cross-department work handoff (ส่งงานหากันได้)
 
 Any department can now send a work item to any other department:
