@@ -16,6 +16,28 @@ from app.models.entities import FDAMaterial
 
 MAX_SPEC_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB
 
+# Content types this endpoint will actually serve back with their own
+# declared type; anything else (an uploader-controlled string, otherwise
+# trusted as-is) falls back to a generic download type instead.
+SAFE_SPEC_CONTENT_TYPES = {
+    "application/pdf", "image/jpeg", "image/png", "image/gif", "image/webp",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+def _safe_spec_filename(name: str) -> str:
+    """Strip anything that could break out of a quoted Content-Disposition
+    filename or otherwise isn't a plain filename (path separators, quotes,
+    control characters) -- the uploader's original filename is untrusted
+    input reflected straight back in a response header."""
+    name = (name or "spec").strip()
+    name = re.sub(r'[\\/"\r\n\x00-\x1f]', "_", name)
+    name = name.strip(". ") or "spec"
+    return name[:255]
+
 
 def _natural_code_key(code: str):
     """Sort key so A0002 < A0010 < A0100 (numeric, not lexicographic) while
@@ -362,8 +384,11 @@ async def upload_fda_spec(
     if not raw:
         raise HTTPException(400,"ไฟล์ว่างเปล่า")
     x.spec_data=base64.b64encode(raw).decode("ascii")
-    x.spec_mime=file.content_type or "application/octet-stream"
-    x.spec_filename=file.filename or "spec"
+    # Only trust the uploader's declared content type if it's one we know
+    # how to serve safely; otherwise fall back to a generic download type
+    # rather than reflecting an arbitrary client-supplied value back later.
+    x.spec_mime=file.content_type if file.content_type in SAFE_SPEC_CONTENT_TYPES else "application/octet-stream"
+    x.spec_filename=_safe_spec_filename(file.filename)
     db.commit()
     return {"ok":True,"spec_url":f"/api/fda-materials/{x.id}/spec","spec_filename":x.spec_filename}
 
@@ -377,10 +402,14 @@ def get_fda_spec(item_id:int,db:Session=Depends(get_db),u=Depends(get_current_us
     if not x or not x.spec_data:
         raise HTTPException(404,"No spec file for this material")
     raw=base64.b64decode(x.spec_data)
-    filename=x.spec_filename or "spec"
+    # Re-sanitize defensively even though upload already does this: records
+    # saved before this validation existed may still carry an unsanitized
+    # filename/content type.
+    filename=_safe_spec_filename(x.spec_filename)
+    media_type=x.spec_mime if x.spec_mime in SAFE_SPEC_CONTENT_TYPES else "application/octet-stream"
     return Response(
         content=raw,
-        media_type=x.spec_mime or "application/octet-stream",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

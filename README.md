@@ -1,3 +1,59 @@
+## v31.41 — security/code-quality audit + dead-code cleanup + UX consistency
+
+Requested as a general "plug every hole" pass rather than any single bug
+report. **Not a ground-up rewrite** — a live app with real data doesn't
+benefit from that; instead, a targeted audit found and fixed concrete
+issues, verified each with a real test before merging, same as every other
+change in this history.
+
+Security:
+- `SECRET_KEY` (signs every auth token) silently fell back to a known
+  string, `"change-this-in-production"`, if the environment variable was
+  ever unset. Render's `render.yaml` already generates a real one
+  (`generateValue: true`), so production was never actually exposed, but
+  the app now prints a loud `[SECURITY WARNING]` at startup if it's ever
+  running on the insecure default anywhere else.
+- CORS allowed a wildcard origin (`*`) together with `allow_credentials:
+  True` — a combination that lets any website ride a logged-in user's
+  session. This app never uses cookies for auth (Bearer token via
+  `Authorization` header only), so `allow_credentials` is now `False`;
+  Bearer-token requests are unaffected.
+- The FDA + รหัสสาร Database's อย. spec file endpoint reflected the
+  uploader's filename and content type straight back into the download
+  response unsanitized. Filenames are now stripped of quotes/path
+  separators/control characters, and only a small allowlist of real
+  content types (PDF, common images, Office docs) is trusted — anything
+  else downloads as a generic file instead.
+- `POST /api/auth/register` (create employee) accepted any password,
+  including an empty one, unlike every other password-setting endpoint —
+  now enforces the same 8-character minimum.
+- `DELETE /api/purchase-docs/record/{id}` had no role check at all — any
+  authenticated employee, in any department, could delete any PO/PR. Now
+  restricted to ADMIN/PURCHASE/STOCK.
+
+Dead code (app.js went from ~3640 to ~3370 lines; app.css from 276 to 205):
+- An entire early prototype "generic source form" system (`SOURCE_FORMS`,
+  `openSourceForm`, `collectSourceData`, `saveSourceForm`, and an early
+  `showSourceRecords`) — fully superseded by the current exact-form system
+  and unreachable from any live button.
+- `openExactFormLegacy` and two `recalculateFormulaBothLegacy1/2`
+  functions — superseded copies from earlier iterations, never called.
+- A stale duplicate `recalculateAdminQP` — the live one (assigned later)
+  already replaced it.
+- The matching now-orphaned CSS for all of the above, plus the CSS from
+  the department/person PIN modals removed in Phase 0.
+- One near-miss caught by testing rather than static analysis: an earlier
+  pass in this cleanup deleted `collectExactPayload`'s base implementation,
+  not realizing the live version is a *wrapper* around it
+  (`collectExactPayloadOriginal = collectExactPayload`) — every jsdom test
+  in this repo's history is exactly why that regression got caught before
+  merging instead of after.
+
+UX:
+- All remaining blocking `alert(...)` error popups (9 call sites) replaced
+  with the app's existing non-blocking `toast(...)` pattern, for
+  consistency with the other ~70 places already using it.
+
 ## v31.40 — Purchase Order (ใบสั่งซื้อ) and Purchase Request (ใบขอซื้อ) forms
 
 Two new forms, built from the real documents (not the exact_forms.json
