@@ -1,65 +1,5 @@
 window.loginUserInfo=null;
 
-const SOURCE_FORMS={
-"F-RD-001":{title:"รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า",sections:[
- ["1. ข้อมูลลูกค้า",[["customer_name","นามลูกค้า / Customer name"],["customer_code","รหัสลูกค้า / ID"]]],
- ["2. ข้อมูลผลิตภัณฑ์",[["product_category","หมวดหมู่ผลิตภัณฑ์"],["product_form","รูปแบบผลิตภัณฑ์/ปริมาณ (แคปซูล/ตอกเม็ด/ชงดื่ม/กรอกปาก/เม็ดฟู่)"],["objective","วัตถุประสงค์ตามที่ต้องการ","textarea"],["product_detail","ประสิทธิภาพผลิตภัณฑ์ รายละเอียดเพิ่มเติม","textarea"]]],
- ["3. ข้อมูลสารสกัด",[["ingredients","สารสกัดที่ลูกค้าต้องการใส่ในผลิตภัณฑ์เป็นตัวหลัก","ingredients10"]]],
- ["4. ข้อมูลบรรจุภัณฑ์",[["order_capsule","จำนวนสั่งผลิต - แคปซูล"],["order_sachet","จำนวนสั่งผลิต - ซอง"],["order_tablet","จำนวนสั่งผลิต - เม็ด"],["packaging","บรรจุภัณฑ์ / ซองชงดื่ม"]]],
- ["5. ส่วนของ RD อาหารเสริม",[["formula_rates","เลขที่สูตร (F) และ ราคา/1 หน่วยการผลิต","rates5"]]]
-]},
-"F-RD-002":{title:"สูตร",sections:[
- ["ข้อมูลหัวสูตร",[["customer_name","นามผู้ซื้อ"],["formula_no","เลขที่สูตร"],["product_type","ประเภทของผลิตภัณฑ์"],["date","วันที่","date"],["product_name_fda","ชื่อผลิตภัณฑ์ / เลข อย."],["salesperson","พนักงานขาย"],["order_quantity","จำนวนที่สั่งผลิต"],["order_unit","หน่วย"]]],
- ["Active Ingredient",[["ingredients","Active Ingredient / Quantity (Mg.) / Price Kg / Supplier / Import / รหัสสาร / Halal","formula20"]]],
- ["ต้นทุนและเรทราคา",[["selling_price","ราคาขาย / หน่วย"],["rate_note","เรทราคา / หมายเหตุ","textarea"]]]
-]},
-"F-RD-002.1":{title:"สูตรผลิต",sections:[
- ["สูตรผลิตจริง",[["customer_name","นามผู้ซื้อ"],["formula_no","เลขที่สูตร"],["product_type","ประเภทของผลิตภัณฑ์"],["date","วันที่","date"],["product_name_fda","ชื่อผลิตภัณฑ์ / เลข อย."],["salesperson","พนักงานขาย"],["order_quantity","จำนวนที่สั่งผลิต"],["order_unit","หน่วย"]]],
- ["สารสกัดและต้นทุนผลิต",[["ingredients","สารสกัด / ปริมาณ / Supplier / รหัสวัตถุดิบ","formula20"]]],
- ["ขั้นตอนการผสมสารและใช้ตะแกรง",[["mixing_steps","ขั้นตอนการผสม 1–6","textarea"],["water_amount","ปริมาณน้ำที่ใช้"],["capsule_size_color","ขนาด/สี แคปซูล"],["tablet_shape","รูปทรงเม็ดตอก"],["sachet_size","ขนาดซองบรรจุ"]]],
- ["Planning",[["send_planning","ส่งให้ Planning ผลิต","select"]]]
-]},
-"F-RD-003":{title:"แบบฟอร์มขอทำสินค้าทดลอง / TESTER REQUEST FORM",sections:[
- ["ข้อมูลอ้างอิง",[["quotation_no","อ้างอิงใบเสนอราคาเลขที่ / Quotation No.Ref."],["formula_no","เลขที่สูตร / Formula No."],["customer_name","ชื่อ-สกุล ลูกค้า / Customer Name"],["receipt_no","เลขที่ใบเสร็จ"]]],
- ["ความต้องการ",[["customer_needed","ความต้องการของลูกค้า หรือการแก้ไขขอปรับสินค้าทดลอง / Customer Needed","textarea"],["characteristic","ลักษณะของตัวทดลอง (Capsule/Tablet/Instant Powder/Powder/Other)"],["packaging","การบรรจุ (กระปุก/แผง 3/4/10/15)"],["quantity","จำนวน / Quality"],["delivery_date","วันจัดส่ง / Delivery Date (7-14 วัน)","date"],["tester_type","ประเภทของตัวทดลอง (ฟรี/ซื้อ/ซื้อเพิ่ม)"],["price","ราคา บาท"],["payin_ref","Pay-in / เอกสารอ้างอิง"],["requester","ผู้ขอทำสินค้าตัวทดลอง"],["rd_maker","ผู้จัดทำสินค้าตัวทดลอง / R&D"]]]
-]},
-"F-RD-004":{title:"แบบฟอร์มการขอเรทราคา",sections:[
- ["ข้อมูลลูกค้าและสูตร",[["customer_name","ชื่อลูกค้า / Customer name"],["customer_code","รหัสลูกค้า / Code"],["op_no","เลขที่ OP (ใบเสนอราคา)"],["formula_no","เลขที่ F- (เลขสูตร)"],["formula_name","ชื่อสูตร / Formula"],["product_name","ชื่อสินค้า / Product Name"]]],
- ["เรทราคา",[["rates","จำนวน (เม็ด/แคปซูล/ซอง) / ราคา-หน่วย / หมายเหตุ","rates10"]]],
- ["อนุมัติ",[["rd_approver","หัวหน้า RD / จนท.RD"],["sales_approver","Sales Executive"],["approval_date","วันที่","date"]]]
-]}};
-function fieldHtml(code,f){
- const [key,label,type]=f;
- if(type==="textarea")return `<div class="wide"><label>${label}</label><textarea data-key="${key}" placeholder="ให้ใส่ Data"></textarea></div>`;
- if(type==="date")return `<div><label>${label}</label><input data-key="${key}" type="date"></div>`;
- if(type==="select")return `<div><label>${label}</label><select data-key="${key}"><option value="">ให้ใส่ Data</option><option value="YES">ส่ง Planning</option><option value="NO">ยังไม่ส่ง</option></select></div>`;
- if(type==="ingredients10")return `<div class="wide">${rowsHtml("ingredients",10,["ชื่อสารสกัด","ปริมาณ"],["name","amount"])}</div>`;
- if(type==="formula20")return `<div class="wide">${formulaRows(20)}</div>`;
- if(type==="rates5")return `<div class="wide">${rowsHtml("formula_rates",5,["เลขที่สูตร (F)","ราคา / 1 หน่วย"],["formula_no","price"])}</div>`;
- if(type==="rates10")return `<div class="wide">${rowsHtml("rates",10,["จำนวน","ราคา / หน่วย","หมายเหตุ"],["quantity","price_unit","note"])}</div>`;
- return `<div><label>${label}</label><input data-key="${key}" placeholder="ให้ใส่ Data"></div>`;
-}
-function rowsHtml(group,n,labels,keys){let h=`<div class="source-grid-table"><div class="sg-head">No.</div>${labels.map(x=>`<div class="sg-head">${x}</div>`).join("")}`;for(let i=0;i<n;i++){h+=`<div>${i+1}</div>${keys.map(k=>`<div><input data-group="${group}" data-index="${i}" data-sub="${k}" placeholder="ให้ใส่ Data"></div>`).join("")}`;}return h+"</div>"}
-function formulaRows(n){let h=`<div class="formula-source-table"><div class="sg-head">No.</div><div class="sg-head">สารสกัด</div><div class="sg-head">Quantity mg</div><div class="sg-head">Price/kg</div><div class="sg-head">Supplier</div><div class="sg-head">Import</div><div class="sg-head">รหัสสาร</div><div class="sg-head">Halal</div>`;for(let i=0;i<n;i++)h+=`<div>${i+1}</div><div><input data-group="ingredients" data-index="${i}" data-sub="name"></div><div><input type="number" data-group="ingredients" data-index="${i}" data-sub="quantity_mg"></div><div><input type="number" data-group="ingredients" data-index="${i}" data-sub="price_kg"></div><div><input data-group="ingredients" data-index="${i}" data-sub="supplier"></div><div><input data-group="ingredients" data-index="${i}" data-sub="import_country"></div><div><input data-group="ingredients" data-index="${i}" data-sub="material_code"></div><div><input data-group="ingredients" data-index="${i}" data-sub="halal"></div>`;return h+"</div>"}
-async function openSourceForm(code){
- const f=SOURCE_FORMS[code];
- if(!f){toast("ไม่พบแบบฟอร์ม "+code);return;}
- currentPage="source:"+code;
- document.querySelectorAll(".nav").forEach(b=>b.classList.toggle("active",b.dataset.formCode===code));
- $("pageTitle").textContent=`${code} — ${f.title}`;
- $("pageSubtitle").textContent="กรอกข้อมูลตามช่องในเอกสารต้นฉบับ";
- let body=`<div class="source-form"><div class="source-doc-head"><b>ชื่อแบบฟอร์ม : ${f.title}</b><span>เลขที่แบบฟอร์ม : ${code}</span><span>แก้ไขครั้งที่ : 0</span></div>`;
- f.sections.forEach(s=>{body+=`<section><h3>${s[0]}</h3><div class="form-grid">${s[1].map(x=>fieldHtml(code,x)).join("")}</div></section>`});
- body+=`<div class="toolbar"><input id="sourceRecordNo" placeholder="เลขที่รายการ / เช่น ${code}-001"><div class="actions"><button class="primary" onclick="saveSourceForm('${code}')">บันทึกตามฟอร์มต้นฉบับ</button><button onclick="showSourceRecords('${code}')">รายการที่บันทึก</button></div></div></div>`;$("pageContent").innerHTML=body;
-}
-function collectSourceData(){
- const d={};document.querySelectorAll("[data-key]").forEach(e=>d[e.dataset.key]=e.value);
- document.querySelectorAll("[data-group]").forEach(e=>{const g=e.dataset.group,i=+e.dataset.index,k=e.dataset.sub;d[g]??=[];d[g][i]??={};d[g][i][k]=e.value});
- for(const k of Object.keys(d))if(Array.isArray(d[k]))d[k]=d[k].filter(x=>x&&Object.values(x).some(v=>v!==""));
- return d;
-}
-async function saveSourceForm(code){const no=$("sourceRecordNo").value.trim()||`${code}-${Date.now()}`;const r=await api(`/api/source-forms/${code}`,{method:"POST",body:{record_no:no,status:"DRAFT",data:collectSourceData()}});toast("บันทึกแล้ว — กด Excel ตามต้นฉบับ เพื่อดาวน์โหลดฟอร์มจริง");await showSourceRecords(code)}
-async function showSourceRecords(code){const rows=await api(`/api/source-forms/${code}`);const tr=rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.record_no)}</td><td>${statusBadge(x.status)}</td><td>${new Date(x.created_at).toLocaleString()}</td><td><button class="primary" onclick="exportSourceExcel(${x.id})">ดาวน์โหลด Excel ต้นฉบับที่กรอกแล้ว</button></td></tr>`);$("pageContent").innerHTML=`<div class="card"><div class="toolbar"><button onclick="openSourceForm('${code}')">← กลับไปกรอก ${code}</button></div>${table(["ID","Record No.","Status","Saved","Export"],tr)}</div>`}
 async function exportSourceExcel(id){
   try{
     if(!id)throw new Error("ไม่พบ Record ID");
@@ -69,7 +9,7 @@ async function exportSourceExcel(id){
     return await exportExcel(`/api/source-forms/record/${id}/excel`);
   }catch(e){
     console.error("exportSourceExcel failed",e);
-    alert("ดาวน์โหลด Excel ไม่สำเร็จ: "+(e?.message||e));
+    toast("ดาวน์โหลด Excel ไม่สำเร็จ: "+(e?.message||e));
     throw e;
   }
 }
@@ -265,7 +205,7 @@ async function exportExcel(path){
     toast("ดาวน์โหลด Excel สำเร็จ");
   }catch(e){
     console.error("Export Excel failed:",e);
-    alert("ดาวน์โหลด Excel ไม่สำเร็จ: "+(e?.message||e));
+    toast("ดาวน์โหลด Excel ไม่สำเร็จ: "+(e?.message||e));
   }
 }
 async function projectForm(){if(!window.supplementCodeData)window.supplementCodeData=await fetch("/static/supplement_codes.json").then(r=>r.json());openModal("New Product Development",`<div class="form-grid"><div><label>Project No.</label><input id="f_project_no" value="PD-${new Date().getFullYear()}-"></div><div><label>Customer</label><input id="f_customer_name" placeholder="พิมพ์ชื่อลูกค้าเอง"></div><div><label>จำนวนรหัสอาหารเสริมที่ต้องใช้</label><input id="f_supp_count" type="number" min="1" max="50" value="1" oninput="renderSupplementInputs()"></div><div><label>Product Name</label><input id="f_product" placeholder="ให้ใส่ Data"></div><div class="wide" id="supplementInputArea"></div><div><label>Product Type</label><select id="f_type"><option>Capsule</option><option>Tablet</option><option>Powder</option><option>Other</option></select></div><div><label>Target Quantity</label><input id="f_target_qty" type="number"></div><div class="wide"><button class="primary" onclick="saveProject()">Save Project</button></div></div>`);renderSupplementInputs()}
@@ -1045,44 +985,6 @@ function exactInput(field,addr,cellValue){
  if(field.sub==="fda_no") return `<input ${common} placeholder="FDA NUMBER" oninput="markFormulaOverride(this)">`;
  return `<input ${common} type="text" placeholder="${esc(placeholder)}">`;
 }
-async function openExactFormLegacy(code){
- await loadExactAssets();currentExactForm=code;
-  if(code==='F-RD-002'||code==='F-RD-002.1') setTimeout(()=>scheduleFDAFormulaLink(false),50);
- document.querySelectorAll(".nav").forEach(x=>x.classList.remove("active"));document.querySelector(`.exact-form-nav[data-form="${code}"]`)?.classList.add("active");
- const titles={"F-RD-001":"รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","F-RD-002":"สูตร","F-RD-002.1":"สูตรผลิต","F-RD-003":"แบบฟอร์มขอทำสินค้าทดลอง","F-RD-004":"แบบฟอร์มการขอเรทราคา",
-    "ADMIN-QP":"QP / Quotation","ADMIN-INVOICE":"Invoice / ใบแจ้งหนี้"};
- $("pageTitle").textContent=`${code} — ${titles[code]}`;$("pageSubtitle").textContent="หน้ากรอกข้อมูลยึด Layout จาก Excel ต้นฉบับจริง";
- const form=exactFormsCache[code],fmap=exactFieldMap(code,form),skip=new Set(),mergeTL={};
- for(const m of form.merges||[]){mergeTL[xlAddr(m.r1,m.c1)]=m;for(let r=m.r1;r<=m.r2;r++)for(let c=m.c1;c<=m.c2;c++)if(!(r===m.r1&&c===m.c1))skip.add(xlAddr(r,c))}
- let cols=`<colgroup>${form.widths.map(w=>`<col style="width:${Math.max(4,Number(w))*7.2}px">`).join("")}</colgroup>`, rows="";
- for(let r=1;r<=form.maxRow;r++){
-   rows+=`<tr style="height:${Number(form.heights?.[r]||15)*1.33}px">`;
-   for(let c=1;c<=form.maxCol;c++){const a=xlAddr(r,c);if(skip.has(a))continue;const ce=form.cells[a]||{},mg=mergeTL[a],field=fmap[a],calcInput=formulaAutoInputForCell(code,a,ce.v),manualInput=manualInputForCell(code,a,ce.v);
-      rows+=`<td ${mg?`rowspan="${mg.r2-mg.r1+1}" colspan="${mg.c2-mg.c1+1}"`:""} style="${cellStyle(ce)}">${calcInput||(field?exactInput(field,a,ce.v):(manualInput||`<span class="excel-cell-text">${esc(ce.v||"")}</span>`))}</td>`;
-   }rows+="</tr>";
- }
- const supplements=(window.supplementCodeData||[]);
- const supNames=[...new Set(supplements.map(x=>x.vendor).filter(Boolean))];
- $("pageContent").innerHTML=`<div class="exact-form-toolbar"><div><b>FORM ต้นฉบับ ${code}</b><small>กรอกเฉพาะช่องข้อมูล ส่วนโครงสร้างเอกสารคงตาม Excel เดิม</small></div><div class="actions"><input id="exactRecordNo" placeholder="เลขที่รายการ เช่น ${code}-001"><button onclick="showSourceRecords('${code}')">รายการที่บันทึก</button><button class="primary" onclick="saveExactForm('${code}')">บันทึก</button></div></div>
- <div class="excel-sheet-scroll"><table class="excel-sheet">${cols}<tbody>${rows}</tbody></table></div>
- <datalist id="exactSupplementCodeList">${supplements.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join("")}</datalist>
- <datalist id="exactSupplementNameList">${supplements.map(x=>`<option value="${esc(supplementOptionValue(x))}">${esc(x.variant_code||x.code||"")} — ราคา ${esc(getSupplementPrice(x))} — ${esc(x.vendor||"")}</option>`).join("")}</datalist>
- <datalist id="exactSupplierList">${supNames.map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
-}
-function collectExactPayload(){
- const d={};document.querySelectorAll(".excel-input").forEach(e=>{let v=e.value;if(e.type==="number"&&v!=="")v=Number(v);
-   if(e.dataset.key)d[e.dataset.key]=v;
-   if(e.dataset.group){const g=e.dataset.group,i=+e.dataset.index,k=e.dataset.sub;d[g]??=[];d[g][i]??={};d[g][i][k]=v}
- });
- for(const k of Object.keys(d))if(Array.isArray(d[k]))d[k]=d[k].filter(x=>x&&Object.values(x).some(v=>v!==""&&v!=null));
- return d;
-}
-async function saveExactForm(code){
- const no=$("exactRecordNo").value.trim()||`${code}-${Date.now()}`;
- const x=await api(`/api/source-forms/${code}`,{method:"POST",body:{record_no:no,status:"DRAFT",data:collectExactPayload()}});
- toast("บันทึกข้อมูลลงฟอร์มต้นฉบับแล้ว");
- await showSourceRecords(code);
-}
 
 
 // window.formWorkspace now represents the real logged-in employee (set
@@ -1289,131 +1191,6 @@ function getInactiveCell(addr){
   return readNumber(document.querySelector(`.manual-cell-input[data-manual-cell="${addr}"]`));
 }
 
-function recalculateFormulaBothLegacy1(){
-  if(currentExactForm!=="F-RD-002" && currentExactForm!=="F-RD-002.1")return;
-
-  const count=selectedFormulaIngredientCount(currentExactForm);
-  const orderQty=readNumber(document.querySelector('.excel-input[data-key="order_quantity"]'));
-
-  // Calculation Master rules:
-  // production kg = quantity mg * order quantity / 1,000,000
-  // row cost = price/kg / 1,000,000 * quantity mg
-  // % = quantity / total quantity * 100
-  let activeQty=0;
-  let inactiveQty=0;
-
-  for(let i=0;i<count;i++)activeQty+=ingredientNum(i,"quantity_mg");
-
-  const inactiveIndexes=[...new Set(
-    [...document.querySelectorAll('.excel-input[data-group="inactive_ingredients"]')]
-      .map(e=>Number(e.dataset.index))
-      .filter(Number.isFinite)
-  )];
-
-  for(const i of inactiveIndexes){
-    inactiveQty+=readNumber(document.querySelector(
-      `.excel-input[data-group="inactive_ingredients"][data-index="${i}"][data-sub="quantity_mg"]`
-    ));
-  }
-
-  const totalQty=activeQty+inactiveQty;
-  let activeProd=0,inactiveProd=0;
-  let activeRowCost=0,inactiveRowCost=0;
-
-  for(let i=0;i<count;i++){
-    const qty=ingredientNum(i,"quantity_mg");
-    const priceKg=ingredientNum(i,"price_kg");
-    const prod=qty*orderQty/1000000;
-    const pct=totalQty>0?qty*100/totalQty:0;
-
-    // In the master workbook the column titled Price/Mg stores row cost:
-    // =SUM(AE16/1000000*T16)
-    // WEB COST FORMULA — must exactly match Excel:
-    // ราคา / 1,000,000 * ปริมาณ
-    // Example: AE16 / 1000000 * T16
-    const rowCost=priceKg/1000000*qty;
-
-    setIngredientAuto(i,"production_kg",prod,6);
-    setIngredientAuto(i,"percent",pct,6);
-
-    // Row cost must always follow price/kg and quantity live.
-    // Do not keep a stale manual override here.
-    const rowCostEl=ingredientEl(i,"row_cost");
-    if(rowCostEl){
-      rowCostEl.dataset.manualOverride="";
-      rowCostEl.value=fmtCalc(rowCost,9);
-    }
-
-    activeProd+=prod;
-    activeRowCost+=rowCost;
-  }
-
-  for(const i of inactiveIndexes){
-    const get=sub=>document.querySelector(
-      `.excel-input[data-group="inactive_ingredients"][data-index="${i}"][data-sub="${sub}"]`
-    );
-    const qty=readNumber(get("quantity_mg"));
-    const priceKg=readNumber(get("price_kg"));
-    const prod=qty*orderQty/1000000;
-    const pct=totalQty>0?qty*100/totalQty:0;
-    // Same exact web formula for inactive ingredient.
-    const rowCost=priceKg/1000000*qty;
-
-    setAutoEditable(get("production_kg"),prod,6);
-    setAutoEditable(get("percent"),pct,6);
-
-    const rowCostEl=get("row_cost");
-    if(rowCostEl){
-      rowCostEl.dataset.manualOverride="";
-      rowCostEl.value=fmtCalc(rowCost,9);
-    }
-
-    inactiveProd+=prod;
-    inactiveRowCost+=rowCost;
-  }
-
-  const totalProd=activeProd+inactiveProd;
-
-  if(currentExactForm==="F-RD-002"){
-    // Master workbook:
-    // K29 = total quantity
-    // K30 = total production
-    // K32 = SUM(row costs) * 120
-    // AO32 = order quantity * cost/unit
-    // AO33 = order quantity * sale/unit
-    // K34/AO34 = profit
-    const costPerUnit=(activeRowCost+inactiveRowCost)*120;
-
-    setCalculatedCell("K44",totalQty,6);
-    setCalculatedCell("K45",totalProd,6);
-    setCalculatedCell("K47",costPerUnit,6);
-
-    const salePerUnit=getInactiveCell("K48");
-    const totalCost=orderQty*costPerUnit;
-    const totalSale=orderQty*salePerUnit;
-
-    setCalculatedCell("AO47",totalCost,6);
-    setCalculatedCell("AO48",totalSale,6);
-    setCalculatedCell("K49",salePerUnit-costPerUnit,6);
-    setCalculatedCell("AO49",totalSale-totalCost,6);
-  }
-
-  if(currentExactForm==="F-RD-002.1"){
-    // Formula production keeps its packaging/tester-specific model,
-    // but ingredient calculations use the same Calculation Master rules.
-    const costPerUnit=activeRowCost+inactiveRowCost;
-    setCalculatedCell("K33",costPerUnit,6);
-
-    const salePerUnit=getInactiveCell("K34");
-    const totalCost=orderQty*costPerUnit;
-    const totalSale=orderQty*salePerUnit;
-
-    setCalculatedCell("AO33",totalCost,6);
-    setCalculatedCell("AO34",totalSale,6);
-    setCalculatedCell("K35",salePerUnit-costPerUnit,6);
-    setCalculatedCell("AO35",totalSale-totalCost,6);
-  }
-}
 
 
 
@@ -1550,28 +1327,6 @@ function renderExtraInactiveIngredientExcelRow(code,form,index){
 let adminQPFormulaNo="";
 function qpExactEl(i,sub){return document.querySelector(`.excel-input[data-group="qp_ingredients"][data-index="${i}"][data-sub="${sub}"]`)}
 function qpLineEl(i,sub){return document.querySelector(`.excel-input[data-group="qp_lines"][data-index="${i}"][data-sub="${sub}"]`)}
-function recalculateAdminQP(){
- if(!isQPLikeForm(currentExactForm))return;
- const get=k=>document.querySelector(`.excel-input[data-key="${k}"]`);
- const set=(k,v,d=2)=>{const e=get(k);if(e&&e.dataset.manualOverride!=="1")e.value=fmtCalc(v,d)};
- let ingredientTotal=0;
- for(let i=0;i<16;i++) ingredientTotal+=Number(qpExactEl(i,"quantity_mg")?.value||0)||0;
- set("ingredient_total_mg",ingredientTotal,3);
- let subtotal=0;
- for(let i=0;i<13;i++){
-   const qty=Number(qpLineEl(i,"quantity")?.value||0)||0;
-   const price=Number(qpLineEl(i,"unit_price")?.value||0)||0;
-   const amount=qpLineEl(i,"amount");
-   const calc=qty*price;
-   if(amount && amount.dataset.manualOverride!=="1") amount.value=fmtCalc(calc,2);
-   subtotal+=Number(amount?.value||calc||0)||0;
- }
- const discount=Number(get("discount")?.value||0)||0;
- const after=Math.max(0,subtotal-discount);
- const vat=after*0.07, grand=after+vat;
- set("subtotal",subtotal,2);set("after_discount",after,2);set("vat7",vat,2);set("grand_total",grand,2);
- set("installment_1",grand*0.5,2);set("installment_2",grand*0.5,2);
-}
 function linkQPIngredientInput(inp){
  const i=Number(inp.dataset.index),item=findSupplementByName(inp.value)||findSupplementByCode(inp.value);if(!item)return;
  const name=qpExactEl(i,"ingredient_name"),origin=qpExactEl(i,"origin");
@@ -1602,7 +1357,7 @@ async function linkAdminQPFormula(force=false){
    for(let i=0;i<7;i++) putSlot(9+i,inactive[i]);
    const total=active.length+inactive.length;
    recalculateAdminQP();toast(`VLOOKUP รหัสสูตร ${linked.formula_no} สำเร็จ • สารสำคัญ ${active.length} + สารไม่สำคัญ ${inactive.length} รายการ • ลิงก์ชื่อสาร / ปริมาณ / ประเทศ`);
- }catch(err){if(force)alert("ลิงก์เลขที่สูตรไม่ได้: "+(err?.message||err))}
+ }catch(err){if(force)toast("ลิงก์เลขที่สูตรไม่ได้: "+(err?.message||err))}
 }
 function collectAdminQPExactFormulaNo(d){if(isQPLikeForm(currentExactForm))d.formula_no=adminQPFormulaNo||document.getElementById("qpExactFormulaNo")?.value||document.querySelector('.excel-input[data-key="formula_no"]')?.value||"";return d}
 
@@ -2143,6 +1898,18 @@ function autoLinkIngredient(inp){
 function bindAliasPanel(){
  // Initial binding is handled by oninput attributes. This function remains for compatibility.
 }
+// Base implementation collectExactPayload() is later wrapped/extended below
+// (manual_cells, ingredient_count, ...) -- kept as a plain top-level
+// function (not merged into the wrapper) since the wrapper calls it by
+// name via collectExactPayloadOriginal.
+function collectExactPayload(){
+ const d={};document.querySelectorAll(".excel-input").forEach(e=>{let v=e.value;if(e.type==="number"&&v!=="")v=Number(v);
+   if(e.dataset.key)d[e.dataset.key]=v;
+   if(e.dataset.group){const g=e.dataset.group,i=+e.dataset.index,k=e.dataset.sub;d[g]??=[];d[g][i]??={};d[g][i][k]=v}
+ });
+ for(const k of Object.keys(d))if(Array.isArray(d[k]))d[k]=d[k].filter(x=>x&&Object.values(x).some(v=>v!==""&&v!=null));
+ return d;
+}
 const collectExactPayloadOriginal = collectExactPayload;
 collectExactPayload = function(){
   const d=collectExactPayloadOriginal();
@@ -2264,7 +2031,6 @@ function populateExactForm(d){
  },0);
 }
 
-const saveExactFormNewOnly=saveExactForm;
 saveExactForm=async function(code){
   try{
     if(!code)code=currentExactForm;
@@ -2334,7 +2100,7 @@ saveExactForm=async function(code){
     return result;
   }catch(e){
     console.error("saveExactForm failed",e);
-    alert("บันทึกไม่สำเร็จ: "+(e?.message||e));
+    toast("บันทึกไม่สำเร็จ: "+(e?.message||e));
     throw e;
   }
 };
@@ -2577,7 +2343,7 @@ async function importFDAMasterNow(){
     toast(result?.result||"นำเข้า FDA master สำเร็จ");
     await loadFDADatabase();
   }catch(e){
-    alert("นำเข้า FDA master ไม่สำเร็จ: "+(e?.message||e));
+    toast("นำเข้า FDA master ไม่สำเร็จ: "+(e?.message||e));
   }
 }
 
@@ -2863,7 +2629,7 @@ async function saveFDAMaterial(){
     closeFDAEditor();
     await loadFDADatabase();
   }catch(e){
-    alert("บันทึก FDA Database ไม่สำเร็จ: "+(e?.message||e));
+    toast("บันทึก FDA Database ไม่สำเร็จ: "+(e?.message||e));
   }
 }
 
@@ -2875,7 +2641,7 @@ async function deleteFDAMaterial(id,code){
     toast("ลบข้อมูลแล้ว");
     await loadFDADatabase();
   }catch(e){
-    alert("ลบไม่สำเร็จ: "+(e?.message||e));
+    toast("ลบไม่สำเร็จ: "+(e?.message||e));
   }
 }
 
@@ -2936,7 +2702,7 @@ function renderDepartmentPortal(){
 }
 
 async function enterDepartmentUnlocked(code){
- if(!allowedDepartments().includes(code)){alert("บัญชีนี้ไม่มีสิทธิ์เข้าแผนก "+code);return;}
+ if(!allowedDepartments().includes(code)){toast("บัญชีนี้ไม่มีสิทธิ์เข้าแผนก "+code);return;}
  currentDepartment=code;localStorage.setItem("department",code);$("departmentPortal").classList.add("hidden");$("appShell").classList.remove("hidden");$("currentDepartment").textContent=me?.full_name?`${code} • ${me.full_name}`:code;
  document.querySelectorAll(".dept-menu").forEach(x=>x.classList.toggle("dept-visible",x.dataset.dept===code));document.querySelectorAll(".dept-common").forEach(x=>x.classList.add("dept-visible"));
  refreshWorkInboxBadge();
@@ -3042,7 +2808,6 @@ function departmentFromUsername(username){
  for(const p of prefixes) if(u===p || u.startsWith(p)) return p==="sale"?"SALE":p.toUpperCase();
  return null;
 }
-const bootstrapV13Original = bootstrap;
 
 
 // Logging in with a real employee account IS the department/identity check
@@ -3060,42 +2825,6 @@ function ingredientNum(i,sub){return readNumber(ingredientEl(i,sub));}
 function setIngredientAuto(i,sub,value,digits=6){
  const el=ingredientEl(i,sub);
  setAutoEditable(el,value,digits);
-}
-function recalculateFormulaBothLegacy2(){
- if(currentExactForm!=="F-RD-002" && currentExactForm!=="F-RD-002.1")return;
- const count=Math.max(1,Number(window.formulaIngredientCount?.[currentExactForm]||formulaTemplateCapacity(currentExactForm)));
- const orderQty=readNumber(document.querySelector('.excel-input[data-key="order_quantity"]'));
-
- let activeQty=0;
- for(let i=0;i<count;i++)activeQty+=ingredientNum(i,"quantity_mg");
-
- let totalProd=0,ingredientCostPerUnit=0;
- for(let i=0;i<count;i++){
-   const qty=ingredientNum(i,"quantity_mg");
-   const priceKg=ingredientNum(i,"price_kg");
-   const prodKg=orderQty>0?qty*orderQty/1000000:0;
-   const pct=activeQty>0?qty/activeQty*100:0;
-   const priceMg=priceKg/1000000;
-   setIngredientAuto(i,"production_kg",prodKg,6);
-   setIngredientAuto(i,"percent",pct,6);
-   setIngredientAuto(i,"price_mg",priceMg,9);
-   totalProd+=prodKg;
-   ingredientCostPerUnit+=qty*priceMg;
- }
-
- // Preserve the original lower tables and update summary cells when present.
- if(currentExactForm==="F-RD-002"){
-   setCalculatedCell("K44",activeQty);
-   setCalculatedCell("K45",totalProd);
-   setCalculatedCell("K47",ingredientCostPerUnit);
-   const salePerUnit=getInactiveCell("K48");
-   const totalCost=ingredientCostPerUnit*orderQty;
-   const totalSale=salePerUnit*orderQty;
-   setCalculatedCell("AO47",totalCost);
-   setCalculatedCell("AO48",totalSale);
-   setCalculatedCell("K49",salePerUnit-ingredientCostPerUnit);
-   setCalculatedCell("AO49",totalSale-totalCost);
- }
 }
 
 
@@ -3211,7 +2940,7 @@ async function saveAIFormulaFeedback(code,quiet=false){
     if(!quiet)toast(`AI Feedback: ผ่าน ${result.accepted} / แก้ไข ${result.rejected}`);
     return result;
   }catch(e){
-    if(!quiet)alert("บันทึก Feedback AI ไม่สำเร็จ: "+(e?.message||e));
+    if(!quiet)toast("บันทึก Feedback AI ไม่สำเร็จ: "+(e?.message||e));
     return null;
   }
 }

@@ -22,6 +22,8 @@ def register(payload: UserCreate, db: Session = Depends(get_db), _=Depends(requi
     username = (payload.username or "").strip().lower()
     if not username:
         raise HTTPException(400, "Username is required")
+    if len(payload.password or "") < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
     if db.scalar(select(User).where(User.username == username)):
         raise HTTPException(409, "Username exists")
     department = (payload.department or "").strip().upper() or None

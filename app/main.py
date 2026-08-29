@@ -8,6 +8,22 @@ from app.db.session import engine
 from app.api.routes import router
 import app.models  # noqa
 
+if settings.secret_key == "change-this-in-production":
+    # JWT tokens are signed with this key -- if it's ever left at the known
+    # default, anyone who reads this open-source repo can forge a valid
+    # auth token for any user. render.yaml sets SECRET_KEY via
+    # generateValue: true, so production on Render is unaffected; this is a
+    # loud guard against ever running with the default anywhere else
+    # (local dev without .env, a different deploy target, ...).
+    print(
+        "=" * 60 + "\n"
+        "[SECURITY WARNING] SECRET_KEY is not set -- using the insecure\n"
+        "default from app/core/config.py. Auth tokens signed with this key\n"
+        "can be forged by anyone who has read this repository. Set the\n"
+        "SECRET_KEY environment variable to a real random secret before\n"
+        "exposing this app to real users.\n" + "=" * 60
+    )
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -332,7 +348,13 @@ def ensure_final_schema():
 
 ensure_final_schema()
 app=FastAPI(title=settings.app_name,version="1.0.0")
-app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_credentials=True,allow_methods=["*"],allow_headers=["*"])
+# allow_credentials=False: this app never uses cookies for auth (the
+# frontend sends a Bearer token via the Authorization header, read from
+# localStorage), so there's no reason to combine a wildcard origin with
+# credentialed cross-site requests -- that combination is what lets any
+# other website ride a logged-in user's session. Bearer-token fetches are
+# unaffected either way since they don't depend on this flag.
+app.add_middleware(CORSMiddleware,allow_origins=["*"],allow_credentials=False,allow_methods=["*"],allow_headers=["*"])
 app.include_router(router)
 app.mount("/static",StaticFiles(directory="app/static"),name="static")
 templates=Jinja2Templates(directory="app/templates")

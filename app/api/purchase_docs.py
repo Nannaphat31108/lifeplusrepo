@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_roles
 from app.models.entities import PurchaseDocument
 
 router = APIRouter(prefix="/api/purchase-docs", tags=["Purchase Documents"])
@@ -116,7 +116,11 @@ def update_doc(
 
 
 @router.delete("/record/{record_id}")
-def delete_doc(record_id: int, db: Session = Depends(get_db), u=Depends(get_current_user)):
+def delete_doc(
+    record_id: int,
+    db: Session = Depends(get_db),
+    u=Depends(require_roles("ADMIN", "PURCHASE", "STOCK")),
+):
     x = db.get(PurchaseDocument, record_id)
     if not x:
         raise HTTPException(404, "Record not found")
