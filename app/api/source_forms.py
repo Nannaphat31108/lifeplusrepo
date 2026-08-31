@@ -805,6 +805,18 @@ def fill_admin_qp(ws,d):
     if d.get("discount") not in (None, ""):
         put(ws,"AR48",d.get("discount"))
 
+    # หมายเหตุ (notes/remarks) -- the master template has no dedicated cell for
+    # this, so it goes in the one genuinely free row between the amount-in-words
+    # line (B53:AK54) and the signature block (row 56). Note: the ADMIN-QP/
+    # ADMIN-INVOICE export path (_admin_qp_export_preserve_master) only diffs
+    # and patches cell *values* to protect the master's embedded images/styling,
+    # so a style change here (e.g. wrap_text) would not survive into the
+    # exported file -- the value itself does, and simply overflows visually
+    # into the empty cells to its right like any other long unmerged text.
+    notes=str(d.get("notes") or "").strip()
+    if notes:
+        put(ws,"B55",notes)
+
     # Signature/signatory fields intentionally omitted from ADMIN-QP.
 
 
