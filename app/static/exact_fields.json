@@ -4590,6 +4590,12 @@
       "key": "admin_signature_date",
       "type": "date_text",
       "placeholder": "DD/MM/YYYY"
+    },
+    {
+      "cell": "B55",
+      "key": "notes",
+      "type": "textarea",
+      "placeholder": "หมายเหตุ เช่น สเปคบรรจุภัณฑ์ เงื่อนไขพิเศษ"
     }
   ]
 }

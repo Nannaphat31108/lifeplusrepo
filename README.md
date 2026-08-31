@@ -1,3 +1,24 @@
+## v31.42 — ADMIN-QP: added the missing หมายเหตุ (notes) field
+
+Ground-truthed against a real filled quotation (QP2026080046, from an OEM
+contract PDF) that had a substantial notes/remarks section (packaging
+spec, discount conditions, per-unit price) with nowhere to go in the
+existing form — the master template has no dedicated notes cell at all.
+Every other field on that real document (customer, address, phone,
+formula reference, line items, discount, VAT, grand total) was already
+covered; this was the one genuine gap.
+
+- Added a `notes` field (textarea) at cell B55 — the one row genuinely
+  free between the amount-in-words line and the signature block — with
+  its row height increased so the textarea has room for multiple lines.
+- `fill_admin_qp()` now writes it into the real Excel export too. The
+  ADMIN-QP export path only patches cell *values* (to protect the
+  master's embedded logo/images), not styles, so the exported cell
+  doesn't wrap text automatically — the content is still fully present,
+  it just overflows visually into the empty cells beside it like any
+  other long unmerged Excel text, same as everywhere else in this master
+  that was never designed around long text.
+
 ## v31.41 — security/code-quality audit + dead-code cleanup + UX consistency
 
 Requested as a general "plug every hole" pass rather than any single bug

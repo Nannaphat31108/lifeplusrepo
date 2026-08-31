@@ -972,6 +972,7 @@ function exactInput(field,addr,cellValue){
  if(field.type==="date") return `<input ${common} type="date">`;
  if(field.type==="date_text") return `<input ${common} type="text" inputmode="numeric" placeholder="DD/MM/YYYY" oninput="this.value=this.value.replace(/[^0-9\/\-]/g,'')">`;
  if(field.type==="package") return `<input ${common} type="text" list="exactPackageList" placeholder="พิมพ์ค้นหา Package" oninput="applyPackageSelection(this)">`;
+ if(field.type==="textarea") return `<textarea ${common} placeholder="${esc(placeholder)}">${esc(cellValue||"")}</textarea>`;
  if(field.type==="number_auto") return `<input ${common} class="excel-input" type="number" step="0.000000001" placeholder="คำนวณอัตโนมัติ" readonly tabindex="-1">`;
  if(field.type==="number") return `<input ${common} type="number" step="0.000001" placeholder="${esc(placeholder)}" oninput="${isQPLikeForm(currentExactForm)?'recalculateAdminQP()':'recalculateFormulaBoth()'}" onchange="${isQPLikeForm(currentExactForm)?'recalculateAdminQP()':'recalculateFormulaBoth()'}">`;
  if(field.type==="supplier") return `<input ${common} type="text" placeholder="ลิงก์อัตโนมัติ / แก้เองได้">`;
