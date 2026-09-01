@@ -385,12 +385,31 @@ function handoffCard(x,mode){
       : x.status==="RECEIVED" ? `<button class="primary" onclick="markHandoffDone(${x.id})">เสร็จแล้ว</button>`
       : "")
     : "";
+  // "อ้างอิง" points at a สูตร (F-RD-002 record no. or formula no.) the
+  // sender picked from the typeahead -- offer to open a quotation
+  // pre-linked to that formula's data (customer/product/ingredients),
+  // same lookup the QP form's own manual VLOOKUP box uses, just triggered
+  // from here instead of typed in by hand. Nothing is locked: every field
+  // it fills stays fully editable/removable in the quotation itself.
+  // data-reference (not a literal embedded in the onclick string) so an
+  // apostrophe in a free-typed reference can never break out of the
+  // inline handler.
+  const quoteAction=(mode==="inbox" && x.reference)
+    ? `<button data-reference="${esc(x.reference)}" onclick="createQuotationFromHandoff(this.dataset.reference)">สร้างใบเสนอราคาจากงานนี้</button>`
+    : "";
   return `<div class="handoff-card">
     <div class="handoff-head"><b>${esc(x.subject)}</b>${statusBadge(x.status)}</div>
     <div class="handoff-meta">${dirLabel} • ${new Date(x.created_at).toLocaleString()}${x.reference?` • อ้างอิง: ${esc(x.reference)}`:""}</div>
     ${x.message?`<div class="handoff-message">${esc(x.message)}</div>`:""}
-    <div class="handoff-actions">${actions}</div>
+    <div class="handoff-actions">${actions}${quoteAction}</div>
   </div>`;
+}
+
+async function createQuotationFromHandoff(reference){
+  await openExactForm("ADMIN-QP");
+  const box=document.getElementById("qpExactFormulaNo");
+  if(box)box.value=reference;
+  await linkAdminQPFormula(true);
 }
 
 async function renderWorkInbox(){
@@ -1097,14 +1116,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.47",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.48",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.47",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.48",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -1549,6 +1568,73 @@ async function linkAdminQPFormula(force=false){
 }
 function collectAdminQPExactFormulaNo(d){if(isQPLikeForm(currentExactForm))d.formula_no=adminQPFormulaNo||document.getElementById("qpExactFormulaNo")?.value||document.querySelector('.excel-input[data-key="formula_no"]')?.value||"";return d}
 
+// ADMIN-QP/ADMIN-INVOICE: a second tab holding a free-form cost breakdown
+// (ค่าแรง, บรรจุภัณฑ์, ...). Not tied to any real cell in the QP master --
+// there's no fixed schema for this yet ("database ที่จะส่งมาทีหลัง"), so
+// rows are add/remove-able and go into the record's own payload as
+// cost_details, the same generic data-group/data-index/data-sub mechanism
+// collectExactPayload() already reads for every other repeatable table.
+function switchExactFormTab(tab){
+  document.querySelectorAll(".exact-tab-btn").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));
+  $("exactFormTabMain")?.classList.toggle("hidden",tab!=="main");
+  $("exactFormTabCost")?.classList.toggle("hidden",tab!=="cost");
+}
+
+function qpCostDetailsTabHtml(){
+  return `<div class="card">
+    <div class="toolbar"><h3>รายละเอียดต้นทุน</h3><button class="primary" onclick="addQpCostDetailRow()">+ เพิ่มรายการ</button></div>
+    <datalist id="qpCostCategoryList">
+      <option value="ค่าแรง"><option value="บรรจุภัณฑ์"><option value="ค่าขนส่ง"><option value="ค่าดำเนินการ"><option value="อื่นๆ">
+    </datalist>
+    <div class="table-wrap"><table>
+      <thead><tr><th>หมวด</th><th>รายละเอียด</th><th>จำนวนเงิน</th><th></th></tr></thead>
+      <tbody id="qpCostDetailsBody"></tbody>
+    </table></div>
+    <div class="purchase-doc-totals"><div>รวมค่าใช้จ่ายเพิ่มเติม <b id="qpCostDetailsTotal">0.00</b> บาท</div></div>
+  </div>`;
+}
+
+function qpCostDetailRowHtml(i,x={}){
+  // .cost-detail-input, not .excel-input -- these live in a plain <table>,
+  // not the .excel-sheet grid, and .excel-input's CSS assumes it's always
+  // absolutely positioned inside a sheet <td> (it is, everywhere else it's
+  // used). collectExactPayload()'s field collector matches both classes.
+  return `<tr data-cost-row="${i}">
+    <td><input class="cost-detail-input" list="qpCostCategoryList" data-group="cost_details" data-index="${i}" data-sub="category" value="${esc(x.category||"")}" placeholder="หมวด"></td>
+    <td><input class="cost-detail-input" data-group="cost_details" data-index="${i}" data-sub="description" value="${esc(x.description||"")}" placeholder="รายละเอียด"></td>
+    <td><input class="cost-detail-input" type="number" step="0.01" data-group="cost_details" data-index="${i}" data-sub="amount" value="${esc(x.amount??"")}" oninput="recalcQpCostDetailsTotal()"></td>
+    <td><button onclick="removeQpCostDetailRow(this)">ลบ</button></td>
+  </tr>`;
+}
+
+function addQpCostDetailRow(x={}){
+  const body=$("qpCostDetailsBody");
+  if(!body)return;
+  const i=body.querySelectorAll("tr").length;
+  body.insertAdjacentHTML("beforeend",qpCostDetailRowHtml(i,x));
+}
+
+function removeQpCostDetailRow(btn){
+  btn.closest("tr")?.remove();
+  const body=$("qpCostDetailsBody");
+  if(body){
+    [...body.querySelectorAll("tr")].forEach((tr,i)=>{
+      tr.dataset.costRow=i;
+      tr.querySelectorAll('[data-group="cost_details"]').forEach(el=>el.dataset.index=i);
+    });
+  }
+  recalcQpCostDetailsTotal();
+}
+
+function recalcQpCostDetailsTotal(){
+  const body=$("qpCostDetailsBody");
+  const totalEl=$("qpCostDetailsTotal");
+  if(!body||!totalEl)return;
+  let total=0;
+  body.querySelectorAll('[data-sub="amount"]').forEach(e=>total+=readNumber(e));
+  totalEl.textContent=total.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
 
 
 
@@ -1831,11 +1917,18 @@ async function openPrivateExactForm(code){
       </div>
     </div>
 
-    
+    ${isQPLikeForm(code)?`<div class="exact-form-tabs">
+      <button class="exact-tab-btn active" data-tab="main" onclick="switchExactFormTab('main')">แบบฟอร์ม</button>
+      <button class="exact-tab-btn" data-tab="cost" onclick="switchExactFormTab('cost')">รายละเอียดต้นทุน</button>
+    </div>`:""}
 
+    <div id="exactFormTabMain">
     <div class="excel-sheet-scroll">
       <table class="excel-sheet">${cols}<tbody>${rows}</tbody></table>
     </div>
+    </div>
+
+    ${isQPLikeForm(code)?`<div id="exactFormTabCost" class="hidden">${qpCostDetailsTabHtml()}</div>`:""}
 
     <datalist id="exactSupplementCodeList">
       ${supplements.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join("")}
@@ -2111,7 +2204,10 @@ function isPayloadEssentiallyEmpty(data){
 // function (not merged into the wrapper) since the wrapper calls it by
 // name via collectExactPayloadOriginal.
 function collectExactPayload(){
- const d={};document.querySelectorAll(".excel-input").forEach(e=>{let v=e.value;if(e.type==="number"&&v!=="")v=Number(v);
+ // .cost-detail-input (the QP cost-breakdown tab) isn't in the .excel-sheet
+ // grid but still uses the same data-key/data-group convention, so it's
+ // collected the same way.
+ const d={};document.querySelectorAll(".excel-input, .cost-detail-input").forEach(e=>{let v=e.value;if(e.type==="number"&&v!=="")v=Number(v);
    if(e.dataset.key)d[e.dataset.key]=v;
    if(e.dataset.group){const g=e.dataset.group,i=+e.dataset.index,k=e.dataset.sub;d[g]??=[];d[g][i]??={};d[g][i][k]=v}
  });
@@ -2195,6 +2291,9 @@ function populateExactForm(d){
    adminQPFormulaNo=String(d.formula_no||"");
    const linkBox=document.getElementById("qpExactFormulaNo");if(linkBox)linkBox.value=adminQPFormulaNo;
    setTimeout(recalculateAdminQP,0);
+
+   (d.cost_details||[]).forEach(x=>addQpCostDetailRow(x));
+   recalcQpCostDetailsTotal();
  }
 
  if(currentExactForm==="ADMIN-JOB"){
@@ -2358,19 +2457,10 @@ showSourceRecords=async function(code){
  const rows=await api(`/api/source-forms/${code}`);
  const header=`<div class="card-head"><div class="workspace-note">คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น</div><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่รายการ..." oninput="filterRecordRows(this)"><button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button></div></div>`;
 
- // F-RD-002: group by the month the user chose to file each record under.
+ // F-RD-002: filed by month -- a 12-month grid the user clicks into, one
+ // year at a time, rather than every non-empty month stacked on one page.
  if(code==="F-RD-002"){
-   const groups=new Map();
-   for(const x of rows){
-     const k=x.filed_month||"";
-     if(!groups.has(k))groups.set(k,[]);
-     groups.get(k).push(x);
-   }
-   const sortedKeys=[...groups.keys()].sort((a,b)=>b.localeCompare(a));
-   const sections=sortedKeys.length
-     ? sortedKeys.map(k=>`<div class="card"><h3>${esc(monthLabel(k))} <small>(${groups.get(k).length} รายการ)</small></h3>${table(["ID","Record No.","Status","Owner","Saved","Action"],groups.get(k).map(sourceRecordRow))}</div>`).join("")
-     : '<div class="card"><div class="empty">ยังไม่มีข้อมูล</div></div>';
-   $("pageContent").innerHTML=`<div class="card">${header}</div>${sections}`;
+   renderSourceMonthGrid(code,rows);
    return;
  }
 
@@ -2393,6 +2483,63 @@ showSourceRecords=async function(code){
  const tr=rows.map(sourceRecordRow);
  $("pageContent").innerHTML=`<div class="card">${header}${table(["ID","Record No.","Status","Owner","Saved","Action"],tr)}</div>`;
 };
+
+// F-RD-002 "ฟอร์มของฉัน": a 12-month grid (one year at a time) the user
+// clicks into to see that month's records, instead of every non-empty
+// month stacked on one long page.
+const MONTH_TILE_NAMES=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+
+function renderSourceMonthGrid(code,rows){
+  const year=window.sourceMonthGridYear||new Date().getFullYear();
+  window.sourceMonthGridYear=year;
+
+  const counts={};
+  let unfiled=0;
+  for(const x of rows){
+    const k=x.filed_month||"";
+    if(!k){unfiled++;continue;}
+    counts[k]=(counts[k]||0)+1;
+  }
+
+  const tiles=MONTH_TILE_NAMES.map((name,i)=>{
+    const ym=`${year}-${String(i+1).padStart(2,"0")}`;
+    const count=counts[ym]||0;
+    return `<button class="month-tile ${count?"":"empty-month"}" onclick="showSourceMonthRecords('${code}','${ym}')">
+      <div class="month-tile-name">${name}</div>
+      <div class="month-tile-year">${year}</div>
+      <div class="month-tile-count">${count} รายการ</div>
+    </button>`;
+  }).join("");
+  const unfiledTile=unfiled
+    ? `<button class="month-tile unfiled-month" onclick="showSourceMonthRecords('${code}','')">
+        <div class="month-tile-name">ไม่ระบุเดือน</div>
+        <div class="month-tile-count">${unfiled} รายการ</div>
+      </button>`
+    : "";
+
+  const header=`<div class="card-head"><div class="workspace-note">คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น</div><div class="toolbar"><button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button></div></div>`;
+
+  $("pageContent").innerHTML=`<div class="card">${header}
+    <div class="month-grid-toolbar">
+      <button onclick="shiftSourceMonthGridYear('${code}',-1)">‹ ${year-1}</button>
+      <b>ปี ${year}</b>
+      <button onclick="shiftSourceMonthGridYear('${code}',1)">${year+1} ›</button>
+    </div>
+    <div class="month-grid">${tiles}${unfiledTile}</div>
+  </div>`;
+}
+
+function shiftSourceMonthGridYear(code,delta){
+  window.sourceMonthGridYear=(window.sourceMonthGridYear||new Date().getFullYear())+delta;
+  showSourceRecords(code);
+}
+
+async function showSourceMonthRecords(code,ym){
+  const rows=await api(`/api/source-forms/${code}${ym?`?month=${encodeURIComponent(ym)}`:""}`);
+  const filtered=ym?rows:rows.filter(x=>!x.filed_month);
+  const header=`<div class="card-head"><div class="workspace-note">คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น</div><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่รายการ..." oninput="filterRecordRows(this)"><button onclick="showSourceRecords('${code}')">← กลับไปเลือกเดือน</button><button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button></div></div>`;
+  $("pageContent").innerHTML=`<div class="card"><h3>${esc(ym?monthLabel(ym):"ไม่ระบุเดือน")}</h3>${header}${table(["ID","Record No.","Status","Owner","Saved","Action"],filtered.map(sourceRecordRow))}</div>`;
+}
 
 
 

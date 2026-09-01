@@ -174,11 +174,19 @@ def formula_link_for_qp(
 
     QP intentionally receives only ingredient name, quantity (mg), and origin country.
     Supplier, material code, price, halal, FDA and other R&D-only fields are excluded.
+
+    The path param matches either the formula's own formula_no (e.g.
+    "F 620620-297#1", typed into the QP form's manual VLOOKUP box) or the
+    record's record_no (e.g. "F-RD-002-001", the value a work handoff's
+    "reference" field carries) -- so the same lookup serves both the manual
+    VLOOKUP button and the "create quotation from this work item" action on
+    a work-handoff inbox card.
     """
     wanted = re.sub(r"\s+", "", str(formula_no or "")).upper()
-    # VLOOKUP-like lookup for ADMIN-QP: formula numbers are shared internal
-    # references, so ADMIN must be able to resolve a formula created by R&D.
-    # Only the slim quotation-safe fields below are returned.
+    # VLOOKUP-like lookup for ADMIN-QP: formula numbers/record numbers are
+    # shared internal references, so ADMIN must be able to resolve a formula
+    # created by R&D regardless of who owns the underlying record. Only the
+    # slim quotation-safe fields below are returned.
     rows = db.scalars(
         select(SourceFormRecord)
         .where(SourceFormRecord.form_code == "F-RD-002")
@@ -190,8 +198,9 @@ def formula_link_for_qp(
             data = json.loads(rec.payload_json or "{}")
         except Exception:
             continue
-        current = re.sub(r"\s+", "", str(data.get("formula_no") or "")).upper()
-        if current != wanted:
+        current_formula = re.sub(r"\s+", "", str(data.get("formula_no") or "")).upper()
+        current_record_no = re.sub(r"\s+", "", str(rec.record_no or "")).upper()
+        if wanted not in (current_formula, current_record_no):
             continue
 
         def slim(items, limit):
