@@ -1,3 +1,30 @@
+## v31.44 — search/filter, required-field validation, PO/PR Excel export
+
+Three related record-management features, added together:
+
+- **Search box** on ฟอร์มของฉัน (F-RD-* record lists) and the PO/PR list
+  pages. Client-side substring filter over record no./owner (or doc
+  no./creator/reference); a `.card` section whose rows are all filtered
+  out hides itself too, so an empty month/person group doesn't linger.
+- **Required-field validation before save**, both client- and
+  server-side (the server check is the real guard -- the frontend one is
+  just instant feedback for a request that doesn't go through the
+  browser): PO needs a supplier (name or code) and at least one item
+  line with a description; PR needs at least one item line with a
+  material code or description. Saving/updating either without them now
+  returns 400 instead of silently persisting an empty document. Exact
+  forms (F-RD-*, ADMIN-QP, ...) now confirm before saving a completely
+  blank form (`ingredient_count` is template metadata, not user data, so
+  it's excluded from the emptiness check).
+- **Excel export for PO/PR.** Unlike the other exact forms, PO/PR have
+  no source `.xlsx` master (they were built from screenshots of paper
+  documents), so this generates a fresh, readable workbook mirroring the
+  on-screen layout -- header fields, item table, VAT/grand-total (with a
+  Thai baht-text line, `app/core/thai_baht.py`, a Python port of the
+  frontend's `thaiBahtText()`), and signature blocks. New
+  `GET /api/purchase-docs/record/{id}/excel`; an "Excel" button appears
+  in the form toolbar once a PO/PR has been saved.
+
 ## v31.43 — keyboard arrow-key navigation in every exact-form grid
 
 Arrow keys now move between cells (like Excel) in F-RD-001, F-RD-002,

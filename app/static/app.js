@@ -14,6 +14,17 @@ async function exportSourceExcel(id){
   }
 }
 
+async function exportPurchaseDocExcel(id){
+  try{
+    if(!id)throw new Error("ไม่พบ Record ID");
+    return await exportExcel(`/api/purchase-docs/record/${id}/excel`);
+  }catch(e){
+    console.error("exportPurchaseDocExcel failed",e);
+    toast("ดาวน์โหลด Excel ไม่สำเร็จ: "+(e?.message||e));
+    throw e;
+  }
+}
+
 let token = localStorage.getItem("token") || ""; window.loginUserInfo=JSON.parse(localStorage.getItem("loginUserInfo")||"{}");
 let me = null;
 let currentPage = "dashboard";
@@ -616,6 +627,7 @@ async function openPurchaseDocForm(docType,existingId=null){
         <div><b>ใบสั่งซื้อ ${existing?`#${esc(existing.doc_no)}`:"(ฉบับใหม่)"}</b><small>ใช้ลูกศร ↑↓←→ และ Enter เพื่อย้ายช่องได้เหมือน Excel</small></div>
         <div class="actions">
           <button onclick="listPurchaseDocs('PO')">รายการใบสั่งซื้อทั้งหมด</button>
+          ${existing?`<button onclick="exportPurchaseDocExcel(${existing.id})">Excel</button>`:""}
           <button class="primary" onclick="savePurchaseDoc('PO')">บันทึก</button>
         </div>
       </div>
@@ -683,6 +695,7 @@ async function openPurchaseDocForm(docType,existingId=null){
       <div><b>ใบขอซื้อ ${existing?`#${esc(existing.doc_no)}`:"(ฉบับใหม่)"}</b><small>ใช้ลูกศร ↑↓←→ และ Enter เพื่อย้ายช่องได้เหมือน Excel</small></div>
       <div class="actions">
         <button onclick="listPurchaseDocs('PR')">รายการใบขอซื้อทั้งหมด</button>
+        ${existing?`<button onclick="exportPurchaseDocExcel(${existing.id})">Excel</button>`:""}
         <button class="primary" onclick="savePurchaseDoc('PR')">บันทึก</button>
       </div>
     </div>
@@ -806,6 +819,24 @@ async function savePurchaseDoc(docType){
       }
     }
 
+    const items=data.items||[];
+    if(docType==="PO"){
+      if(!data.supplier_name.trim() && !data.supplier_code.trim()){
+        toast("กรุณาใส่ผู้จำหน่าย (ชื่อ หรือ รหัสผู้จำหน่าย) ก่อนบันทึก");
+        $("po_supplier_name")?.focus();
+        return;
+      }
+      if(!items.some(x=>String(x.description||"").trim())){
+        toast("กรุณาใส่รายการสินค้าอย่างน้อย 1 รายการ ก่อนบันทึก");
+        return;
+      }
+    }else{
+      if(!items.some(x=>String(x.material_code||"").trim() || String(x.description||"").trim())){
+        toast("กรุณาใส่รายการวัตถุดิบอย่างน้อย 1 รายการ (รหัสสินค้าหรือรายละเอียด) ก่อนบันทึก");
+        return;
+      }
+    }
+
     const body={doc_no,status:"DRAFT",data,linked_reference};
     let result;
     if(window.editingPurchaseDocId){
@@ -825,8 +856,11 @@ async function listPurchaseDocs(docType){
   $("pageTitle").textContent=docType==="PO"?"รายการใบสั่งซื้อ":"รายการใบขอซื้อ";
   $("pageSubtitle").textContent=docType==="PO"?"เอกสารที่ส่งให้ผู้จำหน่ายภายนอก":"เอกสารที่คลังส่งมาให้จัดซื้อ";
   const rows=await api(`/api/purchase-docs/${docType}`);
-  const tr=rows.map(x=>`<tr><td>${x.id}</td><td>${esc(x.doc_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(x.created_by_name||"")}</td><td>${esc(x.linked_reference||"-")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="openPurchaseDocForm('${docType}',${x.id})">แก้ไข</button></td></tr>`);
-  $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><button class="primary" onclick="openPurchaseDocForm('${docType}')">+ ${docType==="PO"?"ใบสั่งซื้อใหม่":"ใบขอซื้อใหม่"}</button></div>${table(["ID","เลขที่",docType==="PO"?"สถานะ":"สถานะ","ผู้สร้าง","อ้างอิง","บันทึกเมื่อ","จัดการ"],tr)}</div>`;
+  const tr=rows.map(x=>{
+    const search=esc(`${x.doc_no||""} ${x.created_by_name||""} ${x.linked_reference||""}`.toLowerCase());
+    return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.doc_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(x.created_by_name||"")}</td><td>${esc(x.linked_reference||"-")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="openPurchaseDocForm('${docType}',${x.id})">แก้ไข</button><button onclick="exportPurchaseDocExcel(${x.id})">Excel</button></td></tr>`;
+  });
+  $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่/อ้างอิง..." oninput="filterRecordRows(this)"><button class="primary" onclick="openPurchaseDocForm('${docType}')">+ ${docType==="PO"?"ใบสั่งซื้อใหม่":"ใบขอซื้อใหม่"}</button></div>${table(["ID","เลขที่",docType==="PO"?"สถานะ":"สถานะ","ผู้สร้าง","อ้างอิง","บันทึกเมื่อ","จัดการ"],tr)}</div>`;
 }
 
 const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","CEO"];
@@ -1963,6 +1997,24 @@ function autoLinkIngredient(inp){
 function bindAliasPanel(){
  // Initial binding is handled by oninput attributes. This function remains for compatibility.
 }
+// True when a collected exact-form payload has no user-entered data at all
+// (every scalar field blank/null/undefined and every group array empty) --
+// used to warn before saving a completely empty form. ingredient_count is
+// derived template metadata (always >=1, even on a blank form), not
+// user-entered data, so it's ignored here.
+function isPayloadEssentiallyEmpty(data){
+  for(const [k,v] of Object.entries(data||{})){
+    if(k==="ingredient_count")continue;
+    if(Array.isArray(v)){
+      if(v.length)return false;
+    }else if(v && typeof v==="object"){
+      if(Object.values(v).some(x=>x!==undefined&&x!==null&&String(x).trim()!==""))return false;
+    }else if(v!==undefined && v!==null && String(v).trim()!==""){
+      return false;
+    }
+  }
+  return true;
+}
 // Base implementation collectExactPayload() is later wrapped/extended below
 // (manual_cells, ingredient_count, ...) -- kept as a plain top-level
 // function (not merged into the wrapper) since the wrapper calls it by
@@ -2107,6 +2159,10 @@ saveExactForm=async function(code){
 
     const data=collectExactPayload();
 
+    if(isPayloadEssentiallyEmpty(data) && !confirm("ฟอร์มนี้ยังไม่มีข้อมูลกรอกเลย ต้องการบันทึกฟอร์มเปล่าหรือไม่?")){
+      return;
+    }
+
     if(isQPLikeForm(code)){
       const formulaToolbar=document.getElementById("adminQPFormulaNo");
       if(formulaToolbar?.value?.trim()){
@@ -2171,11 +2227,33 @@ saveExactForm=async function(code){
 };
 
 function sourceRecordRow(x){
-  return `<tr><td>${x.id}</td><td>${esc(x.record_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(x.owner||window.formWorkspace?.display_name||"")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="editOwnSourceRecord(${x.id})">แก้ไข</button><button onclick="exportSourceExcel(${x.id})">Excel ต้นฉบับ</button></td></tr>`;
+  const owner=x.owner||window.formWorkspace?.display_name||"";
+  const search=esc(`${x.record_no||""} ${owner}`.toLowerCase());
+  return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.record_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(owner)}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="editOwnSourceRecord(${x.id})">แก้ไข</button><button onclick="exportSourceExcel(${x.id})">Excel ต้นฉบับ</button></td></tr>`;
+}
+
+// Generic client-side search box: filters every [data-search] row inside
+// #pageContent by substring match, then hides any .card section whose
+// rows are all filtered out (used by the grouped F-RD-002/F-RD-002.1
+// views so an empty month/person section doesn't linger on screen).
+function filterRecordRows(input){
+  const q=(input.value||"").trim().toLowerCase();
+  const cards=new Set();
+  document.querySelectorAll("#pageContent tr[data-search]").forEach(tr=>{
+    const match=!q||tr.dataset.search.includes(q);
+    tr.classList.toggle("hidden",!match);
+    const card=tr.closest(".card");
+    if(card)cards.add(card);
+  });
+  cards.forEach(card=>{
+    const anyVisible=[...card.querySelectorAll("tr[data-search]")].some(tr=>!tr.classList.contains("hidden"));
+    const hasRows=card.querySelectorAll("tr[data-search]").length>0;
+    card.classList.toggle("hidden",hasRows && !anyVisible && !!q);
+  });
 }
 showSourceRecords=async function(code){
  const rows=await api(`/api/source-forms/${code}`);
- const header=`<div class="card-head"><div class="workspace-note">คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น</div><div class="toolbar"><button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button></div></div>`;
+ const header=`<div class="card-head"><div class="workspace-note">คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น</div><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่รายการ..." oninput="filterRecordRows(this)"><button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button></div></div>`;
 
  // F-RD-002: group by the month the user chose to file each record under.
  if(code==="F-RD-002"){
