@@ -1,3 +1,41 @@
+## v31.49 — form field sizing pass (+ a real PO/PR layout bug found along the way)
+
+Went through every exact form (F-RD-001/002/002.1/003/004, ADMIN-QP/
+INVOICE/JOB) plus PO/PR in a real headless-Chromium render (Playwright,
+not jsdom -- jsdom's `getBoundingClientRect()` always returns zeros, so
+none of this session's earlier layout work could have caught any of the
+below) to find and fix cells that were too narrow (clipped placeholder/
+value text) or, per the request, too wide.
+
+- **Found a real, severe bug in PO/PR**: their table's `.excel-input`
+  cells inherit `.excel-input`'s shared `position:absolute` rule (written
+  for the *other* exact forms' `.excel-sheet`, whose `<td>` has
+  `position:relative` to anchor it) — but `.purchase-doc-table`'s `<td>`
+  never set that, so every input in the grid anchored to `<body>` instead
+  of its own cell: one giant ~viewport-sized box, with all 60 inputs
+  stacked on top of each other at the same position. Fixed with
+  `.purchase-doc-table .excel-input{position:static}`, which also makes
+  its own `width:100%` resolve against the `<td>` again instead of the
+  viewport. This is why the PO/PR forms have looked fine in every
+  screenshot taken with real data in *this* session (all done via jsdom)
+  but would have rendered as a single blue rectangle for an actual user —
+  worth a heads-up if anyone saw that and didn't report it.
+- **Raised the exact-form column-width floor** from 4 "character" units
+  (~29px) to 8 (~58px): the real Excel masters have plenty of columns
+  narrower than that, fine on paper (text overflows visually into blank
+  neighboring cells) but clipped badly once every column becomes a boxed
+  `<input>` that can't overflow its own cell. Fixed most of ADMIN-QP's and
+  F-RD-004's narrow fields on its own.
+- **Added `applyWideFieldSpans()`**: for specific fields the floor bump
+  didn't reach (ADMIN-JOB's header value cells, F-RD-001's two long-text
+  fields and its ingredient-name columns), makes that one field span a
+  few of the blank columns that already sit empty beside it in the real
+  master — the same mechanism a real merged cell already uses, applied
+  only when every column it would consume is verified free first (not
+  already merged, not another field's cell, no static text of its own) so
+  it can never silently swallow a neighboring input. Verified field-by-
+  field by screenshotting the rendered grid, not guessed.
+
 ## v31.48 — 12-month click-in grid; RD→ADMIN quotation auto-link; QP cost-details tab
 
 Three changes from the same request.
