@@ -1,3 +1,19 @@
+## v31.43 — keyboard arrow-key navigation in every exact-form grid
+
+Arrow keys now move between cells (like Excel) in F-RD-001, F-RD-002,
+F-RD-002.1, F-RD-003, F-RD-004, ADMIN-QP and ADMIN-INVOICE; Enter moves
+down a row. One delegated `keydown` listener (not wired per-input) picks
+the nearest editable cell in the pressed direction by actual on-screen
+position, so it handles merged cells, dynamically-appended ingredient
+rows, and irregular column widths the same way real Excel would, without
+needing every place that renders an `.excel-input` (`exactInput()`,
+`manualInputForCell()`, `formulaAutoInputForCell()`, the dynamic
+ingredient-row renderers, ...) to wire it in individually. Read-only/
+auto-calculated cells are skipped as destinations. `<select>` elements and
+`Enter` inside a `<textarea>` (e.g. the new QP notes field) are left to
+their native behavior. The PO/PR forms already had their own simpler
+row/col-based nav from when they were built and are unaffected.
+
 ## v31.42 — ADMIN-QP: added the missing หมายเหตุ (notes) field
 
 Ground-truthed against a real filled quotation (QP2026080046, from an OEM
