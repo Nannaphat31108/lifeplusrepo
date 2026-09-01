@@ -12,7 +12,8 @@ from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 from app.db.session import get_db
 from app.core.security import get_current_user
-from app.models.entities import SourceFormRecord, Customer, SupplementAlias
+from app.core.record_versions import snapshot_version, serialize_version
+from app.models.entities import SourceFormRecord, Customer, SupplementAlias, RecordVersion
 
 router=APIRouter(prefix="/api/source-forms",tags=["Source Forms"])
 ROOT=Path(__file__).resolve().parents[2]/"original_forms"
@@ -293,6 +294,18 @@ def update_record(
     if x.form_code in {"F-RD-002", "F-RD-002.1"} and not p.data.get("date"):
         p.data["date"] = date.today().isoformat()
 
+    # Snapshot the state being overwritten -- taken before any of the
+    # fields below change, so it reflects exactly what was saved last time.
+    snapshot_version(
+        db,
+        record_type="source_form",
+        record_id=x.id,
+        payload_json=x.payload_json,
+        label=x.record_no,
+        status=x.status,
+        user=u,
+    )
+
     x.record_no = p.record_no
     x.status = p.status
     x.owner_person_key = person_key
@@ -347,6 +360,84 @@ def update_record(
         db.rollback()
         raise HTTPException(500, f"Update failed: {type(e).__name__}: {e}")
     return {"id": x.id, "record_no": x.record_no, "owner": u.full_name, "updated": True}
+
+
+def _own_record_or_404(db: Session, record_id: int, u, person_key: str) -> SourceFormRecord:
+    x = db.get(SourceFormRecord, record_id)
+    if not x or x.created_by != u.id or x.owner_person_key != person_key:
+        raise HTTPException(404, "Record not found")
+    return x
+
+
+@router.get("/record/{record_id}/versions")
+def list_record_versions(
+    record_id: int,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    person_key: str = Depends(require_person_key),
+):
+    _own_record_or_404(db, record_id, u, person_key)
+    rows = db.scalars(
+        select(RecordVersion)
+        .where(RecordVersion.record_type == "source_form", RecordVersion.record_id == record_id)
+        .order_by(RecordVersion.id.desc())
+    ).all()
+    return [serialize_version(v) for v in rows]
+
+
+@router.get("/record/{record_id}/versions/{version_id}")
+def get_record_version(
+    record_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    person_key: str = Depends(require_person_key),
+):
+    _own_record_or_404(db, record_id, u, person_key)
+    v = db.get(RecordVersion, version_id)
+    if not v or v.record_type != "source_form" or v.record_id != record_id:
+        raise HTTPException(404, "Version not found")
+    out = serialize_version(v)
+    out["data"] = json.loads(v.payload_json or "{}")
+    return out
+
+
+@router.post("/record/{record_id}/versions/{version_id}/restore")
+def restore_record_version(
+    record_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    person_key: str = Depends(require_person_key),
+):
+    """Bring back an older version as the current one. The state being
+    replaced is snapshotted first, same as any other update -- so restoring
+    is itself undoable."""
+    x = _own_record_or_404(db, record_id, u, person_key)
+    v = db.get(RecordVersion, version_id)
+    if not v or v.record_type != "source_form" or v.record_id != record_id:
+        raise HTTPException(404, "Version not found")
+
+    snapshot_version(
+        db,
+        record_type="source_form",
+        record_id=x.id,
+        payload_json=x.payload_json,
+        label=x.record_no,
+        status=x.status,
+        user=u,
+    )
+    x.payload_json = v.payload_json
+    if v.label:
+        x.record_no = v.label
+    if v.status:
+        x.status = v.status
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Restore failed: {type(e).__name__}: {e}")
+    return {"id": x.id, "record_no": x.record_no, "restored_from": version_id}
 
 
 def put(ws,cell,value):

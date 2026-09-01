@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.security import get_current_user, require_roles
 from app.core.thai_baht import thai_baht_text
-from app.models.entities import PurchaseDocument
+from app.core.record_versions import snapshot_version, serialize_version
+from app.models.entities import PurchaseDocument, RecordVersion
 
 router = APIRouter(prefix="/api/purchase-docs", tags=["Purchase Documents"])
 
@@ -131,6 +132,17 @@ def update_doc(
     if not p.data.get("date"):
         p.data["date"] = date.today().isoformat()
     _validate_doc_data(x.doc_type, p.data)
+
+    snapshot_version(
+        db,
+        record_type="purchase_doc",
+        record_id=x.id,
+        payload_json=x.payload_json,
+        label=x.doc_no,
+        status=x.status,
+        user=u,
+    )
+
     x.doc_no = p.doc_no
     x.status = p.status
     x.payload_json = json.dumps(p.data, ensure_ascii=False, default=str)
@@ -153,6 +165,78 @@ def delete_doc(
     db.delete(x)
     db.commit()
     return {"ok": True}
+
+
+@router.get("/record/{record_id}/versions")
+def list_doc_versions(
+    record_id: int,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+):
+    if not db.get(PurchaseDocument, record_id):
+        raise HTTPException(404, "Record not found")
+    rows = db.scalars(
+        select(RecordVersion)
+        .where(RecordVersion.record_type == "purchase_doc", RecordVersion.record_id == record_id)
+        .order_by(RecordVersion.id.desc())
+    ).all()
+    return [serialize_version(v) for v in rows]
+
+
+@router.get("/record/{record_id}/versions/{version_id}")
+def get_doc_version(
+    record_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+):
+    if not db.get(PurchaseDocument, record_id):
+        raise HTTPException(404, "Record not found")
+    v = db.get(RecordVersion, version_id)
+    if not v or v.record_type != "purchase_doc" or v.record_id != record_id:
+        raise HTTPException(404, "Version not found")
+    out = serialize_version(v)
+    out["data"] = json.loads(v.payload_json or "{}")
+    return out
+
+
+@router.post("/record/{record_id}/versions/{version_id}/restore")
+def restore_doc_version(
+    record_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+):
+    """Bring back an older version as the current one. The state being
+    replaced is snapshotted first, same as any other update -- so restoring
+    is itself undoable."""
+    x = db.get(PurchaseDocument, record_id)
+    if not x:
+        raise HTTPException(404, "Record not found")
+    v = db.get(RecordVersion, version_id)
+    if not v or v.record_type != "purchase_doc" or v.record_id != record_id:
+        raise HTTPException(404, "Version not found")
+
+    snapshot_version(
+        db,
+        record_type="purchase_doc",
+        record_id=x.id,
+        payload_json=x.payload_json,
+        label=x.doc_no,
+        status=x.status,
+        user=u,
+    )
+    x.payload_json = v.payload_json
+    if v.label:
+        x.doc_no = v.label
+    if v.status:
+        x.status = v.status
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Restore failed: {type(e).__name__}: {e}")
+    return {"id": x.id, "doc_no": x.doc_no, "restored_from": version_id}
 
 
 # ---------------------------------------------------------------------------

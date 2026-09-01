@@ -627,7 +627,7 @@ async function openPurchaseDocForm(docType,existingId=null){
         <div><b>ใบสั่งซื้อ ${existing?`#${esc(existing.doc_no)}`:"(ฉบับใหม่)"}</b><small>ใช้ลูกศร ↑↓←→ และ Enter เพื่อย้ายช่องได้เหมือน Excel</small></div>
         <div class="actions">
           <button onclick="listPurchaseDocs('PO')">รายการใบสั่งซื้อทั้งหมด</button>
-          ${existing?`<button onclick="exportPurchaseDocExcel(${existing.id})">Excel</button>`:""}
+          ${existing?`<button onclick="exportPurchaseDocExcel(${existing.id})">Excel</button><button onclick="showRecordVersions('purchase_doc',${existing.id})">ประวัติ</button>`:""}
           <button class="primary" onclick="savePurchaseDoc('PO')">บันทึก</button>
         </div>
       </div>
@@ -695,7 +695,7 @@ async function openPurchaseDocForm(docType,existingId=null){
       <div><b>ใบขอซื้อ ${existing?`#${esc(existing.doc_no)}`:"(ฉบับใหม่)"}</b><small>ใช้ลูกศร ↑↓←→ และ Enter เพื่อย้ายช่องได้เหมือน Excel</small></div>
       <div class="actions">
         <button onclick="listPurchaseDocs('PR')">รายการใบขอซื้อทั้งหมด</button>
-        ${existing?`<button onclick="exportPurchaseDocExcel(${existing.id})">Excel</button>`:""}
+        ${existing?`<button onclick="exportPurchaseDocExcel(${existing.id})">Excel</button><button onclick="showRecordVersions('purchase_doc',${existing.id})">ประวัติ</button>`:""}
         <button class="primary" onclick="savePurchaseDoc('PR')">บันทึก</button>
       </div>
     </div>
@@ -858,7 +858,7 @@ async function listPurchaseDocs(docType){
   const rows=await api(`/api/purchase-docs/${docType}`);
   const tr=rows.map(x=>{
     const search=esc(`${x.doc_no||""} ${x.created_by_name||""} ${x.linked_reference||""}`.toLowerCase());
-    return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.doc_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(x.created_by_name||"")}</td><td>${esc(x.linked_reference||"-")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="openPurchaseDocForm('${docType}',${x.id})">แก้ไข</button><button onclick="exportPurchaseDocExcel(${x.id})">Excel</button></td></tr>`;
+    return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.doc_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(x.created_by_name||"")}</td><td>${esc(x.linked_reference||"-")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="openPurchaseDocForm('${docType}',${x.id})">แก้ไข</button><button onclick="exportPurchaseDocExcel(${x.id})">Excel</button><button onclick="showRecordVersions('purchase_doc',${x.id})">ประวัติ</button></td></tr>`;
   });
   $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่/อ้างอิง..." oninput="filterRecordRows(this)"><button class="primary" onclick="openPurchaseDocForm('${docType}')">+ ${docType==="PO"?"ใบสั่งซื้อใหม่":"ใบขอซื้อใหม่"}</button></div>${table(["ID","เลขที่",docType==="PO"?"สถานะ":"สถานะ","ผู้สร้าง","อ้างอิง","บันทึกเมื่อ","จัดการ"],tr)}</div>`;
 }
@@ -1003,6 +1003,66 @@ const renderers={originalForms:renderOriginalForms,customers:renderCustomers,das
 
 function openModal(title,html){$("modalTitle").textContent=title;$("modalBody").innerHTML=html;$("modal").classList.remove("hidden")}
 function closeModal(){$("modal").classList.add("hidden")}
+
+// Version history -- shared by F-RD-* records (recordType "source_form") and
+// PO/PR (recordType "purchase_doc"), the two record kinds RecordVersion
+// snapshots on every update (see app/core/record_versions.py).
+async function showRecordVersions(recordType,recordId){
+  try{
+    const base=recordType==="source_form"?"/api/source-forms":"/api/purchase-docs";
+    const versions=await api(`${base}/record/${recordId}/versions`);
+    if(!versions.length){
+      openModal("ประวัติการแก้ไข","<p>ยังไม่มีประวัติสำหรับรายการนี้ (ประวัติจะถูกบันทึกเมื่อมีการแก้ไขครั้งถัดไป)</p>");
+      return;
+    }
+    const rows=versions.map(v=>`<tr>
+      <td>${esc(v.label||"-")}</td>
+      <td>${statusBadge(v.status)}</td>
+      <td>${esc(v.saved_by_name||"-")}</td>
+      <td>${new Date(v.saved_at).toLocaleString()}</td>
+      <td class="mini-actions">
+        <button onclick="viewRecordVersion('${recordType}',${recordId},${v.id})">ดูข้อมูล</button>
+        <button onclick="restoreRecordVersion('${recordType}',${recordId},${v.id})">กู้คืน</button>
+      </td>
+    </tr>`);
+    openModal("ประวัติการแก้ไข",table(["ชื่อ/เลขที่ตอนนั้น","สถานะ","แก้ไขโดย","บันทึกเมื่อ","จัดการ"],rows));
+  }catch(e){
+    toast("โหลดประวัติไม่สำเร็จ: "+(e?.message||e));
+  }
+}
+
+async function viewRecordVersion(recordType,recordId,versionId){
+  try{
+    const base=recordType==="source_form"?"/api/source-forms":"/api/purchase-docs";
+    const v=await api(`${base}/record/${recordId}/versions/${versionId}`);
+    const body=`
+      <div class="workspace-note">บันทึกเมื่อ ${new Date(v.saved_at).toLocaleString()} โดย ${esc(v.saved_by_name||"-")}</div>
+      <pre class="json">${esc(JSON.stringify(v.data,null,2))}</pre>
+      <div class="actions"><button class="primary" onclick="restoreRecordVersion('${recordType}',${recordId},${versionId})">กู้คืนเวอร์ชันนี้</button></div>
+    `;
+    openModal(`ข้อมูลเวอร์ชัน #${v.id}`,body);
+  }catch(e){
+    toast("โหลดข้อมูลเวอร์ชันไม่สำเร็จ: "+(e?.message||e));
+  }
+}
+
+async function restoreRecordVersion(recordType,recordId,versionId){
+  if(!confirm("ต้องการกู้คืนข้อมูลเป็นเวอร์ชันนี้หรือไม่? (สถานะปัจจุบันจะถูกบันทึกไว้ในประวัติเช่นกัน ไม่สูญหาย)"))return;
+  try{
+    const base=recordType==="source_form"?"/api/source-forms":"/api/purchase-docs";
+    await api(`${base}/record/${recordId}/versions/${versionId}/restore`,{method:"POST"});
+    closeModal();
+    toast("กู้คืนข้อมูลสำเร็จ");
+    if(recordType==="source_form"){
+      await editOwnSourceRecord(recordId);
+    }else{
+      const rec=await api(`/api/purchase-docs/record/${recordId}`);
+      await openPurchaseDocForm(rec.doc_type,recordId);
+    }
+  }catch(e){
+    toast("กู้คืนไม่สำเร็จ: "+(e?.message||e));
+  }
+}
 function filterTable(inp){
  const q=inp.value.toLowerCase();const tableEl=inp.closest(".card").querySelector("tbody");if(!tableEl)return;
  [...tableEl.rows].forEach(r=>r.style.display=r.innerText.toLowerCase().includes(q)?"":"none");
@@ -2229,7 +2289,7 @@ saveExactForm=async function(code){
 function sourceRecordRow(x){
   const owner=x.owner||window.formWorkspace?.display_name||"";
   const search=esc(`${x.record_no||""} ${owner}`.toLowerCase());
-  return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.record_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(owner)}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="editOwnSourceRecord(${x.id})">แก้ไข</button><button onclick="exportSourceExcel(${x.id})">Excel ต้นฉบับ</button></td></tr>`;
+  return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.record_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(owner)}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="editOwnSourceRecord(${x.id})">แก้ไข</button><button onclick="exportSourceExcel(${x.id})">Excel ต้นฉบับ</button><button onclick="showRecordVersions('source_form',${x.id})">ประวัติ</button></td></tr>`;
 }
 
 // Generic client-side search box: filters every [data-search] row inside

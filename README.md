@@ -1,3 +1,25 @@
+## v31.45 — version history for F-RD-* records and PO/PR
+
+Every edit to a saved F-RD-* record or PO/PR now snapshots the state it's
+about to overwrite into a new `RecordVersion` table (one table for both
+record kinds via a `record_type` discriminator: `source_form` |
+`purchase_doc`). Nothing is snapshotted on create — there's no prior state
+yet — so the first entry appears after the first edit.
+
+- **"ประวัติ" (history) button** on the F-RD-* record list, the PO/PR list,
+  and the PO/PR edit toolbar. Opens a modal listing every past version
+  (name/no. at that point, status, who saved it, when), each with "ดูข้อมูล"
+  (view the full payload as formatted JSON) and "กู้คืน" (restore) actions.
+- **Restoring is itself undoable** — it snapshots the current state before
+  overwriting, the same as any other edit, so restoring never loses data.
+- New endpoints, mirrored across both record types:
+  `GET /api/{source-forms,purchase-docs}/record/{id}/versions` (list),
+  `GET .../versions/{version_id}` (one version's full payload),
+  `POST .../versions/{version_id}/restore`.
+- F-RD-* version endpoints stay scoped to the owning person (same
+  `X-Person-Key` check as the rest of that router); PO/PR versions are
+  department-shared, same visibility as the documents themselves.
+
 ## v31.44 — search/filter, required-field validation, PO/PR Excel export
 
 Three related record-management features, added together:
