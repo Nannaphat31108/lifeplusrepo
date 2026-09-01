@@ -8,6 +8,18 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model: str = "gpt-5.6-luna"
     database_url: str = "sqlite:///./rd_erp.db"
+    # LINE Messaging API credentials for the "ส่งงานไปแผนกอื่น" (work
+    # handoff) notification -- see README for how to obtain these. LINE
+    # Notify (the older, token-only service) was discontinued by LINE on
+    # 2025-03-31, so this uses a LINE Official Account's Messaging API
+    # instead. Both unset by default; notifications are skipped (not an
+    # error) until an admin configures them.
+    line_channel_access_token: str | None = None
+    # Optional: a specific group/room/user ID (from a webhook event) to
+    # push to. Left unset, the message broadcasts to every follower of the
+    # Official Account instead -- the simpler v1 default ("make one OA,
+    # have everyone who cares about handoffs add it as a friend").
+    line_target_id: str | None = None
 
     @field_validator("database_url", mode="before")
     @classmethod
