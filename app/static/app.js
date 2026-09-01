@@ -502,6 +502,70 @@ function purchaseDocKeyNav(e){
   if(next){e.preventDefault();next.focus();if(next.select)next.select();}
 }
 
+// Excel-style keyboard navigation for every "exact form" grid (F-RD-001,
+// F-RD-002, F-RD-002.1, F-RD-003, F-RD-004, ADMIN-QP, ADMIN-INVOICE):
+// arrow keys move to the nearest editable cell in that direction (by
+// actual on-screen position, so merged cells, hidden/appended rows, and
+// irregular column widths are all handled the same way real Excel would),
+// Enter moves down. Delegated on document (not wired per-input) so it
+// survives every re-render -- openPrivateExactForm() replaces
+// #pageContent's innerHTML on every open/save/reload, and there are many
+// separate places that generate an .excel-input (exactInput(),
+// manualInputForCell(), formulaAutoInputForCell(), the dynamic
+// ingredient-row renderers, ...) -- delegation covers all of them without
+// having to wire onkeydown into each one individually.
+// PO/PR (.purchase-doc-grid) already has its own simpler row/col-based
+// nav (purchaseDocKeyNav above) and is explicitly skipped here.
+document.addEventListener("keydown",function(e){
+  const t=e.target;
+  if(!t.classList || !t.classList.contains("excel-input"))return;
+  if(t.closest(".purchase-doc-grid"))return;
+  const sheet=t.closest(".excel-sheet");
+  if(!sheet)return;
+  const tag=t.tagName;
+  if(tag==="SELECT")return; // let native up/down/left/right change the selected option
+
+  let dir=null;
+  if(e.key==="ArrowDown"){dir="down";}
+  else if(e.key==="ArrowUp"){dir="up";}
+  else if(e.key==="ArrowRight"){
+    if(t.selectionStart!==t.selectionEnd || t.selectionStart!==String(t.value||"").length)return;
+    dir="right";
+  }else if(e.key==="ArrowLeft"){
+    if(t.selectionStart!==t.selectionEnd || t.selectionStart!==0)return;
+    dir="left";
+  }else if(e.key==="Enter"){
+    if(tag==="TEXTAREA")return; // let Enter insert a newline in multi-line fields (e.g. QP notes)
+    dir="down";
+  }else return;
+
+  const candidates=[...sheet.querySelectorAll(".excel-input")].filter(el=>el!==t && !el.disabled && !el.readOnly);
+  if(!candidates.length)return;
+
+  const r0=t.getBoundingClientRect();
+  const cx=r0.left+r0.width/2, cy=r0.top+r0.height/2;
+  let best=null,bestScore=Infinity;
+  for(const el of candidates){
+    const r=el.getBoundingClientRect();
+    const ex=r.left+r.width/2, ey=r.top+r.height/2;
+    const dx=ex-cx, dy=ey-cy;
+    let primary,cross;
+    if(dir==="down"){ if(dy<=2)continue; primary=dy; cross=Math.abs(dx); }
+    else if(dir==="up"){ if(dy>=-2)continue; primary=-dy; cross=Math.abs(dx); }
+    else if(dir==="right"){ if(dx<=2)continue; primary=dx; cross=Math.abs(dy); }
+    else{ if(dx>=-2)continue; primary=-dx; cross=Math.abs(dy); }
+    // Prefer the closest cell mostly in-line with the current one (small
+    // cross-axis distance), then the nearest along the travel direction.
+    const score=cross*3+primary;
+    if(score<bestScore){bestScore=score;best=el;}
+  }
+  if(best){
+    e.preventDefault();
+    best.focus();
+    if(best.select && best.tagName!=="SELECT")best.select();
+  }
+});
+
 const PURCHASE_DOC_ROW_COUNT=12;
 
 async function loadPurchaseDocAssets(){
