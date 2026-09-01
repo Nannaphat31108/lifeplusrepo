@@ -1,3 +1,46 @@
+## v31.47 — ADMIN-JOB (Job Description / JL) exact form; multi-department + searchable-reference work handoff
+
+Two changes from the same request:
+
+**New exact form: ADMIN-JOB.** Added the real Job Description (JL) form to
+the admin exact-form set exactly like ADMIN-QP/ADMIN-INVOICE — same
+private-per-person save/list/version-history/Excel-export pipeline, same
+pixel-fidelity approach (real fonts/borders/merges/column widths, not a
+redesigned form). One difference from ADMIN-QP: the source `.xls` this was
+ground-truthed against is a legacy file neither LibreOffice nor openpyxl
+can open directly (openpyxl doesn't read `.xls` at all; LibreOffice's
+import filter fails on this specific file — confirmed, both `--convert-to
+xlsx` and `--convert-to ods` error at the file-load stage). So instead of
+converting it, the layout was extracted straight out of the `.xls`'s BIFF
+records via `xlrd(formatting_info=True)` — fonts, borders, alignment,
+merges, column widths, row heights — and used to build both the
+`exact_forms.json`/`exact_fields.json` entries (193 fields: header,
+production summary, box-component and active/inactive-ingredient tables,
+Design & FDA signoff, signatures) and a fresh `ADMIN-JOB_MASTER.xlsx`
+authored with openpyxl for the export path (`load_workbook()+fill()+save()`,
+same pattern as F-RD-001/002/002.1/003/004 — no real master bytes exist to
+preserve here, unlike ADMIN-QP). Ingredient percentages recalculate live
+client-side from each row's qty ÷ the table's total qty, mirroring the
+real form's own numbers. The generated master opens and round-trips
+cleanly through openpyxl and the real export path was tested end-to-end;
+LibreOffice itself could not be gotten to open it in this environment
+either (times out / fails at load, inconsistently) so that specific check
+is the one thing left unverified against a real Excel/LO render.
+
+**Work handoff ("ส่งงานไปแผนกอื่น"): multi-department + searchable reference.**
+- Send to **several departments at once** — checkboxes instead of a single
+  dropdown; the backend creates one `WorkHandoff` row per department
+  (same as sending individually) in one atomic request.
+- The "อ้างอิงเอกสาร" field now **type-ahead searches real record numbers**
+  as you type — the caller's own F-RD-*/ADMIN-* records plus any PO/PR
+  doc number — via a new `GET /api/work-handoffs/reference-search`
+  endpoint, instead of a free-text guess.
+- Investigated the "ADMIN doesn't show up as a destination" report: it's
+  correct, not a bug — the sender's own department is always excluded from
+  the destination list (sending work to yourself is meaningless), and
+  whoever tested this was logged in as the ADMIN account itself. Any other
+  account sees ADMIN as a normal destination.
+
 ## v31.46 — LINE notification for work handoffs
 
 Last of the five follow-up features from the "what should we add next"

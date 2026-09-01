@@ -4597,5 +4597,1314 @@
       "type": "textarea",
       "placeholder": "หมายเหตุ เช่น สเปคบรรจุภัณฑ์ เงื่อนไขพิเศษ"
     }
+  ],
+  "ADMIN-JOB": [
+    {
+      "cell": "AO1",
+      "key": "lot_note",
+      "type": "text",
+      "placeholder": "Lot/หมายเหตุบนหัวฟอร์ม"
+    },
+    {
+      "cell": "AO5",
+      "key": "revision_no",
+      "type": "text",
+      "placeholder": "แก้ไขครั้งที่"
+    },
+    {
+      "cell": "J8",
+      "key": "job_no",
+      "type": "text",
+      "placeholder": "เลขที่ Job เช่น JL 69-080277"
+    },
+    {
+      "cell": "AM8",
+      "key": "job_date",
+      "type": "date"
+    },
+    {
+      "cell": "J9",
+      "key": "customer_code",
+      "type": "text",
+      "placeholder": "รหัสลูกค้า"
+    },
+    {
+      "cell": "N9",
+      "key": "customer_name",
+      "type": "text",
+      "placeholder": "ชื่อลูกค้า"
+    },
+    {
+      "cell": "AM9",
+      "key": "ref_quotation",
+      "type": "text",
+      "placeholder": "เลขที่ใบเสนอราคา"
+    },
+    {
+      "cell": "J10",
+      "key": "formula_no",
+      "type": "text",
+      "placeholder": "เลขที่สูตร"
+    },
+    {
+      "cell": "AM10",
+      "key": "ref_temp_receipt",
+      "type": "text",
+      "placeholder": "เลขที่ใบรับฝากชั่วคราว / เลข TAX"
+    },
+    {
+      "cell": "S12",
+      "key": "total_qty",
+      "type": "number"
+    },
+    {
+      "cell": "AB12",
+      "key": "total_qty_unit",
+      "type": "text",
+      "placeholder": "หน่วย เช่น เม็ด แคปซูล"
+    },
+    {
+      "cell": "AD12",
+      "key": "coating_note",
+      "type": "text",
+      "placeholder": "เช่น (เคลือบสีชมพู) รหัส 07"
+    },
+    {
+      "cell": "S13",
+      "key": "qty_per_unit",
+      "type": "number"
+    },
+    {
+      "cell": "AB13",
+      "key": "qty_per_unit_unit",
+      "type": "text",
+      "placeholder": "หน่วย เช่น มิลลิกรัม"
+    },
+    {
+      "cell": "C14",
+      "key": "packaging_desc",
+      "type": "text",
+      "placeholder": "ลักษณะบรรจุภัณฑ์หลัก"
+    },
+    {
+      "cell": "P14",
+      "key": "packaging_code_desc",
+      "type": "text",
+      "placeholder": "รหัสบรรจุภัณฑ์"
+    },
+    {
+      "cell": "S15",
+      "key": "qty_per_box",
+      "type": "number"
+    },
+    {
+      "cell": "AB15",
+      "key": "qty_per_box_unit",
+      "type": "text",
+      "placeholder": "หน่วย เช่น แผง"
+    },
+    {
+      "cell": "S16",
+      "key": "box_count",
+      "type": "number"
+    },
+    {
+      "cell": "AB16",
+      "key": "box_count_unit",
+      "type": "text",
+      "placeholder": "หน่วย เช่น กล่อง"
+    },
+    {
+      "cell": "C17",
+      "key": "packaging_notes",
+      "type": "textarea",
+      "placeholder": "หมายเหตุ เช่น สเปคกล่อง/การ์ด"
+    },
+    {
+      "cell": "D19",
+      "group": "box_components",
+      "index": 0,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI19",
+      "group": "box_components",
+      "index": 0,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT19",
+      "group": "box_components",
+      "index": 0,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D20",
+      "group": "box_components",
+      "index": 1,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI20",
+      "group": "box_components",
+      "index": 1,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT20",
+      "group": "box_components",
+      "index": 1,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D21",
+      "group": "box_components",
+      "index": 2,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI21",
+      "group": "box_components",
+      "index": 2,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT21",
+      "group": "box_components",
+      "index": 2,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D22",
+      "group": "box_components",
+      "index": 3,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI22",
+      "group": "box_components",
+      "index": 3,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT22",
+      "group": "box_components",
+      "index": 3,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D23",
+      "group": "box_components",
+      "index": 4,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI23",
+      "group": "box_components",
+      "index": 4,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT23",
+      "group": "box_components",
+      "index": 4,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D24",
+      "group": "box_components",
+      "index": 5,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI24",
+      "group": "box_components",
+      "index": 5,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT24",
+      "group": "box_components",
+      "index": 5,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D25",
+      "group": "box_components",
+      "index": 6,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI25",
+      "group": "box_components",
+      "index": 6,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT25",
+      "group": "box_components",
+      "index": 6,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D26",
+      "group": "box_components",
+      "index": 7,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI26",
+      "group": "box_components",
+      "index": 7,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT26",
+      "group": "box_components",
+      "index": 7,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D27",
+      "group": "box_components",
+      "index": 8,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI27",
+      "group": "box_components",
+      "index": 8,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT27",
+      "group": "box_components",
+      "index": 8,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D28",
+      "group": "box_components",
+      "index": 9,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI28",
+      "group": "box_components",
+      "index": 9,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT28",
+      "group": "box_components",
+      "index": 9,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D29",
+      "group": "box_components",
+      "index": 10,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI29",
+      "group": "box_components",
+      "index": 10,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT29",
+      "group": "box_components",
+      "index": 10,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "D30",
+      "group": "box_components",
+      "index": 11,
+      "sub": "description",
+      "type": "text"
+    },
+    {
+      "cell": "AI30",
+      "group": "box_components",
+      "index": 11,
+      "sub": "quantity",
+      "type": "number"
+    },
+    {
+      "cell": "AT30",
+      "group": "box_components",
+      "index": 11,
+      "sub": "unit",
+      "type": "text"
+    },
+    {
+      "cell": "AL33",
+      "key": "leftover_qty",
+      "type": "text",
+      "placeholder": "จำนวนคงเหลือ"
+    },
+    {
+      "cell": "AU33",
+      "key": "leftover_unit",
+      "type": "text",
+      "placeholder": "หน่วย"
+    },
+    {
+      "cell": "K36",
+      "key": "packaging_design_by",
+      "type": "text",
+      "placeholder": "เช่น บริษัทฯออกแบบบรรจุภัณฑ์ / ลูกค้าเป็นผู้ออกแบบเอง"
+    },
+    {
+      "cell": "K37",
+      "key": "brand_name",
+      "type": "text",
+      "placeholder": "ชื่อแบรนด์ผลิตภัณฑ์"
+    },
+    {
+      "cell": "K38",
+      "key": "fda_reg_no",
+      "type": "text",
+      "placeholder": "เลขสารบบ อย."
+    },
+    {
+      "cell": "AG38",
+      "key": "graphic_signer_name",
+      "type": "text",
+      "placeholder": "ผู้ลงชื่อฝ่ายกราฟฟิก"
+    },
+    {
+      "cell": "K39",
+      "key": "product_name_th_en",
+      "type": "text",
+      "placeholder": "ชื่ออาหาร (ไทย/อังกฤษ)"
+    },
+    {
+      "cell": "AG40",
+      "key": "fda_signer_name",
+      "type": "text",
+      "placeholder": "ผู้ลงชื่อฝ่าย อย."
+    },
+    {
+      "cell": "K40",
+      "key": "formula_category",
+      "type": "text",
+      "placeholder": "ชื่อสูตร/หมวดหมู่"
+    },
+    {
+      "cell": "D43",
+      "group": "active_ingredients",
+      "index": 0,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U43",
+      "group": "active_ingredients",
+      "index": 0,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA43",
+      "group": "active_ingredients",
+      "index": 0,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH43",
+      "group": "active_ingredients",
+      "index": 0,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM43",
+      "group": "active_ingredients",
+      "index": 0,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS43",
+      "group": "active_ingredients",
+      "index": 0,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D44",
+      "group": "active_ingredients",
+      "index": 1,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U44",
+      "group": "active_ingredients",
+      "index": 1,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA44",
+      "group": "active_ingredients",
+      "index": 1,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH44",
+      "group": "active_ingredients",
+      "index": 1,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM44",
+      "group": "active_ingredients",
+      "index": 1,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS44",
+      "group": "active_ingredients",
+      "index": 1,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D45",
+      "group": "active_ingredients",
+      "index": 2,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U45",
+      "group": "active_ingredients",
+      "index": 2,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA45",
+      "group": "active_ingredients",
+      "index": 2,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH45",
+      "group": "active_ingredients",
+      "index": 2,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM45",
+      "group": "active_ingredients",
+      "index": 2,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS45",
+      "group": "active_ingredients",
+      "index": 2,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D46",
+      "group": "active_ingredients",
+      "index": 3,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U46",
+      "group": "active_ingredients",
+      "index": 3,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA46",
+      "group": "active_ingredients",
+      "index": 3,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH46",
+      "group": "active_ingredients",
+      "index": 3,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM46",
+      "group": "active_ingredients",
+      "index": 3,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS46",
+      "group": "active_ingredients",
+      "index": 3,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D47",
+      "group": "active_ingredients",
+      "index": 4,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U47",
+      "group": "active_ingredients",
+      "index": 4,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA47",
+      "group": "active_ingredients",
+      "index": 4,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH47",
+      "group": "active_ingredients",
+      "index": 4,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM47",
+      "group": "active_ingredients",
+      "index": 4,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS47",
+      "group": "active_ingredients",
+      "index": 4,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D48",
+      "group": "active_ingredients",
+      "index": 5,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U48",
+      "group": "active_ingredients",
+      "index": 5,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA48",
+      "group": "active_ingredients",
+      "index": 5,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH48",
+      "group": "active_ingredients",
+      "index": 5,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM48",
+      "group": "active_ingredients",
+      "index": 5,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS48",
+      "group": "active_ingredients",
+      "index": 5,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D49",
+      "group": "active_ingredients",
+      "index": 6,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U49",
+      "group": "active_ingredients",
+      "index": 6,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA49",
+      "group": "active_ingredients",
+      "index": 6,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH49",
+      "group": "active_ingredients",
+      "index": 6,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM49",
+      "group": "active_ingredients",
+      "index": 6,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS49",
+      "group": "active_ingredients",
+      "index": 6,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D50",
+      "group": "active_ingredients",
+      "index": 7,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U50",
+      "group": "active_ingredients",
+      "index": 7,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA50",
+      "group": "active_ingredients",
+      "index": 7,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH50",
+      "group": "active_ingredients",
+      "index": 7,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM50",
+      "group": "active_ingredients",
+      "index": 7,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS50",
+      "group": "active_ingredients",
+      "index": 7,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D51",
+      "group": "active_ingredients",
+      "index": 8,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U51",
+      "group": "active_ingredients",
+      "index": 8,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA51",
+      "group": "active_ingredients",
+      "index": 8,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH51",
+      "group": "active_ingredients",
+      "index": 8,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM51",
+      "group": "active_ingredients",
+      "index": 8,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS51",
+      "group": "active_ingredients",
+      "index": 8,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D52",
+      "group": "active_ingredients",
+      "index": 9,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U52",
+      "group": "active_ingredients",
+      "index": 9,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA52",
+      "group": "active_ingredients",
+      "index": 9,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH52",
+      "group": "active_ingredients",
+      "index": 9,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM52",
+      "group": "active_ingredients",
+      "index": 9,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS52",
+      "group": "active_ingredients",
+      "index": 9,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D53",
+      "group": "active_ingredients",
+      "index": 10,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U53",
+      "group": "active_ingredients",
+      "index": 10,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA53",
+      "group": "active_ingredients",
+      "index": 10,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH53",
+      "group": "active_ingredients",
+      "index": 10,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM53",
+      "group": "active_ingredients",
+      "index": 10,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS53",
+      "group": "active_ingredients",
+      "index": 10,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D54",
+      "group": "active_ingredients",
+      "index": 11,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U54",
+      "group": "active_ingredients",
+      "index": 11,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA54",
+      "group": "active_ingredients",
+      "index": 11,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH54",
+      "group": "active_ingredients",
+      "index": 11,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM54",
+      "group": "active_ingredients",
+      "index": 11,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS54",
+      "group": "active_ingredients",
+      "index": 11,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D55",
+      "group": "active_ingredients",
+      "index": 12,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U55",
+      "group": "active_ingredients",
+      "index": 12,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA55",
+      "group": "active_ingredients",
+      "index": 12,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH55",
+      "group": "active_ingredients",
+      "index": 12,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM55",
+      "group": "active_ingredients",
+      "index": 12,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS55",
+      "group": "active_ingredients",
+      "index": 12,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D56",
+      "group": "active_ingredients",
+      "index": 13,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U56",
+      "group": "active_ingredients",
+      "index": 13,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA56",
+      "group": "active_ingredients",
+      "index": 13,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH56",
+      "group": "active_ingredients",
+      "index": 13,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM56",
+      "group": "active_ingredients",
+      "index": 13,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS56",
+      "group": "active_ingredients",
+      "index": 13,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D57",
+      "group": "active_ingredients",
+      "index": 14,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U57",
+      "group": "active_ingredients",
+      "index": 14,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA57",
+      "group": "active_ingredients",
+      "index": 14,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH57",
+      "group": "active_ingredients",
+      "index": 14,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM57",
+      "group": "active_ingredients",
+      "index": 14,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS57",
+      "group": "active_ingredients",
+      "index": 14,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D61",
+      "group": "inactive_ingredients",
+      "index": 0,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U61",
+      "group": "inactive_ingredients",
+      "index": 0,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA61",
+      "group": "inactive_ingredients",
+      "index": 0,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH61",
+      "group": "inactive_ingredients",
+      "index": 0,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM61",
+      "group": "inactive_ingredients",
+      "index": 0,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS61",
+      "group": "inactive_ingredients",
+      "index": 0,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D62",
+      "group": "inactive_ingredients",
+      "index": 1,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U62",
+      "group": "inactive_ingredients",
+      "index": 1,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA62",
+      "group": "inactive_ingredients",
+      "index": 1,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH62",
+      "group": "inactive_ingredients",
+      "index": 1,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM62",
+      "group": "inactive_ingredients",
+      "index": 1,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS62",
+      "group": "inactive_ingredients",
+      "index": 1,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D63",
+      "group": "inactive_ingredients",
+      "index": 2,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U63",
+      "group": "inactive_ingredients",
+      "index": 2,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA63",
+      "group": "inactive_ingredients",
+      "index": 2,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH63",
+      "group": "inactive_ingredients",
+      "index": 2,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM63",
+      "group": "inactive_ingredients",
+      "index": 2,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS63",
+      "group": "inactive_ingredients",
+      "index": 2,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D64",
+      "group": "inactive_ingredients",
+      "index": 3,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U64",
+      "group": "inactive_ingredients",
+      "index": 3,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA64",
+      "group": "inactive_ingredients",
+      "index": 3,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH64",
+      "group": "inactive_ingredients",
+      "index": 3,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM64",
+      "group": "inactive_ingredients",
+      "index": 3,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS64",
+      "group": "inactive_ingredients",
+      "index": 3,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D65",
+      "group": "inactive_ingredients",
+      "index": 4,
+      "sub": "name",
+      "type": "supplement"
+    },
+    {
+      "cell": "U65",
+      "group": "inactive_ingredients",
+      "index": 4,
+      "sub": "country",
+      "type": "text"
+    },
+    {
+      "cell": "AA65",
+      "group": "inactive_ingredients",
+      "index": 4,
+      "sub": "supplier",
+      "type": "text"
+    },
+    {
+      "cell": "AH65",
+      "group": "inactive_ingredients",
+      "index": 4,
+      "sub": "material_code",
+      "type": "text"
+    },
+    {
+      "cell": "AM65",
+      "group": "inactive_ingredients",
+      "index": 4,
+      "sub": "quantity_mg",
+      "type": "number"
+    },
+    {
+      "cell": "AS65",
+      "group": "inactive_ingredients",
+      "index": 4,
+      "sub": "percentage",
+      "type": "number_auto"
+    },
+    {
+      "cell": "AM72",
+      "key": "ingredient_total_mg",
+      "type": "number_auto"
+    },
+    {
+      "cell": "AS72",
+      "key": "ingredient_total_percent",
+      "type": "number_auto"
+    },
+    {
+      "cell": "D66",
+      "key": "dosage_instructions",
+      "type": "textarea",
+      "placeholder": "วิธีรับประทาน เช่น รับประทาน 1 เม็ด/วัน"
+    },
+    {
+      "cell": "B77",
+      "key": "preparer_name",
+      "type": "text",
+      "placeholder": "ผู้จัดทำ"
+    },
+    {
+      "cell": "M77",
+      "key": "rd_signer_name",
+      "type": "text",
+      "placeholder": "ฝ่าย R&D"
+    },
+    {
+      "cell": "Z77",
+      "key": "sales_signer_name",
+      "type": "text",
+      "placeholder": "ฝ่ายขาย"
+    },
+    {
+      "cell": "AM77",
+      "key": "production_signer_name",
+      "type": "text",
+      "placeholder": "ฝ่ายงานผลิต"
+    }
   ]
 }

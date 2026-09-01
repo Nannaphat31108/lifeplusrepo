@@ -420,28 +420,50 @@ async function sendWorkForm(){
   let depts;
   try{depts=await api("/api/work-handoffs/departments");}
   catch(e){toast("โหลดรายชื่อแผนกไม่สำเร็จ: "+(e?.message||e));return;}
-  const options=depts.departments.filter(d=>d!==depts.own_department)
-    .map(d=>`<option value="${d}">${d}</option>`).join("");
+  // Own department is excluded -- sending work to yourself doesn't mean
+  // anything (this is why it also never appears while testing under the
+  // admin/whichever account is currently logged in: it's that account's
+  // own department being left out, not a bug).
+  const checkboxes=depts.departments.filter(d=>d!==depts.own_department)
+    .map(d=>`<label class="wh-dept-check"><input type="checkbox" value="${d}">${d}</label>`).join("");
   openModal("ส่งงานไปแผนกอื่น",`<div class="form-grid">
-    <div><label>ส่งถึงแผนก</label><select id="wh_to_department">${options}</select></div>
+    <div class="wide"><label>ส่งถึงแผนก (เลือกได้หลายแผนก)</label><div class="wh-dept-checkboxes">${checkboxes}</div></div>
     <div class="wide"><label>หัวข้องาน</label><input id="wh_subject" placeholder="เช่น ขอซื้อวัตถุดิบ Vitamin C 50kg"></div>
     <div class="wide"><label>รายละเอียด</label><textarea id="wh_message" placeholder="รายละเอียดเพิ่มเติม (ถ้ามี)"></textarea></div>
-    <div class="wide"><label>อ้างอิงเอกสาร (ถ้ามี)</label><input id="wh_reference" placeholder="เช่น F-RD-002-001, PO-12345"></div>
+    <div class="wide"><label>อ้างอิงเอกสาร (ถ้ามี)</label><input id="wh_reference" list="whReferenceList" placeholder="พิมพ์เลขที่รายการ เช่น F-RD-002-001, PO-12345" oninput="searchWorkHandoffReference(this)"><datalist id="whReferenceList"></datalist></div>
     <div class="wide"><button class="primary" onclick="saveWorkHandoff()">ส่งงาน</button></div>
   </div>`);
 }
+
+let whReferenceSearchSeq=0;
+async function searchWorkHandoffReference(inp){
+  const q=(inp.value||"").trim();
+  if(q.length<1){$("whReferenceList").innerHTML="";return;}
+  const seq=++whReferenceSearchSeq;
+  try{
+    const rows=await api(`/api/work-handoffs/reference-search?q=${encodeURIComponent(q)}`);
+    if(seq!==whReferenceSearchSeq)return; // a newer keystroke's search already landed
+    $("whReferenceList").innerHTML=rows.map(r=>`<option value="${esc(r.value)}">${esc(r.label)}</option>`).join("");
+  }catch(e){
+    // Typeahead failing silently is fine -- the field still works as
+    // plain free text, this is just a convenience.
+  }
+}
+
 async function saveWorkHandoff(){
   const subject=$("wh_subject").value.trim();
   if(!subject){toast("กรุณาใส่หัวข้องาน");return;}
+  const to_departments=[...document.querySelectorAll(".wh-dept-checkboxes input:checked")].map(e=>e.value);
+  if(!to_departments.length){toast("กรุณาเลือกแผนกปลายทางอย่างน้อย 1 แผนก");return;}
   try{
     await api("/api/work-handoffs",{method:"POST",body:{
-      to_department:$("wh_to_department").value,
+      to_departments,
       subject,
       message:$("wh_message").value.trim()||null,
       reference:$("wh_reference").value.trim()||null
     }});
     closeModal();
-    toast("ส่งงานแล้ว");
+    toast(to_departments.length>1?`ส่งงานไปยัง ${to_departments.length} แผนกแล้ว`:"ส่งงานแล้ว");
     if(currentPage==="workInbox")await renderWorkInbox();
   }catch(e){toast("ส่งงานไม่สำเร็จ: "+(e?.message||e));}
 }
@@ -1075,14 +1097,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.23",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.47",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.23",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.47",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -1122,6 +1144,13 @@ function exactFieldMap(code,form){
  }
  return map;
 }
+// Which live-recalculation function a plain "number" exact-form field
+// should call on input, chosen by the currently open form.
+function numberFieldRecalcCall(){
+  if(isQPLikeForm(currentExactForm))return "recalculateAdminQP()";
+  if(currentExactForm==="ADMIN-JOB")return "recalculateAdminJob()";
+  return "recalculateFormulaBoth()";
+}
 function exactInput(field,addr,cellValue){
  const common=`class="excel-input" data-addr="${addr}" ${field.key?`data-key="${field.key}"`:""} ${field.group?`data-group="${field.group}" data-index="${field.index}" data-sub="${field.sub}"`:""}`;
  const placeholder=field.placeholder||"พิมพ์ข้อมูล";
@@ -1132,7 +1161,7 @@ function exactInput(field,addr,cellValue){
  if(field.type==="package") return `<input ${common} type="text" list="exactPackageList" placeholder="พิมพ์ค้นหา Package" oninput="applyPackageSelection(this)">`;
  if(field.type==="textarea") return `<textarea ${common} placeholder="${esc(placeholder)}">${esc(cellValue||"")}</textarea>`;
  if(field.type==="number_auto") return `<input ${common} class="excel-input" type="number" step="0.000000001" placeholder="คำนวณอัตโนมัติ" readonly tabindex="-1">`;
- if(field.type==="number") return `<input ${common} type="number" step="0.000001" placeholder="${esc(placeholder)}" oninput="${isQPLikeForm(currentExactForm)?'recalculateAdminQP()':'recalculateFormulaBoth()'}" onchange="${isQPLikeForm(currentExactForm)?'recalculateAdminQP()':'recalculateFormulaBoth()'}">`;
+ if(field.type==="number") return `<input ${common} type="number" step="0.000001" placeholder="${esc(placeholder)}" oninput="${numberFieldRecalcCall()}" onchange="${numberFieldRecalcCall()}">`;
  if(field.type==="supplier") return `<input ${common} type="text" placeholder="ลิงก์อัตโนมัติ / แก้เองได้">`;
  if(field.type==="supplement_code") return `<input ${common} list="exactSupplementCodeList" placeholder="ค้นหารหัสสาร" oninput="${field.group==='inactive_ingredients'?'autoLinkInactiveIngredient(this)':'autoLinkIngredient(this)'};recalculateFormulaBoth()">`;
  if(field.type==="supplement"){
@@ -1669,7 +1698,7 @@ async function deletePackageItem(id){
 }
 
 function isExactFormCode(code){
-  return ["F-RD-001","F-RD-002","F-RD-002.1","F-RD-003","F-RD-004","ADMIN-QP","ADMIN-INVOICE"].includes(code);
+  return ["F-RD-001","F-RD-002","F-RD-002.1","F-RD-003","F-RD-004","ADMIN-QP","ADMIN-INVOICE","ADMIN-JOB"].includes(code);
 }
 
 // ADMIN-INVOICE is a clone of ADMIN-QP: same Excel layout, same calculation
@@ -1684,6 +1713,7 @@ function isQPLikeForm(code){
 function exactFormDisplayName(code,form){
   if(code==="ADMIN-QP") return "Quotation / Purchase Order";
   if(code==="ADMIN-INVOICE") return "Invoice";
+  if(code==="ADMIN-JOB") return "Job Description";
   return form?.display_name || form?.title || form?.name || form?.description || "แบบฟอร์ม";
 }
 
@@ -1701,7 +1731,8 @@ async function openPrivateExactForm(code){
     "F-RD-003":"แบบฟอร์มขอทำสินค้าทดลอง",
     "F-RD-004":"แบบฟอร์มการขอเรทราคา",
     "ADMIN-QP":"Quotation / Purchase Order",
-    "ADMIN-INVOICE":"Invoice / ใบแจ้งหนี้"
+    "ADMIN-INVOICE":"Invoice / ใบแจ้งหนี้",
+    "ADMIN-JOB":"Job Description (JL)"
   };
 
   $("pageTitle").textContent = `${code} — ${titles[code] || exactFormDisplayName(code,exactFormsCache?.[code])}`;
@@ -2164,6 +2195,18 @@ function populateExactForm(d){
    adminQPFormulaNo=String(d.formula_no||"");
    const linkBox=document.getElementById("qpExactFormulaNo");if(linkBox)linkBox.value=adminQPFormulaNo;
    setTimeout(recalculateAdminQP,0);
+ }
+
+ if(currentExactForm==="ADMIN-JOB"){
+   for(const group of ["box_components","active_ingredients","inactive_ingredients"]){
+     (d[group]||[]).forEach((x,i)=>{
+       for(const [k,v] of Object.entries(x||{})){
+         const e=document.querySelector(`.excel-input[data-group="${group}"][data-index="${i}"][data-sub="${k}"]`);
+         if(e && v!==undefined && v!==null)e.value=v;
+       }
+     });
+   }
+   setTimeout(recalculateAdminJob,0);
  }
 
  for(const group of ["ingredients","inactive_ingredients"]){
@@ -2916,7 +2959,7 @@ async function openDepartmentWorkspace(code){
  const configs={
  RD:{title:"R&D",text:"จัดการสูตร สูตรผลิต Tester และ Rate",cards:[["F-RD-002 สูตร","แบบฟอร์มสูตร R&D","openExactForm('F-RD-002')"],["F-RD-002.1 สูตรผลิต","สูตรสำหรับผลิตจริง","openExactForm('F-RD-002.1')"],["F-RD-003 Tester","ขอทำสินค้าทดลอง","openExactForm('F-RD-003')"],["F-RD-004 Rate","ขอเรทราคา","openExactForm('F-RD-004')"]]},
  SALE:{title:"SALE",text:"รับความต้องการลูกค้าและส่งต่อ R&D",cards:[["F-RD-001 Customer Requirement","รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","openExactForm('F-RD-001')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"],["Product Development","ติดตามโครงการลูกค้า","openPage('projects')"]]},
- ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
+ ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Job Description","ฟอร์ม JL ต้นฉบับ • สูตร บรรจุภัณฑ์ ผู้รับผิดชอบออกแบบ/อย.","openExactForm('ADMIN-JOB')"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
  PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
  STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"],["ใบขอซื้อ (PR)","ขอซื้อวัตถุดิบจากจัดซื้อ","listPurchaseDocs('PR')"]]},
  PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"],["ใบสั่งซื้อ (PO)","ส่งให้ผู้จำหน่ายภายนอก","listPurchaseDocs('PO')"],["ใบขอซื้อ (PR)","ที่คลังส่งเข้ามา","listPurchaseDocs('PR')"]]},
@@ -3567,4 +3610,28 @@ recalculateAdminQP=function(){
   const vat=after*0.07,grand=after+vat;
   force("subtotal",subtotal,2);force("after_discount",after,2);force("vat7",vat,2);force("grand_total",grand,2);
   force("installment_1",grand*0.5,2);force("installment_2",grand*0.5,2);
+};
+
+// ADMIN-JOB (Job Description / JL): active/inactive ingredient percentage
+// is qty-of-this-row / total-qty-of-all-rows * 100, recalculated live as
+// any quantity_mg field changes -- mirrors the real form's own numbers
+// (e.g. 700mg of 1200mg total = 58.33%).
+recalculateAdminJob=function(){
+  if(currentExactForm!=="ADMIN-JOB")return;
+  const groupEl=(group,i,sub)=>document.querySelector(`.excel-input[data-group="${group}"][data-index="${i}"][data-sub="${sub}"]`);
+  const groups=[["active_ingredients",15],["inactive_ingredients",5]];
+  let total=0;
+  for(const [group,cap] of groups)
+    for(let i=0;i<cap;i++)total+=readNumber(groupEl(group,i,"quantity_mg"));
+  for(const [group,cap] of groups){
+    for(let i=0;i<cap;i++){
+      const qty=readNumber(groupEl(group,i,"quantity_mg"));
+      const pctEl=groupEl(group,i,"percentage");
+      if(pctEl)pctEl.value=total>0?fmtCalc(qty/total*100,4):"";
+    }
+  }
+  const totalEl=document.querySelector('.excel-input[data-key="ingredient_total_mg"]');
+  if(totalEl)totalEl.value=total>0?fmtCalc(total,3):"";
+  const totalPctEl=document.querySelector('.excel-input[data-key="ingredient_total_percent"]');
+  if(totalPctEl)totalPctEl.value=total>0?"100":"";
 };

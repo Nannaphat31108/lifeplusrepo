@@ -911,6 +911,89 @@ def fill_admin_qp(ws,d):
     # Signature/signatory fields intentionally omitted from ADMIN-QP.
 
 
+def fill_admin_job(ws,d):
+    """Fill the ADMIN-JOB (Job Description / JL) master workbook.
+
+    Unlike ADMIN-QP, there is no real .xlsx master to preserve here -- the
+    source is a legacy .xls that neither LibreOffice nor openpyxl can open
+    (see original_forms/ADMIN-JOB_MASTER.xlsx's header comment) -- so this
+    master was authored fresh with openpyxl, replicating the real form's
+    fonts/borders/merges extracted via xlrd. Same load_workbook()+fill()+
+    save() export path as F-RD-001/002/002.1/003/004, not the "preserve
+    master bytes" path ADMIN-QP uses.
+    """
+    put(ws,"AO1",d.get("lot_note"))
+    put(ws,"AO5",d.get("revision_no"))
+    put(ws,"J8",d.get("job_no"))
+    put(ws,"AM8",d.get("job_date"))
+    put(ws,"J9",d.get("customer_code"))
+    put(ws,"N9",d.get("customer_name"))
+    put(ws,"AM9",d.get("ref_quotation"))
+    put(ws,"J10",d.get("formula_no"))
+    put(ws,"AM10",d.get("ref_temp_receipt"))
+
+    put(ws,"S12",d.get("total_qty"))
+    put(ws,"AB12",d.get("total_qty_unit"))
+    put(ws,"AD12",d.get("coating_note"))
+    put(ws,"S13",d.get("qty_per_unit"))
+    put(ws,"AB13",d.get("qty_per_unit_unit"))
+    put(ws,"C14",d.get("packaging_desc"))
+    put(ws,"P14",d.get("packaging_code_desc"))
+    put(ws,"S15",d.get("qty_per_box"))
+    put(ws,"AB15",d.get("qty_per_box_unit"))
+    put(ws,"S16",d.get("box_count"))
+    put(ws,"AB16",d.get("box_count_unit"))
+    put(ws,"C17",d.get("packaging_notes"))
+
+    for offset,x in enumerate((d.get("box_components") or [])[:12]):
+        row=19+offset
+        put(ws,f"D{row}",x.get("description"))
+        put(ws,f"AI{row}",x.get("quantity"))
+        put(ws,f"AT{row}",x.get("unit"))
+
+    put(ws,"AL33",d.get("leftover_qty"))
+    put(ws,"AU33",d.get("leftover_unit"))
+
+    put(ws,"K36",d.get("packaging_design_by"))
+    put(ws,"K37",d.get("brand_name"))
+    put(ws,"K38",d.get("fda_reg_no"))
+    put(ws,"AG38",d.get("graphic_signer_name"))
+    put(ws,"K39",d.get("product_name_th_en"))
+    put(ws,"AG40",d.get("fda_signer_name"))
+    put(ws,"K40",d.get("formula_category"))
+
+    for offset,x in enumerate((d.get("active_ingredients") or [])[:15]):
+        row=43+offset
+        put(ws,f"D{row}",x.get("name"))
+        put(ws,f"U{row}",x.get("country"))
+        put(ws,f"AA{row}",x.get("supplier"))
+        put(ws,f"AH{row}",x.get("material_code"))
+        put(ws,f"AM{row}",x.get("quantity_mg"))
+        if x.get("percentage") not in (None,""):
+            put(ws,f"AS{row}",x.get("percentage"))
+
+    for offset,x in enumerate((d.get("inactive_ingredients") or [])[:5]):
+        row=61+offset
+        put(ws,f"D{row}",x.get("name"))
+        put(ws,f"U{row}",x.get("country"))
+        put(ws,f"AA{row}",x.get("supplier"))
+        put(ws,f"AH{row}",x.get("material_code"))
+        put(ws,f"AM{row}",x.get("quantity_mg"))
+        if x.get("percentage") not in (None,""):
+            put(ws,f"AS{row}",x.get("percentage"))
+
+    if d.get("ingredient_total_mg") not in (None,""):
+        put(ws,"AM72",d.get("ingredient_total_mg"))
+    if d.get("ingredient_total_percent") not in (None,""):
+        put(ws,"AS72",d.get("ingredient_total_percent"))
+    put(ws,"D66",d.get("dosage_instructions"))
+
+    put(ws,"B77",d.get("preparer_name"))
+    put(ws,"M77",d.get("rd_signer_name"))
+    put(ws,"Z77",d.get("sales_signer_name"))
+    put(ws,"AM77",d.get("production_signer_name"))
+
+
 def _write_formula_fda_column(ws,d,production=False):
     """Write FDA No. in the far-right FDA column using the real formula rows."""
     from openpyxl.utils import get_column_letter
@@ -1229,6 +1312,7 @@ def export_record(
       "F-RD-004":("F-RD-004.xlsx","Sheet1"),
       "ADMIN-QP":("ADMIN-QP_MASTER.xlsx","ใบราคา"),
       "ADMIN-INVOICE":("ADMIN-QP_MASTER.xlsx","ใบราคา"),
+      "ADMIN-JOB":("ADMIN-JOB_MASTER.xlsx","JOB"),
     }
 
     if x.form_code not in templates:
@@ -1264,6 +1348,8 @@ def export_record(
                 fill_003(ws,d)
             elif x.form_code=="F-RD-004":
                 fill_004(ws,d)
+            elif x.form_code=="ADMIN-JOB":
+                fill_admin_job(ws,d)
             else:
                 raise HTTPException(400,"Unsupported form")
 

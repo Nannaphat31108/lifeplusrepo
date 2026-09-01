@@ -71,6 +71,8 @@ tr:last-child td{border-bottom:0}
 .insight{padding:12px;border-left:4px solid var(--primary);background:#f8fafc;border-radius:8px;margin:8px 0}
 .insight.bad{border-left-color:var(--danger)}.insight.warn{border-left-color:#f59e0b}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.form-grid .wide{grid-column:1/-1}
+.wh-dept-checkboxes{display:flex;flex-wrap:wrap;gap:6px 14px;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px}
+.wh-dept-check{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal}
 .modal{position:fixed;inset:0;background:#0008;display:grid;place-items:center;padding:20px;z-index:30}
 .modal-card{width:min(840px,96vw);max-height:92vh;overflow:auto;background:#fff;border-radius:18px;padding:20px}
 .modal-head{display:flex;align-items:center;justify-content:space-between}.modal-head h2{margin:0}.modal-head button{font-size:24px;background:transparent}
