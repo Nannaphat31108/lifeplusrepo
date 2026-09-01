@@ -1,3 +1,37 @@
+## v31.48 — 12-month click-in grid; RD→ADMIN quotation auto-link; QP cost-details tab
+
+Three changes from the same request.
+
+**F-RD-002 "ฟอร์มของฉัน": a 12-month grid instead of every month stacked.**
+Opening it now shows a 4×3 grid of Jan–Dec tiles for one year at a time
+(‹ prev / next › arrows to change year), each showing how many records were
+filed that month; clicking a tile opens that month's record list (with the
+existing search box and a "← กลับไปเลือกเดือน" back button). Any record with
+no month set still surfaces as its own "ไม่ระบุเดือน" tile so nothing goes
+missing from view.
+
+**RD → ADMIN quotation flow, auto-linked.** When RD sends a work handoff
+referencing a formula (via the reference-search typeahead from the last
+release), the inbox card now shows a "สร้างใบเสนอราคาจากงานนี้" button. It
+opens a new ADMIN-QP quotation and pulls in the formula's customer/product/
+ingredient data automatically — the same VLOOKUP the QP form's manual box
+already did, just triggered from the inbox instead of typed in by hand.
+The lookup (`GET /api/source-forms/formula-link/{ref}`) now matches
+*either* the formula's own formula_no *or* the record's record_no (a work
+handoff's reference carries the latter), so both the manual box and this
+new button resolve the same way. Nothing about the pulled-in quotation is
+locked — every field stays fully editable, addable, removable, same as
+before.
+
+**QP cost-details tab.** ADMIN-QP/ADMIN-INVOICE now have a second tab,
+"รายละเอียดต้นทุน", holding a free-form add/remove/edit line-item table
+(หมวด / รายละเอียด / จำนวนเงิน, e.g. ค่าแรง, บรรจุภัณฑ์, ค่าขนส่ง — a
+`<datalist>` suggests the common ones but any text works). This isn't tied
+to a real cell in the QP master — there's no fixed schema for it yet ("a
+database to be sent later"), so it's built as flexible rows now, ready for
+whatever structure comes later, saved as `cost_details` in the same
+record's payload alongside everything else.
+
 ## v31.47 — ADMIN-JOB (Job Description / JL) exact form; multi-department + searchable-reference work handoff
 
 Two changes from the same request:
