@@ -394,6 +394,30 @@ class PurchaseDocument(Base, TimestampMixin):
     linked_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
 
 
+class RecordVersion(Base):
+    """A snapshot of a record's payload taken immediately before an update
+    overwrites it -- so past versions of a SourceFormRecord (F-RD-*) or
+    PurchaseDocument (PO/PR) stay recoverable. One table for both via a
+    `record_type` discriminator rather than two near-identical tables,
+    since the shape (id, snapshot, who/when) is otherwise the same.
+
+    No version is written on create (nothing to snapshot yet) -- the first
+    entry appears after the first edit of a saved record.
+    """
+    __tablename__ = "record_versions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    record_type: Mapped[str] = mapped_column(String(20), index=True)  # "source_form" | "purchase_doc"
+    record_id: Mapped[int] = mapped_column(Integer, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    # Denormalized copy of fields useful to show in a history list without
+    # re-parsing payload_json (record_no/doc_no, status at that point in time).
+    label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    status: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    saved_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    saved_by_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    saved_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class WorkHandoff(Base, TimestampMixin):
     """A general-purpose "send work to another department" message.
 
