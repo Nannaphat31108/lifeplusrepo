@@ -1,13 +1,13 @@
 from datetime import datetime
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.security import get_current_user
 from app.core.notify import send_line_notify
-from app.models.entities import WorkHandoff
+from app.models.entities import WorkHandoff, SourceFormRecord, PurchaseDocument
 
 router = APIRouter(prefix="/api/work-handoffs", tags=["Work Handoffs"])
 
@@ -37,7 +37,7 @@ def _caller_department(u) -> str:
 
 
 class HandoffCreate(BaseModel):
-    to_department: str
+    to_departments: list[str]
     subject: str
     message: str | None = None
     reference: str | None = None
@@ -73,34 +73,105 @@ def create_handoff(
     db: Session = Depends(get_db),
     u=Depends(get_current_user),
 ):
-    to_dept = (p.to_department or "").strip().upper()
-    if to_dept not in ALL_DEPARTMENTS:
-        raise HTTPException(400, "ไม่พบแผนกปลายทาง")
+    """Send the same piece of work to one or more departments at once --
+    one WorkHandoff row per department (so each department's inbox/status
+    tracking stays exactly as if it had been sent individually), created
+    together in one request."""
     if not (p.subject or "").strip():
         raise HTTPException(400, "กรุณาใส่หัวข้องาน")
 
+    # Dedupe while preserving order, validate every target up front so a
+    # request with one bad department code fails atomically (nothing half-sent).
+    seen = set()
+    to_depts = []
+    for raw in p.to_departments or []:
+        d = (raw or "").strip().upper()
+        if d and d not in seen:
+            seen.add(d)
+            to_depts.append(d)
+    if not to_depts:
+        raise HTTPException(400, "กรุณาเลือกแผนกปลายทางอย่างน้อย 1 แผนก")
+    bad = [d for d in to_depts if d not in ALL_DEPARTMENTS]
+    if bad:
+        raise HTTPException(400, f"ไม่พบแผนกปลายทาง: {', '.join(bad)}")
+
     from_dept = _caller_department(u)
-    x = WorkHandoff(
-        from_department=from_dept,
-        to_department=to_dept,
-        from_user_id=u.id,
-        from_user_name=u.full_name,
-        subject=p.subject.strip(),
-        message=(p.message or "").strip() or None,
-        reference=(p.reference or "").strip() or None,
-        status="SENT",
-    )
-    db.add(x)
+    to_depts = [d for d in to_depts if d != from_dept]
+    if not to_depts:
+        raise HTTPException(400, "ไม่สามารถส่งงานถึงแผนกตัวเองได้")
+
+    created = []
+    for to_dept in to_depts:
+        x = WorkHandoff(
+            from_department=from_dept,
+            to_department=to_dept,
+            from_user_id=u.id,
+            from_user_name=u.full_name,
+            subject=p.subject.strip(),
+            message=(p.message or "").strip() or None,
+            reference=(p.reference or "").strip() or None,
+            status="SENT",
+        )
+        db.add(x)
+        created.append(x)
     db.commit()
-    db.refresh(x)
+    for x in created:
+        db.refresh(x)
 
     # Best-effort, never blocks the response -- see app/core/notify.py.
-    notify_text = f"📋 งานใหม่จาก {from_dept} ถึง {to_dept}\nโดย {u.full_name}\nหัวข้อ: {x.subject}"
-    if x.message:
-        notify_text += f"\n{x.message}"
+    notify_text = f"📋 งานใหม่จาก {from_dept} ถึง {', '.join(to_depts)}\nโดย {u.full_name}\nหัวข้อ: {created[0].subject}"
+    if created[0].message:
+        notify_text += f"\n{created[0].message}"
     background_tasks.add_task(send_line_notify, notify_text)
 
-    return _serialize(x)
+    return [_serialize(x) for x in created]
+
+
+@router.get("/reference-search")
+def reference_search(
+    q: str,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    x_person_key: str | None = Header(default=None, alias="X-Person-Key"),
+):
+    """Typeahead for the handoff "reference" field: matching record numbers
+    the caller can point at, so they type/pick a real เลขที่รายการ instead
+    of a free-text guess. Two sources, combined:
+      - the caller's own F-RD-*/ADMIN-* records (private, so scoped to
+        this person -- only searched when X-Person-Key is present)
+      - PO/PR documents (department-shared, same as everywhere else they
+        appear, so always searched regardless of person key)
+    """
+    q = (q or "").strip()
+    if len(q) < 1:
+        return []
+    like = f"%{q}%"
+    results = []
+
+    if x_person_key:
+        rows = db.execute(
+            select(SourceFormRecord.record_no, SourceFormRecord.form_code)
+            .where(
+                SourceFormRecord.created_by == u.id,
+                SourceFormRecord.owner_person_key == x_person_key.strip().upper(),
+                SourceFormRecord.record_no.ilike(like),
+            )
+            .order_by(SourceFormRecord.id.desc())
+            .limit(15)
+        ).all()
+        for record_no, form_code in rows:
+            results.append({"value": record_no, "label": f"{record_no} ({form_code})"})
+
+    rows = db.execute(
+        select(PurchaseDocument.doc_no, PurchaseDocument.doc_type)
+        .where(PurchaseDocument.doc_no.ilike(like))
+        .order_by(PurchaseDocument.id.desc())
+        .limit(15)
+    ).all()
+    for doc_no, doc_type in rows:
+        results.append({"value": doc_no, "label": f"{doc_no} ({doc_type})"})
+
+    return results[:20]
 
 
 @router.get("/inbox")
