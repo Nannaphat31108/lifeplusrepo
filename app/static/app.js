@@ -1116,14 +1116,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.48",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.49",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.48",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.49",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -1169,6 +1169,46 @@ function numberFieldRecalcCall(){
   if(isQPLikeForm(currentExactForm))return "recalculateAdminQP()";
   if(currentExactForm==="ADMIN-JOB")return "recalculateAdminJob()";
   return "recalculateFormulaBoth()";
+}
+// Some exact-form fields sit in a column narrower than any reasonable
+// width for their value (the real Excel column relies on the text
+// overflowing into blank neighboring cells on paper, which a boxed
+// <input> confined to one <td> can't do) -- see applyWideFieldSpans()
+// below, which makes just those specific fields span a few of the blank
+// columns already sitting empty beside them, the same way a real merged
+// cell already spans multiple columns. Verified per form by
+// screenshotting the rendered grid, not guessed.
+const WIDE_FIELD_SPANS={
+  "ADMIN-JOB":{"AO1":6,"AO5":3,"J8":6,"J9":3,"J10":5,"AM8":3,"AM9":6,"AM10":5,"C17":8},
+  "F-RD-001":{
+    "H17":20,"H23":20,
+    "C35":4,"C36":4,"C37":4,"C38":4,"C39":4,
+    "Z35":4,"Z36":4,"Z37":4,"Z38":4,"Z39":4,
+  },
+};
+// Turns WIDE_FIELD_SPANS entries for `code` into synthetic merges in
+// mergeTL/skip (mutated in place), exactly like a real merged cell,
+// EXCEPT only when every column it would consume is genuinely free: not
+// already merged, not another field's cell, and not holding its own
+// static text. Run once, right after mergeTL/skip/fmap are built and
+// before the render loop reads them.
+function applyWideFieldSpans(code,form,fmap,mergeTL,skip){
+  for(const [addr,span] of Object.entries(WIDE_FIELD_SPANS[code]||{})){
+    if(mergeTL[addr] || skip.has(addr))continue;
+    const m=addr.match(/^([A-Z]+)(\d+)$/); if(!m)continue;
+    let c=0; for(const ch of m[1])c=c*26+ch.charCodeAt(0)-64;
+    const r=+m[2], c2=c+span;
+    if(c2>form.maxCol)continue;
+    let ok=true;
+    for(let cc=c+1;cc<=c2;cc++){
+      const a2=xlAddr(r,cc);
+      if(skip.has(a2) || mergeTL[a2] || fmap[a2]){ok=false;break}
+      if(String(form.cells[a2]?.v||"").trim()!==""){ok=false;break}
+    }
+    if(!ok)continue;
+    mergeTL[addr]={r1:r,c1:c,r2:r,c2:c2};
+    for(let cc=c+1;cc<=c2;cc++)skip.add(xlAddr(r,cc));
+  }
 }
 function exactInput(field,addr,cellValue){
  const common=`class="excel-input" data-addr="${addr}" ${field.key?`data-key="${field.key}"`:""} ${field.group?`data-group="${field.group}" data-index="${field.index}" data-sub="${field.sub}"`:""}`;
@@ -1836,11 +1876,17 @@ async function openPrivateExactForm(code){
       for(let c=m.c1;c<=m.c2;c++)
         if(!(r===m.r1&&c===m.c1)) skip.add(xlAddr(r,c));
   }
+  applyWideFieldSpans(code,form,fmap,mergeTL,skip);
 
   const widthList=Array.isArray(form.widths)
     ? form.widths
     : Array.from({length:form.maxCol},(_,i)=>form.widths?.[i+1]??form.widths?.[String(i+1)]??12);
-  let cols=`<colgroup>${widthList.map(w=>`<col style="width:${Math.max(4,Number(w))*7.2}px">`).join("")}</colgroup>`;
+  // Floor of 8 "character" units (~58px), not the original 4 (~29px): the
+  // real Excel masters have plenty of columns narrower than that, which
+  // read fine on paper (long text/values overflow visually into blank
+  // neighboring cells) but clip badly once every column becomes a boxed
+  // <input> that can't overflow its own cell.
+  let cols=`<colgroup>${widthList.map(w=>`<col style="width:${Math.max(8,Number(w))*7.2}px">`).join("")}</colgroup>`;
   let rows="";
 
   for(let r=1;r<=form.maxRow;r++){

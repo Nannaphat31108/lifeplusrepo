@@ -58,7 +58,14 @@ tr:last-child td{border-bottom:0}
 .purchase-doc-table th,.purchase-doc-table td{border:1px solid #e5e7eb;padding:4px}
 .purchase-doc-table th{background:#f8fafc;font-size:12px}
 .purchase-doc-table td.col-no{text-align:center;background:#f8fafc;font-size:12px;color:#667085}
-.purchase-doc-table .excel-input{width:100%;border:none;padding:4px;font-size:13px;box-sizing:border-box}
+/* .excel-input's shared rule is position:absolute (it's built for the
+   .excel-sheet grid, whose td has position:relative to anchor it). This
+   table's td doesn't, so those inputs were anchoring to <body> instead --
+   one input per row rendering as a single ~viewport-sized box stacked on
+   top of every other one. position:static here restores normal in-cell
+   layout (and makes the 100%-width rule below resolve against the <td>
+   again, not the viewport). */
+.purchase-doc-table .excel-input{position:static;inset:auto;width:100%;border:none;padding:4px;font-size:13px;box-sizing:border-box}
 .purchase-doc-table .excel-input:focus{outline:2px solid var(--primary,#2563eb);outline-offset:-2px}
 .purchase-doc-table .po-row-amount{background:#f8fafc;font-weight:700;text-align:right}
 .purchase-doc-totals{margin-top:14px;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
