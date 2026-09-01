@@ -1,3 +1,39 @@
+## v31.46 — LINE notification for work handoffs
+
+Last of the five follow-up features from the "what should we add next"
+recommendation. Every "ส่งงานไปแผนกอื่น" (work handoff) now also fires a
+LINE push message, best-effort and non-blocking (`BackgroundTasks` — a
+send failure never affects the API response or delays it).
+
+**Uses the LINE Messaging API, not LINE Notify.** LINE discontinued LINE
+Notify on 2025-03-31 (no new tokens can be issued for it any more), so
+this is built on a LINE Official Account's Messaging API instead. Setup:
+
+1. Create a LINE Official Account (free) at https://manager.line.biz, or
+   reuse an existing one.
+2. In the LINE Developers Console (https://developers.line.biz), open
+   that OA's provider/channel and issue a long-lived **Channel access
+   token** under Messaging API settings.
+3. Set it on Render (or your `.env` locally) as `LINE_CHANNEL_ACCESS_TOKEN`.
+4. That's enough to go live: with no other config, every handoff
+   broadcasts to everyone who has added the Official Account as a friend
+   (Messaging API's `/broadcast` endpoint). Have everyone who cares about
+   handoffs scan the OA's QR code / add-friend link once.
+5. Optional: to target one specific LINE group/room instead of
+   broadcasting to all friends, set `LINE_TARGET_ID` to that group/room's
+   ID (captured from a webhook event on your OA -- this app doesn't run a
+   webhook receiver, so that ID has to come from somewhere else, e.g. a
+   throwaway script hitting LINE's webhook once).
+
+Both settings are optional and unset by default — until configured, the
+send is silently skipped (not an error); handoff creation itself never
+depends on the notification succeeding. I don't have a Channel access
+token of my own to test against a real LINE account, so this was verified
+by mocking the outbound HTTP call: broadcast vs. targeted push selection,
+message content, and "network/API failure never breaks handoff creation"
+are all covered by an automated test, but the actual LINE-side delivery
+hasn't been exercised against a live channel.
+
 ## v31.45 — version history for F-RD-* records and PO/PR
 
 Every edit to a saved F-RD-* record or PO/PR now snapshots the state it's

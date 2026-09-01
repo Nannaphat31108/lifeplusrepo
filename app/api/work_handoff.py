@@ -1,11 +1,12 @@
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.security import get_current_user
+from app.core.notify import send_line_notify
 from app.models.entities import WorkHandoff
 
 router = APIRouter(prefix="/api/work-handoffs", tags=["Work Handoffs"])
@@ -68,6 +69,7 @@ def departments(u=Depends(get_current_user)):
 @router.post("")
 def create_handoff(
     p: HandoffCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     u=Depends(get_current_user),
 ):
@@ -91,6 +93,13 @@ def create_handoff(
     db.add(x)
     db.commit()
     db.refresh(x)
+
+    # Best-effort, never blocks the response -- see app/core/notify.py.
+    notify_text = f"📋 งานใหม่จาก {from_dept} ถึง {to_dept}\nโดย {u.full_name}\nหัวข้อ: {x.subject}"
+    if x.message:
+        notify_text += f"\n{x.message}"
+    background_tasks.add_task(send_line_notify, notify_text)
+
     return _serialize(x)
 
 
