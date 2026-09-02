@@ -1116,14 +1116,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.52",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.53",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.52",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.53",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -2116,6 +2116,331 @@ async function deletePackagingOption(id){
     toast("ลบสำเร็จ");
     await loadPackagingOptions();
   }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
+}
+
+// ต้นทุน/ราคาขาย อุปกรณ์เสริม (ADMIN dept). Every row is a fully
+// self-contained pricing entry (own cost/spec/supplier AND own
+// sell-price tiers) -- see AdminPricingRow's model docstring for why.
+// section groups the two stacked tables the source sheet had (no titles
+// given for either); group_no (ลำดับ) is only unique within a section.
+window.adminPricingData=[];
+let adminPricingSection="";
+let adminPricingEditingId=null;
+async function openAdminPricingPage(){
+  adminPricingEditingId=null;
+  adminPricingSection="";
+  const canManage=me?.role==="ADMIN";
+  $("pageTitle").textContent="ต้นทุน/ราคาขาย อุปกรณ์เสริม";
+  $("pageSubtitle").textContent="ชริ้งค์ฟิล์ม / ฝาฟอยล์ / PVC ฯลฯ — ต้นทุนตามสเปค พร้อมราคาขายตามช่วงจำนวน";
+  $("pageContent").innerHTML=`<div class="card">
+    <div class="toolbar">
+      <input id="adminPricingSearch" class="search" placeholder="พิมพ์ค้นหา รายการ / สเปค / Supplier / หมายเหตุ..." oninput="filterAdminPricing()">
+      <span id="adminPricingCount"></span>
+      ${canManage?'<button class="primary" onclick="openAdminPricingEditor()">+ เพิ่มรายการ</button>':""}
+    </div>
+    <div id="adminPricingTabs" class="fda-category-tabs"></div>
+    <div id="adminPricingEditor"></div>
+    <div id="adminPricingTable">กำลังโหลด...</div>
+  </div>`;
+  await loadAdminPricing();
+}
+async function loadAdminPricing(){
+  try{ window.adminPricingData=await api("/api/admin-pricing/rows"); }
+  catch(e){ window.adminPricingData=[]; toast("โหลดข้อมูลไม่สำเร็จ: "+(e?.message||e)); }
+  renderAdminPricingTabs();
+  filterAdminPricing();
+}
+function renderAdminPricingTabs(){
+  const box=document.getElementById("adminPricingTabs");
+  if(!box)return;
+  // data-section (read back as a string, "" for the "ทั้งหมด" tab) rather
+  // than baking the value into the onclick attribute string -- an empty
+  // string there breaks the double-quoted attribute (see
+  // saveAdminLaborCellFromInput's comment for the same mistake caught
+  // elsewhere on this page).
+  const tab=(label,value)=>`<button class="fda-cat-tab${adminPricingSection===value?" active":""}" data-section="${esc(value)}" onclick="selectAdminPricingSection(this.dataset.section)">${esc(label)}</button>`;
+  box.innerHTML=[tab("ทั้งหมด",""),tab("กลุ่มที่ 1","1"),tab("กลุ่มที่ 2","2")].join("");
+}
+function selectAdminPricingSection(section){
+  adminPricingSection=section;
+  renderAdminPricingTabs();
+  filterAdminPricing();
+}
+function filterAdminPricing(){
+  const q=String(document.getElementById("adminPricingSearch")?.value||"").trim().toLowerCase();
+  const rows=(window.adminPricingData||[]).filter(x=>
+    (adminPricingSection===""||String(x.section)===adminPricingSection) &&
+    (!q||JSON.stringify(x).toLowerCase().includes(q))
+  );
+  renderAdminPricingTable(rows);
+}
+function renderAdminPricingTable(rows){
+  const canManage=me?.role==="ADMIN";
+  const countEl=document.getElementById("adminPricingCount");
+  if(countEl)countEl.textContent=`${rows.length} รายการ`;
+  const tiersCell=x=>(x.sell_tiers||[]).map(t=>`<div>${esc(t.label)}: ${t.price??"-"}</div>`).join("")||"-";
+  const out=rows.map(x=>`<tr>
+    <td>${x.section}-${x.group_no??""}</td>
+    <td>${esc(x.item_name)}</td>
+    <td>${esc(x.spec)}</td>
+    <td>${esc(x.quantity_range)}</td>
+    <td>${money(x.cost)}</td>
+    <td>${esc(x.supplier)}</td>
+    <td>${tiersCell(x)}</td>
+    <td>${esc(x.notes)}</td>
+    <td class="mini-actions">${canManage?`<button onclick="openAdminPricingEditor(${x.id})">แก้ไข</button><button onclick="deleteAdminPricingRow(${x.id})">ลบ</button>`:""}</td>
+  </tr>`);
+  const headers=["กลุ่ม-ลำดับ","รายการ","สเปค (ต้นทุน)","จำนวน","ราคาต้นทุน","Supplier","ราคาขายตามช่วงจำนวน","หมายเหตุ","จัดการ"];
+  const box=document.getElementById("adminPricingTable");
+  if(box)box.innerHTML=table(headers,out);
+}
+function openAdminPricingEditor(id=null){
+  adminPricingEditingId=id;
+  const d=id?((window.adminPricingData||[]).find(x=>x.id===id)||{}):{section:adminPricingSection||1,sell_tiers:[]};
+  const box=document.getElementById("adminPricingEditor");
+  if(!box)return;
+  const tiersRows=(d.sell_tiers&&d.sell_tiers.length?d.sell_tiers:[{label:"",price:""}])
+    .map((t,i)=>`<div class="admin-pricing-tier-row" data-i="${i}">
+      <input class="ap-tier-label" placeholder="ช่วงจำนวน เช่น 1,000-2,999" value="${esc(t.label||"")}">
+      <input class="ap-tier-price" type="number" step="0.01" placeholder="ราคา" value="${esc(t.price??"")}">
+      <button type="button" onclick="this.closest('.admin-pricing-tier-row').remove()">ลบ</button>
+    </div>`).join("");
+  box.innerHTML=`
+    <div class="fda-editor">
+      <div class="fda-editor-title">${id?"แก้ไขรายการ":"เพิ่มรายการใหม่"}</div>
+      <div class="fda-editor-grid">
+        <div class="fda-field"><label>กลุ่ม (section)</label><select id="ap_section"><option value="1" ${(d.section||1)==1?"selected":""}>กลุ่มที่ 1</option><option value="2" ${(d.section||1)==2?"selected":""}>กลุ่มที่ 2</option></select></div>
+        <div class="fda-field"><label>ลำดับ</label><input id="ap_group_no" type="number" value="${esc(d.group_no??"")}"></div>
+        <div class="fda-field"><label>รายการ</label><input id="ap_item_name" value="${esc(d.item_name||"")}"></div>
+        <div class="fda-field"><label>สเปค (ต้นทุน)</label><input id="ap_spec" value="${esc(d.spec||"")}"></div>
+        <div class="fda-field"><label>จำนวน (ช่วงต้นทุน)</label><input id="ap_quantity_range" value="${esc(d.quantity_range||"")}"></div>
+        <div class="fda-field"><label>ราคาต้นทุน</label><input id="ap_cost" type="number" step="0.01" value="${esc(d.cost??"")}"></div>
+        <div class="fda-field"><label>Supplier</label><input id="ap_supplier" value="${esc(d.supplier||"")}"></div>
+        <div class="fda-field wide"><label>หมายเหตุ</label><input id="ap_notes" value="${esc(d.notes||"")}"></div>
+      </div>
+      <div class="admin-pricing-tiers-editor">
+        <label>ราคาขายตามช่วงจำนวน</label>
+        <div id="ap_tiers_rows">${tiersRows}</div>
+        <button type="button" onclick="addAdminPricingTierRow()">+ เพิ่มช่วงราคา</button>
+      </div>
+      <div class="actions">
+        <button class="primary" onclick="saveAdminPricingRow()">บันทึก</button>
+        <button onclick="closeAdminPricingEditor()">ยกเลิก</button>
+      </div>
+    </div>`;
+}
+function closeAdminPricingEditor(){
+  adminPricingEditingId=null;
+  const box=document.getElementById("adminPricingEditor");
+  if(box)box.innerHTML="";
+}
+function addAdminPricingTierRow(){
+  // built via DOM methods, not an HTML string -- an inline onclick
+  // attribute containing its own quoted HTML string got mangled by the
+  // browser's attribute parser (nested "/' escaping breaks down fast).
+  const wrap=document.getElementById("ap_tiers_rows");
+  if(!wrap)return;
+  const row=document.createElement("div");
+  row.className="admin-pricing-tier-row";
+  const labelInput=document.createElement("input");
+  labelInput.className="ap-tier-label";
+  labelInput.placeholder="ช่วงจำนวน เช่น 1,000-2,999";
+  const priceInput=document.createElement("input");
+  priceInput.className="ap-tier-price";
+  priceInput.type="number";
+  priceInput.step="0.01";
+  priceInput.placeholder="ราคา";
+  const removeBtn=document.createElement("button");
+  removeBtn.type="button";
+  removeBtn.textContent="ลบ";
+  removeBtn.onclick=()=>row.remove();
+  row.append(labelInput,priceInput,removeBtn);
+  wrap.appendChild(row);
+}
+async function saveAdminPricingRow(){
+  const val=id=>document.getElementById(id)?.value?.trim()||"";
+  const item_name=val("ap_item_name"), spec=val("ap_spec");
+  if(!item_name && !spec){toast("กรอกรายการหรือสเปคอย่างน้อยหนึ่งอย่าง");return;}
+  const sell_tiers=[...document.querySelectorAll("#ap_tiers_rows .admin-pricing-tier-row")].map(row=>({
+    label:row.querySelector(".ap-tier-label").value.trim(),
+    price:row.querySelector(".ap-tier-price").value?Number(row.querySelector(".ap-tier-price").value):null,
+  })).filter(t=>t.label);
+  const payload={
+    section:Number(document.getElementById("ap_section")?.value||1),
+    group_no:val("ap_group_no")?Number(val("ap_group_no")):null,
+    item_name:item_name||null, spec:spec||null,
+    quantity_range:val("ap_quantity_range")||null,
+    cost:val("ap_cost")?Number(val("ap_cost")):null,
+    supplier:val("ap_supplier")||null,
+    notes:val("ap_notes")||null,
+    sell_tiers,
+  };
+  try{
+    if(adminPricingEditingId){
+      await api(`/api/admin-pricing/rows/${adminPricingEditingId}`,{method:"PUT",body:payload});
+    }else{
+      await api("/api/admin-pricing/rows",{method:"POST",body:payload});
+    }
+    toast("บันทึกสำเร็จ");
+    closeAdminPricingEditor();
+    await loadAdminPricing();
+  }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+async function deleteAdminPricingRow(id){
+  if(!confirm("ลบรายการนี้?"))return;
+  try{
+    await api(`/api/admin-pricing/rows/${id}`,{method:"DELETE"});
+    toast("ลบสำเร็จ");
+    await loadAdminPricing();
+  }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
+}
+
+// ค่าแรง (labor / packing-fee rate card, ADMIN dept): ประเภท x
+// จำนวนการบรรจุ x ช่วงจำนวนสั่ง, editable inline like a spreadsheet, plus
+// a quantity->tier rate-lookup tool (the tier labels here are real numeric
+// ranges, unlike the free-text ones in อุปกรณ์เสริม, so an automatic
+// lookup is reliable).
+window.adminLaborRateData=[];
+window.adminLaborRateTiers=[];
+let adminLaborRateEditingId=null;
+async function openAdminLaborRatesPage(){
+  adminLaborRateEditingId=null;
+  const canManage=me?.role==="ADMIN";
+  $("pageTitle").textContent="ค่าแรง (Rate Card)";
+  $("pageSubtitle").textContent="เรทต่อกล่อง ตามประเภท / จำนวนการบรรจุ / ช่วงจำนวนสั่ง — แตะที่ตัวเลขเพื่อแก้ไข";
+  $("pageContent").innerHTML=`<div class="card">
+    <div class="toolbar">
+      <input id="adminLaborSearch" class="search" placeholder="พิมพ์ค้นหา ประเภท / จำนวนการบรรจุ..." oninput="renderAdminLaborRateTable()">
+      <span id="adminLaborCount"></span>
+      ${canManage?'<button class="primary" onclick="openAdminLaborRateEditor()">+ เพิ่มประเภท/จำนวนการบรรจุ</button>':""}
+    </div>
+    <div class="fda-editor admin-labor-lookup-panel">
+      <div class="fda-editor-title">ค้นหาเรท — เลือกประเภท จำนวนการบรรจุ แล้วใส่จำนวนที่จะสั่ง</div>
+      <div class="fda-editor-grid">
+        <div class="fda-field"><label>ประเภท</label><select id="al_lookup_type" onchange="fillAdminLaborLookupFillCounts()"></select></div>
+        <div class="fda-field"><label>จำนวนการบรรจุ</label><select id="al_lookup_fillcount"></select></div>
+        <div class="fda-field"><label>จำนวนที่จะสั่ง</label><input id="al_lookup_qty" type="number" oninput="computeAdminLaborLookup()"></div>
+      </div>
+      <div id="al_lookup_result" class="admin-labor-lookup-result"></div>
+    </div>
+    <div id="adminLaborTable">กำลังโหลด...</div>
+  </div>`;
+  await loadAdminLaborRates();
+}
+async function loadAdminLaborRates(){
+  try{
+    window.adminLaborRateTiers=await api("/api/admin-pricing/labor-rates/tiers");
+    window.adminLaborRateData=await api("/api/admin-pricing/labor-rates");
+  }catch(e){
+    window.adminLaborRateData=[]; window.adminLaborRateTiers=[];
+    toast("โหลดข้อมูลไม่สำเร็จ: "+(e?.message||e));
+  }
+  renderAdminLaborRateTable();
+  fillAdminLaborLookupTypes();
+}
+function renderAdminLaborRateTable(){
+  const canManage=me?.role==="ADMIN";
+  const q=String(document.getElementById("adminLaborSearch")?.value||"").trim().toLowerCase();
+  const rows=(window.adminLaborRateData||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
+  const countEl=document.getElementById("adminLaborCount");
+  if(countEl)countEl.textContent=`${rows.length} รายการ`;
+  const tiers=window.adminLaborRateTiers||[];
+  const trs=rows.map(x=>`<tr>
+    <td><b>${esc(x.product_type)}</b></td>
+    <td>${esc(x.fill_count)}</td>
+    ${tiers.map(t=>`<td><input type="number" step="0.01" class="admin-labor-cell" data-id="${x.id}" data-tier="${esc(t)}" value="${esc(x.tiers?.[t]??"")}" onchange="saveAdminLaborCellFromInput(this)"></td>`).join("")}
+    <td class="mini-actions">${canManage?`<button onclick="deleteAdminLaborRate(${x.id})">ลบ</button>`:""}</td>
+  </tr>`);
+  const headers=["ประเภท","จำนวนการบรรจุ",...tiers,"จัดการ"];
+  const box=document.getElementById("adminLaborTable");
+  if(box)box.innerHTML=table(headers,trs);
+}
+function saveAdminLaborCellFromInput(el){
+  // reads id/tier from data-* attributes rather than baking them into the
+  // onchange attribute string -- a tier label containing a quote (or being
+  // JSON-stringified straight into a double-quoted HTML attribute, as an
+  // earlier version of this did) breaks the attribute parser.
+  return saveAdminLaborCell(Number(el.dataset.id), el.dataset.tier, el.value);
+}
+async function saveAdminLaborCell(id,tierLabel,value){
+  const row=(window.adminLaborRateData||[]).find(x=>x.id===id);
+  if(!row)return;
+  try{
+    const saved=await api(`/api/admin-pricing/labor-rates/${id}`,{method:"PUT",body:{
+      product_type:row.product_type, fill_count:row.fill_count,
+      tiers:{[tierLabel]:value===""?null:Number(value)},
+    }});
+    row.tiers=saved.tiers;
+    toast("บันทึกแล้ว");
+  }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+function openAdminLaborRateEditor(){
+  const box=document.getElementById("adminLaborTable");
+  if(!box)return;
+  openModal("เพิ่มประเภท/จำนวนการบรรจุ",`<div class="form-grid">
+    <div><label>ประเภท</label><input id="al_new_type" list="al_type_list"><datalist id="al_type_list">${[...new Set((window.adminLaborRateData||[]).map(x=>x.product_type))].map(t=>`<option value="${esc(t)}">`).join("")}</datalist></div>
+    <div><label>จำนวนการบรรจุ</label><input id="al_new_fillcount"></div>
+    <div class="wide"><button class="primary" onclick="saveNewAdminLaborRate()">บันทึก</button></div>
+  </div>`);
+}
+async function saveNewAdminLaborRate(){
+  const product_type=document.getElementById("al_new_type")?.value?.trim()||"";
+  const fill_count=document.getElementById("al_new_fillcount")?.value?.trim()||"";
+  if(!product_type){toast("กรอกประเภทก่อน");return;}
+  if(!fill_count){toast("กรอกจำนวนการบรรจุก่อน");return;}
+  try{
+    await api("/api/admin-pricing/labor-rates",{method:"POST",body:{product_type,fill_count,tiers:{}}});
+    toast("เพิ่มสำเร็จ");
+    closeModal();
+    await loadAdminLaborRates();
+  }catch(e){toast("เพิ่มไม่สำเร็จ: "+(e?.message||e));}
+}
+async function deleteAdminLaborRate(id){
+  if(!confirm("ลบแถวนี้?"))return;
+  try{
+    await api(`/api/admin-pricing/labor-rates/${id}`,{method:"DELETE"});
+    toast("ลบสำเร็จ");
+    await loadAdminLaborRates();
+  }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
+}
+function fillAdminLaborLookupTypes(){
+  const sel=document.getElementById("al_lookup_type");
+  if(!sel)return;
+  const types=[...new Set((window.adminLaborRateData||[]).map(x=>x.product_type))];
+  sel.innerHTML=types.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join("");
+  fillAdminLaborLookupFillCounts();
+}
+function fillAdminLaborLookupFillCounts(){
+  const type=document.getElementById("al_lookup_type")?.value||"";
+  const sel=document.getElementById("al_lookup_fillcount");
+  if(!sel)return;
+  const counts=(window.adminLaborRateData||[]).filter(x=>x.product_type===type).map(x=>x.fill_count);
+  sel.innerHTML=counts.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  computeAdminLaborLookup();
+}
+function parseAdminLaborTierBounds(label){
+  const nums=(String(label).match(/[\d,]+/g)||[]).map(s=>Number(s.replace(/,/g,"")));
+  if(nums.length>=2)return [nums[0],nums[1]];
+  if(nums.length===1)return [nums[0],Infinity];
+  return [null,null];
+}
+function computeAdminLaborLookup(){
+  const box=document.getElementById("al_lookup_result");
+  if(!box)return;
+  const type=document.getElementById("al_lookup_type")?.value||"";
+  const fillCount=document.getElementById("al_lookup_fillcount")?.value||"";
+  const qtyStr=document.getElementById("al_lookup_qty")?.value||"";
+  if(!type||!fillCount||!qtyStr){box.innerHTML="";return;}
+  const qty=Number(qtyStr);
+  const row=(window.adminLaborRateData||[]).find(x=>x.product_type===type&&x.fill_count===fillCount);
+  if(!row){box.innerHTML='<div class="muted">ไม่พบข้อมูล</div>';return;}
+  const tiers=window.adminLaborRateTiers||[];
+  const matchLabel=tiers.find(t=>{const [lo,hi]=parseAdminLaborTierBounds(t);return lo!=null&&qty>=lo&&qty<=hi;});
+  if(!matchLabel){box.innerHTML='<div class="muted">จำนวนนี้ไม่อยู่ในช่วงที่กำหนดไว้</div>';return;}
+  const rate=row.tiers?.[matchLabel];
+  box.innerHTML=rate!=null
+    ? `<div class="admin-labor-lookup-hit">ช่วง <b>${esc(matchLabel)}</b> → เรท <b>${money(rate)}</b> ต่อกล่อง</div>`
+    : `<div class="muted">ช่วง <b>${esc(matchLabel)}</b> ตรงกัน แต่ยังไม่ได้กรอกเรทไว้</div>`;
 }
 
 function isExactFormCode(code){
@@ -3447,7 +3772,7 @@ async function openDepartmentWorkspace(code){
  const configs={
  RD:{title:"R&D",text:"จัดการสูตร สูตรผลิต Tester และ Rate",cards:[["F-RD-002 สูตร","แบบฟอร์มสูตร R&D","openExactForm('F-RD-002')"],["F-RD-002.1 สูตรผลิต","สูตรสำหรับผลิตจริง","openExactForm('F-RD-002.1')"],["F-RD-003 Tester","ขอทำสินค้าทดลอง","openExactForm('F-RD-003')"],["F-RD-004 Rate","ขอเรทราคา","openExactForm('F-RD-004')"]]},
  SALE:{title:"SALE",text:"รับความต้องการลูกค้าและส่งต่อ R&D",cards:[["F-RD-001 Customer Requirement","รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","openExactForm('F-RD-001')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"],["Product Development","ติดตามโครงการลูกค้า","openPage('projects')"]]},
- ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Job Description","ฟอร์ม JL ต้นฉบับ • สูตร บรรจุภัณฑ์ ผู้รับผิดชอบออกแบบ/อย.","openExactForm('ADMIN-JOB')"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
+ ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Job Description","ฟอร์ม JL ต้นฉบับ • สูตร บรรจุภัณฑ์ ผู้รับผิดชอบออกแบบ/อย.","openExactForm('ADMIN-JOB')"],["ต้นทุน/ราคาขาย อุปกรณ์เสริม","ชริ้งค์ฟิล์ม/ฝาฟอยล์/PVC ฯลฯ • ต้นทุนตามสเปค + ราคาขายตามช่วงจำนวน","openAdminPricingPage()"],["ค่าแรง (Rate Card)","ประเภท/จำนวนการบรรจุ x ช่วงจำนวน • แก้ไขได้ พร้อมค้นหาเรท","openAdminLaborRatesPage()"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
  PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
  STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"],["ใบขอซื้อ (PR)","ขอซื้อวัตถุดิบจากจัดซื้อ","listPurchaseDocs('PR')"]]},
  PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["เตรียมระบบ (บรรจุภัณฑ์ต่องาน)","รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / จำนวน / หน่วย / ราคา / ราคาขาย","openPackagingPrepPage()"],["บรรจุภัณฑ์ตามประเภท","สติ๊กเกอร์ / ซองอลูมิเนียม / ม้วนอลูมิเนียม / กล่อง • เลือกใช้งานส่งเข้าเตรียมระบบได้","openPackagingOptionsPage()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"],["ใบสั่งซื้อ (PO)","ส่งให้ผู้จำหน่ายภายนอก","listPurchaseDocs('PO')"],["ใบขอซื้อ (PR)","ที่คลังส่งเข้ามา","listPurchaseDocs('PR')"]]},

@@ -261,6 +261,23 @@ def ensure_packaging_options_database():
 ensure_packaging_options_database()
 
 
+def ensure_admin_pricing_database():
+    from app.db.session import SessionLocal
+    from app.api.admin_pricing import import_admin_pricing_seed, import_admin_labor_rate_seed
+
+    db = SessionLocal()
+    try:
+        print(f"[ADMIN PRICING STARTUP] {import_admin_pricing_seed(db)}")
+        print(f"[ADMIN PRICING STARTUP] {import_admin_labor_rate_seed(db)}")
+    except Exception as e:
+        db.rollback()
+        print(f"[ADMIN PRICING STARTUP] Warning: {type(e).__name__}: {e}")
+    finally:
+        db.close()
+
+ensure_admin_pricing_database()
+
+
 def normalize_existing_fda_material_codes():
     """Convert legacy database codes such as A001 to canonical A0001."""
     from app.db.session import SessionLocal
