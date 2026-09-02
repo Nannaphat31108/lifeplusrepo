@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,10 +13,15 @@ from app.models.entities import PackagingPrepItem
 
 router = APIRouter(prefix="/api/packaging-prep", tags=["Packaging Prep (PURCHASE)"])
 
+SEED_FILE = Path(__file__).resolve().parents[1] / "static" / "packaging_prep_seed.json"
+
 
 class PackagingPrepPayload(BaseModel):
-    job_code: str
-    job_name: str
+    # job_code/job_name are optional: plenty of real historical rows (see
+    # import_packaging_prep_seed below) are loose packaging-item entries
+    # with no recorded job grouping at all.
+    job_code: Optional[str] = None
+    job_name: Optional[str] = None
     item_name: Optional[str] = None
     spec: Optional[str] = None
     supplier: Optional[str] = None
@@ -27,7 +34,8 @@ class PackagingPrepPayload(BaseModel):
 def _job_seq_map(db: Session) -> dict:
     """ลำดับ (seq) per job_code, numbered by that job's first-ever row —
     computed fresh on every read instead of stored, so it never needs
-    renumbering when rows are added, edited, or deleted."""
+    renumbering when rows are added, edited, or deleted. Rows with a blank
+    job_code (not tied to any job) are left out — they get no seq number."""
     rows = (
         db.query(PackagingPrepItem.job_code, PackagingPrepItem.id)
         .filter(PackagingPrepItem.is_active == True)  # noqa: E712
@@ -37,16 +45,18 @@ def _job_seq_map(db: Session) -> dict:
     seq_map, next_seq = {}, 1
     for job_code, _id in rows:
         key = (job_code or "").strip()
-        if key not in seq_map:
-            seq_map[key] = next_seq
-            next_seq += 1
+        if not key or key in seq_map:
+            continue
+        seq_map[key] = next_seq
+        next_seq += 1
     return seq_map
 
 
 def serialize(x: PackagingPrepItem, seq_map: dict) -> dict:
+    key = (x.job_code or "").strip()
     return {
         "id": x.id,
-        "seq": seq_map.get((x.job_code or "").strip()),
+        "seq": seq_map.get(key) if key else None,
         "job_code": x.job_code or "",
         "job_name": x.job_name or "",
         "item_name": x.item_name or "",
@@ -57,6 +67,11 @@ def serialize(x: PackagingPrepItem, seq_map: dict) -> dict:
         "cost": float(x.cost) if x.cost is not None else None,
         "sell_price": float(x.sell_price) if x.sell_price is not None else None,
     }
+
+
+def _has_any_content(p: PackagingPrepPayload) -> bool:
+    return any((p.job_code or "").strip() or (p.job_name or "").strip()
+               or (p.item_name or "").strip() or (p.spec or "").strip())
 
 
 @router.get("")
@@ -83,7 +98,9 @@ def list_packaging_prep(
     if jc:
         query = query.filter(PackagingPrepItem.job_code.ilike(jc))
     rows = query.order_by(PackagingPrepItem.id.asc()).limit(limit).all()
-    rows = sorted(rows, key=lambda x: (seq_map.get((x.job_code or "").strip()) or 0, x.id))
+    # rows with no job_code (seq None) sort after every grouped job, in
+    # their original entry order, instead of jumbling in at position 0
+    rows = sorted(rows, key=lambda x: (seq_map.get((x.job_code or "").strip()) or 10**9, x.id))
     return [serialize(x, seq_map) for x in rows]
 
 
@@ -114,12 +131,11 @@ def create_packaging_prep(
     db: Session = Depends(get_db),
     user=Depends(require_roles("ADMIN", "PURCHASE")),
 ):
-    if not (p.job_code or "").strip():
-        raise HTTPException(400, "กรอกรหัสงานก่อน")
-    if not (p.job_name or "").strip():
-        raise HTTPException(400, "กรอกชื่องานก่อน")
+    if not _has_any_content(p):
+        raise HTTPException(400, "กรอกข้อมูลอย่างน้อยหนึ่งช่อง (รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / สเปค)")
     x = PackagingPrepItem(
-        job_code=p.job_code.strip(), job_name=p.job_name.strip(),
+        job_code=(p.job_code or "").strip() or None,
+        job_name=(p.job_name or "").strip() or None,
         item_name=p.item_name, spec=p.spec, supplier=p.supplier,
         quantity=p.quantity, unit=p.unit, cost=p.cost, sell_price=p.sell_price,
         created_by=user.id,
@@ -138,12 +154,10 @@ def update_packaging_prep(
     x = db.get(PackagingPrepItem, item_id)
     if not x or not x.is_active:
         raise HTTPException(404, "Packaging prep item not found")
-    if not (p.job_code or "").strip():
-        raise HTTPException(400, "กรอกรหัสงานก่อน")
-    if not (p.job_name or "").strip():
-        raise HTTPException(400, "กรอกชื่องานก่อน")
-    x.job_code = p.job_code.strip()
-    x.job_name = p.job_name.strip()
+    if not _has_any_content(p):
+        raise HTTPException(400, "กรอกข้อมูลอย่างน้อยหนึ่งช่อง (รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / สเปค)")
+    x.job_code = (p.job_code or "").strip() or None
+    x.job_name = (p.job_name or "").strip() or None
     x.item_name = p.item_name
     x.spec = p.spec
     x.supplier = p.supplier
@@ -167,3 +181,50 @@ def delete_packaging_prep(
     x.is_active = False
     db.commit()
     return {"ok": True}
+
+
+def import_packaging_prep_seed(db: Session) -> str:
+    """One-time, idempotent import of the user's real "เตรียมระบบ" tracking
+    spreadsheet (app/static/packaging_prep_seed.json, extracted from the
+    workbook the user uploaded) into the real packaging_prep_items table.
+
+    Matches existing rows by (job_code, item_name, spec, source_row) so
+    re-running on every server start never creates duplicates and never
+    touches a row an operator has since edited by hand. job_code/หน่วย/
+    ราคาขาย are exactly as blank in the source as they were in the sheet —
+    they were never recorded there, ready for PURCHASE to fill in.
+    """
+    if not SEED_FILE.exists():
+        return f"import skipped: file not found at {SEED_FILE}"
+    try:
+        rows = json.loads(SEED_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        return f"import skipped: cannot read seed file: {type(e).__name__}: {e}"
+
+    existing = {
+        (x.job_code or "", x.item_name or "", x.spec or "", x.source_row)
+        for x in db.query(PackagingPrepItem).all()
+    }
+
+    inserted = 0
+    for row in rows or []:
+        key = (row.get("job_code") or "", row.get("item_name") or "",
+               row.get("spec") or "", row.get("source_row"))
+        if key in existing:
+            continue
+        existing.add(key)
+        db.add(PackagingPrepItem(
+            job_code=(row.get("job_code") or "").strip() or None,
+            job_name=(row.get("job_name") or "").strip() or None,
+            item_name=row.get("item_name"),
+            spec=row.get("spec"),
+            supplier=row.get("supplier"),
+            quantity=row.get("quantity"),
+            unit=row.get("unit"),
+            cost=row.get("cost"),
+            sell_price=row.get("sell_price"),
+            source_row=row.get("source_row"),
+        ))
+        inserted += 1
+    db.commit()
+    return f"import complete: {inserted} inserted, {len(rows or []) - inserted} already existed"

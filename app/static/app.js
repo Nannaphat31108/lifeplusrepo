@@ -1116,14 +1116,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.50",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.51",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.50",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.51",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -1925,11 +1925,10 @@ function closePackagingPrepEditor(){
 }
 async function savePackagingPrepItem(){
   const val=id=>document.getElementById(id)?.value?.trim()||"";
-  const job_code=val("pp_job_code"), job_name=val("pp_job_name");
-  if(!job_code){toast("กรอกรหัสงานก่อน");return;}
-  if(!job_name){toast("กรอกชื่องานก่อน");return;}
+  const job_code=val("pp_job_code"), job_name=val("pp_job_name"), item_name=val("pp_item_name"), spec=val("pp_spec");
+  if(!job_code && !job_name && !item_name && !spec){toast("กรอกข้อมูลอย่างน้อยหนึ่งช่อง (รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / สเปค)");return;}
   const payload={
-    job_code, job_name,
+    job_code:job_code||null, job_name:job_name||null,
     item_name:val("pp_item_name")||null,
     spec:val("pp_spec")||null,
     supplier:val("pp_supplier")||null,
