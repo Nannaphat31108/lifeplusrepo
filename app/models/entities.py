@@ -345,11 +345,16 @@ class PackagingPrepItem(Base, TimestampMixin):
     app/api/packaging_prep.py based on each job_code's first-created row, so
     it stays stable and gap-free no matter what gets added, edited, or
     deleted later.
+
+    job_code/job_name are nullable: the real historical "เตรียมระบบ" tracking
+    sheet this table was seeded from has plenty of older rows with no
+    recorded job grouping at all (loose packaging-item entries, not tied to
+    any ลำดับ/ชื่องาน) -- forcing a value here would mean inventing one.
     """
     __tablename__ = "packaging_prep_items"
     id: Mapped[int] = mapped_column(primary_key=True)
-    job_code: Mapped[str] = mapped_column(String(120), index=True)     # รหัสงาน
-    job_name: Mapped[str] = mapped_column(String(500))                  # ชื่องาน
+    job_code: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)  # รหัสงาน
+    job_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)                # ชื่องาน
     item_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # บรรจุภัณฑ์
     spec: Mapped[Optional[str]] = mapped_column(Text, nullable=True)    # สเปค
     supplier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # ซัพพลายเออร์
@@ -357,6 +362,7 @@ class PackagingPrepItem(Base, TimestampMixin):
     unit: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)       # หน่วย
     cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 2), nullable=True)      # ราคา (ต้นทุน)
     sell_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 2), nullable=True)  # ราคาขาย (กรอกเอง)
+    source_row: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # แถวในไฟล์ Excel ต้นฉบับ (ถ้านำเข้ามา)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 

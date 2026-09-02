@@ -1,3 +1,35 @@
+## v31.51 — seed เตรียมระบบ with the user's real data; job_code/job_name now optional
+
+Follow-up to v31.50: the user asked to load their actual "เตรียมระบบ"
+tracking spreadsheet (the one all this started from) into the new PURCHASE
+feature, not leave it empty.
+
+- Extracted all 336 real packaging-prep rows from the original uploaded
+  workbook (merge-aware: continuation rows under a merged ลำดับ/ชื่องาน
+  cell inherit their group's value) into
+  `app/static/packaging_prep_seed.json`, and added an idempotent
+  `import_packaging_prep_seed()` (same match-by-key-and-skip pattern as
+  `import_package_catalog`) run at startup — safe to redeploy repeatedly,
+  never duplicates or overwrites an operator's hand edits.
+- **Discovered mid-import that job_code was too strict**: 178 of the 336
+  real rows have no recorded ลำดับ/ชื่องาน grouping at all (older, looser
+  entries in the source sheet) — the previous schema required job_code and
+  job_name as NOT NULL, which would have meant inventing job codes that
+  don't exist. Made both nullable in `PackagingPrepItem`, relaxed the API/
+  UI validation to just "at least one of job_code / job_name / item_name /
+  spec must be filled in", and `_job_seq_map` now leaves ลำดับ blank for
+  rows with no job_code instead of grouping them under a fake `""` key.
+  Rows *with* a real ลำดับ from the sheet import using that number as their
+  job_code (e.g. `"1"`, `"7"`) as a placeholder — PURCHASE can still
+  overwrite it with a real job code once one exists.
+- Added a startup schema-migration (`ensure_packaging_prep_schema`,
+  Postgres `ALTER COLUMN ... DROP NOT NULL` / SQLite table-recreate) since
+  v31.50 had already gone out with the stricter NOT NULL schema.
+- Verified: fresh-DB import (336 inserted) then a second startup against
+  the same DB (0 inserted, 336 already existed) to confirm idempotency;
+  real-browser (Playwright) load of the seeded page — all 336 rows render,
+  search/filter works, zero JS/console errors.
+
 ## v31.50 — new PURCHASE feature: "เตรียมระบบ" packaging prep list per job
 
 New master-data page under PURCHASE (`app/api/packaging_prep.py`, new

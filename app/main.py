@@ -170,6 +170,80 @@ def ensure_packaging_database():
 ensure_packaging_database()
 
 
+def ensure_packaging_prep_schema():
+    """Make packaging_prep_items.job_code/job_name nullable and ensure
+    source_row exists, for a database created by an earlier deploy of this
+    feature (job_code/job_name were originally NOT NULL) -- real historical
+    "เตรียมระบบ" rows include plenty with no recorded job grouping at all,
+    so forcing a value there would mean inventing one. No-op if the table
+    doesn't exist yet (create_all above will have just created it with the
+    current, already-nullable model)."""
+    from sqlalchemy import text
+    from app.db.session import engine
+
+    try:
+        with engine.begin() as conn:
+            dialect = conn.dialect.name
+            if dialect == "postgresql":
+                exists = conn.execute(text(
+                    "SELECT 1 FROM information_schema.tables WHERE table_name='packaging_prep_items'"
+                )).fetchone()
+                if exists:
+                    conn.execute(text("ALTER TABLE packaging_prep_items ALTER COLUMN job_code DROP NOT NULL"))
+                    conn.execute(text("ALTER TABLE packaging_prep_items ALTER COLUMN job_name DROP NOT NULL"))
+                    conn.execute(text("ALTER TABLE packaging_prep_items ADD COLUMN IF NOT EXISTS source_row INTEGER"))
+                print("[PACKAGING PREP SCHEMA] PostgreSQL job_code/job_name nullable, source_row ensured")
+            elif dialect == "sqlite":
+                tables = conn.execute(text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='packaging_prep_items'"
+                )).fetchall()
+                if tables:
+                    cols = conn.execute(text("PRAGMA table_info(packaging_prep_items)")).fetchall()
+                    # PRAGMA table_info row shape: (cid, name, type, notnull, dflt_value, pk)
+                    job_code_notnull = any(c[1] == "job_code" and c[3] for c in cols)
+                    has_source_row = any(c[1] == "source_row" for c in cols)
+                    if job_code_notnull or not has_source_row:
+                        # SQLite can't drop a NOT NULL constraint in place --
+                        # recreate the table from the current (nullable) ORM
+                        # schema and copy over whatever columns both share.
+                        old_cols = [c[1] for c in cols]
+                        conn.execute(text("ALTER TABLE packaging_prep_items RENAME TO packaging_prep_items_old"))
+                        from app.models.entities import PackagingPrepItem
+                        PackagingPrepItem.__table__.create(conn)
+                        new_cols = {c.name for c in PackagingPrepItem.__table__.columns}
+                        shared = [c for c in old_cols if c in new_cols]
+                        cols_sql = ", ".join(shared)
+                        conn.execute(text(
+                            f"INSERT INTO packaging_prep_items ({cols_sql}) "
+                            f"SELECT {cols_sql} FROM packaging_prep_items_old"
+                        ))
+                        conn.execute(text("DROP TABLE packaging_prep_items_old"))
+                print("[PACKAGING PREP SCHEMA] SQLite job_code/job_name nullable, source_row ensured")
+            else:
+                print(f"[PACKAGING PREP SCHEMA] No migration needed for {dialect}")
+    except Exception as e:
+        print(f"[PACKAGING PREP SCHEMA] Warning: {type(e).__name__}: {e}")
+
+ensure_packaging_prep_schema()
+
+
+def ensure_packaging_prep_database():
+    from app.db.session import SessionLocal
+    from app.api.packaging_prep import import_packaging_prep_seed
+
+    db = SessionLocal()
+    try:
+        result = import_packaging_prep_seed(db)
+        print(f"[PACKAGING PREP STARTUP] {result}")
+    except Exception as e:
+        db.rollback()
+        print(f"[PACKAGING PREP STARTUP] Warning: {type(e).__name__}: {e}")
+    finally:
+        db.close()
+
+ensure_packaging_prep_database()
+
+
 def normalize_existing_fda_material_codes():
     """Convert legacy database codes such as A001 to canonical A0001."""
     from app.db.session import SessionLocal
