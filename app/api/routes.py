@@ -14,9 +14,10 @@ from app.api.ai_formula import router as ai_formula_router
 from app.api.fda_materials import router as fda_materials_router
 from app.api.packaging import router as packaging_router
 from app.api.packaging_prep import router as packaging_prep_router
+from app.api.packaging_options import router as packaging_options_router
 from app.api.work_handoff import router as work_handoff_router
 from app.api.purchase_docs import router as purchase_docs_router
 
 router=APIRouter()
-for r in [auth_router,master_router,formula_router,workflow_router,dashboard_router,ui_router,final_ui_router,export_excel_router,original_forms_router,source_forms_router,form_workspace_router,ai_formula_router,fda_materials_router,packaging_router,packaging_prep_router,work_handoff_router,purchase_docs_router]:
+for r in [auth_router,master_router,formula_router,workflow_router,dashboard_router,ui_router,final_ui_router,export_excel_router,original_forms_router,source_forms_router,form_workspace_router,ai_formula_router,fda_materials_router,packaging_router,packaging_prep_router,packaging_options_router,work_handoff_router,purchase_docs_router]:
     router.include_router(r)

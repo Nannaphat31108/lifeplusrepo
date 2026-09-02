@@ -367,6 +367,42 @@ class PackagingPrepItem(Base, TimestampMixin):
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
+class PackagingOption(Base, TimestampMixin):
+    """Packaging option catalog (PURCHASE dept), one row per supplier/spec
+    combination, grouped by `category` (สติ๊กเกอร์ / ซองอลูมิเนียม /
+    ม้วนอลูมิเนียม / กล่อง / ...). A separate table from PackagingItem
+    (Package Database) and PackagingPrepItem (เตรียมระบบ) per the user's
+    explicit request for "another database" — this one's source workbook
+    keeps a distinct sheet per packaging type, each with its own set of
+    optional sub-columns (pack_qty/purpose only on some categories, rate/
+    packing/yield_qty only on others), so most fields here are nullable
+    and only meaningful for certain categories.
+
+    `sample_job` (ตัวอย่างงาน) is deliberately the LAST field a form/table
+    should show — it's just a reference note (which job this pricing
+    example came from), not the option's identity — per the user's request
+    to move it to the end.
+    """
+    __tablename__ = "packaging_options"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category: Mapped[str] = mapped_column(String(120), index=True)
+    item_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)   # บรรจุภัณฑ์
+    pack_qty: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)    # จำนวนการบรรจุ
+    purpose: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)     # สำหรับ (เช่น แคปซูล/ซอง)
+    spec: Mapped[Optional[str]] = mapped_column(Text, nullable=True)               # สเปค
+    supplier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)    # ซัพพลายเออร์
+    quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 2), nullable=True)  # จำนวน
+    rate: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)        # เรท
+    cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 2), nullable=True)      # ราคา
+    lead_time: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)   # ระยะเวลา
+    packing: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)     # การบรรจุ
+    yield_qty: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)   # จำนวนซองที่เดินได้
+    sample_job: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # ตัวอย่างงาน (แสดงเป็นช่องสุดท้าย)
+    source_row: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id: Mapped[int] = mapped_column(primary_key=True)
