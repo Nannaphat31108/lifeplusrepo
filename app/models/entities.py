@@ -335,6 +335,32 @@ class PackagingItem(Base, TimestampMixin):
     image_mime: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
 
 
+class PackagingPrepItem(Base, TimestampMixin):
+    """เตรียมระบบ — packaging prep list per production job (PURCHASE dept).
+
+    One row per packaging line item needed for a job; several rows can share
+    the same job_code/job_name (mirrors the merged ลำดับ/ชื่องาน cells the
+    source spreadsheet used to group a job's packaging lines together).
+    `seq` (ลำดับ) is NOT stored — it's assigned at read time in
+    app/api/packaging_prep.py based on each job_code's first-created row, so
+    it stays stable and gap-free no matter what gets added, edited, or
+    deleted later.
+    """
+    __tablename__ = "packaging_prep_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_code: Mapped[str] = mapped_column(String(120), index=True)     # รหัสงาน
+    job_name: Mapped[str] = mapped_column(String(500))                  # ชื่องาน
+    item_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # บรรจุภัณฑ์
+    spec: Mapped[Optional[str]] = mapped_column(Text, nullable=True)    # สเปค
+    supplier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # ซัพพลายเออร์
+    quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 2), nullable=True)  # จำนวน
+    unit: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)       # หน่วย
+    cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 2), nullable=True)      # ราคา (ต้นทุน)
+    sell_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 2), nullable=True)  # ราคาขาย (กรอกเอง)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id: Mapped[int] = mapped_column(primary_key=True)
