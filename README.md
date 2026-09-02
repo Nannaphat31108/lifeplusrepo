@@ -1,3 +1,42 @@
+## v31.52 — new PURCHASE database: บรรจุภัณฑ์ตามประเภท (packaging options catalog)
+
+Third database the user has now asked for under PURCHASE, explicitly "อีก
+database นึง" (another, separate one) from both Package Database and
+เตรียมระบบ — seeded from a new uploaded workbook with one sheet per
+packaging category (สติ๊กเกอร์ / ซองอลูมิเนียม / ม้วนอลูมิเนียม / กล่อง),
+each with its own slightly different sub-columns.
+
+- New `PackagingOption` table (`app/api/packaging_options.py`,
+  `/api/packaging-options`) + dashboard card "บรรจุภัณฑ์ตามประเภท" in
+  PURCHASE. Most fields nullable since only some categories use them
+  (pack_qty/purpose only on ซองอลูมิเนียม/กล่อง; rate/packing/yield_qty
+  only on ม้วนอลูมิเนียม) — the table/edit-form column set adapts per
+  selected category tab instead of showing a wall of blank cells.
+  `sample_job` (ตัวอย่างงาน) is always rendered **last**, per the user's
+  explicit request to move it there — it's the sheet's "example job this
+  price came from" reference, not part of the option's identity.
+- Seeded at startup from `app/static/packaging_options_seed.json` (154
+  rows across the 4 categories, merge-aware extraction like the เตรียมระบบ
+  seed), via the same idempotent match-and-skip `import_*_seed` pattern
+  used for the other two catalogs.
+- **"เลือกใช้งาน" (select for use)**, the other half of the request: a
+  panel above the table where you fill in ใช้สำหรับงาน (job name) +
+  จำนวนที่ต้องการ (quantity needed) + หน่วย, then click "เลือกใช้งาน" on
+  whichever catalog row matches (the existing search box + category tabs
+  already do the "bring up matching ones to choose from" part) — this
+  calls `POST /api/packaging-options/{id}/use`, which files a new
+  เตรียมระบบ (`PackagingPrepItem`) row: job_name/quantity/unit from what
+  you typed, item_name/spec/supplier/cost copied straight from the catalog
+  option. Ties the two features together instead of leaving them as
+  disconnected lists.
+- Verified: curl round-trip (list/categories/create/update/delete, the
+  `/use` endpoint filing correctly into เตรียมระบบ with the *requested*
+  quantity rather than the catalog's own pricing-tier quantity, 400/401 on
+  bad input), then a full real-browser (Playwright) pass — opened the
+  card, switched category tabs (columns correctly adapt), ran the
+  เลือกใช้งาน flow through the real form and confirmed the created row
+  showed up in เตรียมระบบ, zero JS/console errors throughout.
+
 ## v31.51 — seed เตรียมระบบ with the user's real data; job_code/job_name now optional
 
 Follow-up to v31.50: the user asked to load their actual "เตรียมระบบ"

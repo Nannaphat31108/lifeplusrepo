@@ -244,6 +244,23 @@ def ensure_packaging_prep_database():
 ensure_packaging_prep_database()
 
 
+def ensure_packaging_options_database():
+    from app.db.session import SessionLocal
+    from app.api.packaging_options import import_packaging_options_seed
+
+    db = SessionLocal()
+    try:
+        result = import_packaging_options_seed(db)
+        print(f"[PACKAGING OPTIONS STARTUP] {result}")
+    except Exception as e:
+        db.rollback()
+        print(f"[PACKAGING OPTIONS STARTUP] Warning: {type(e).__name__}: {e}")
+    finally:
+        db.close()
+
+ensure_packaging_options_database()
+
+
 def normalize_existing_fda_material_codes():
     """Convert legacy database codes such as A001 to canonical A0001."""
     from app.db.session import SessionLocal
