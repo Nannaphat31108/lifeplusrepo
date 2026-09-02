@@ -1,3 +1,37 @@
+## v31.50 — new PURCHASE feature: "เตรียมระบบ" packaging prep list per job
+
+New master-data page under PURCHASE (`app/api/packaging_prep.py`, new
+`PackagingPrepItem` table), reachable from a new dashboard card next to
+Package Database / FDA Database. Started life as a one-off Excel edit for
+a user's own tracking spreadsheet (add "รหัสงาน" after "ลำดับ", "หน่วย"
+after "จำนวน", "ราคาขาย" at the end) — the user then asked for the same
+thing as a real feature in the app, in PURCHASE.
+
+- Columns: ลำดับ, รหัสงาน (job_code), ชื่องาน (job_name), บรรจุภัณฑ์
+  (item_name), สเปค, Supplier, จำนวน, หน่วย, ราคา (cost), ราคาขาย
+  (sell_price — plain manual entry, not auto-computed like Package
+  Database's cost+20% markup, since that's what was asked for).
+- Several rows can share one job_code/job_name — mirrors the source
+  spreadsheet's merged ลำดับ/ชื่องาน cells grouping a job's packaging
+  lines together. "ลำดับ" is intentionally **not** a stored column: it's
+  assigned at read time (`_job_seq_map` in packaging_prep.py) from each
+  job_code's first-created row, so it's always gap-free and never needs
+  renumbering when rows are added/edited/deleted in any order.
+- Reused the existing "Package Database" page pattern verbatim (same
+  self-contained render/filter/editor/save/delete shape, same
+  `.fda-editor` CSS, ADMIN/PURCHASE-gated writes via `require_roles`,
+  soft delete via `is_active`) rather than inventing a new one.
+- Added a job_code `<datalist>` in the add/edit form (from a new
+  `/api/packaging-prep/jobs` endpoint) that auto-fills ชื่องาน when you
+  pick an existing job, so a job's later packaging lines don't require
+  retyping its name.
+- Verified live: real endpoint round-trip via curl (create/list/update/
+  delete, seq numbering across two job groups, 400 on blank job_code, 401
+  unauthenticated), then a full real-browser (Playwright) pass through
+  the actual UI — opened PURCHASE → เตรียมระบบ card, filled and saved a
+  row through the real form, confirmed it round-tripped into the table
+  with zero JS/console errors.
+
 ## v31.49 — form field sizing pass (+ a real PO/PR layout bug found along the way)
 
 Went through every exact form (F-RD-001/002/002.1/003/004, ADMIN-QP/

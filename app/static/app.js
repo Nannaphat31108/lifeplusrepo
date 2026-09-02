@@ -1116,14 +1116,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.49",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.50",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.49",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.50",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -1820,6 +1820,141 @@ async function deletePackageItem(id){
     window.packageCatalogData=null;
     await loadExactAssets();
     renderPackageDatabase(window.packageCatalogData||[]);
+  }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
+}
+
+// เตรียมระบบ (packaging prep per job) — PURCHASE dept. Same self-contained
+// page pattern as Package Database above: several rows can share one
+// job_code/job_name (มันคือแถวย่อยของงานเดียวกัน เหมือนที่ต้นฉบับ Excel
+// เคยผสานเซลล์ ลำดับ/ชื่องาน ไว้), and "ลำดับ" is numbered by the server
+// per distinct job_code rather than stored, so it never needs renumbering.
+window.packagingPrepData=null;
+window.packagingPrepJobs=[];
+let packagingPrepEditingId=null;
+async function openPackagingPrepPage(){
+  packagingPrepEditingId=null;
+  const canManage=["ADMIN","PURCHASE"].includes(me?.role);
+  $("pageTitle").textContent="เตรียมระบบ — บรรจุภัณฑ์ต่องาน";
+  $("pageSubtitle").textContent="รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / สเปค / Supplier / จำนวน / หน่วย / ราคา / ราคาขาย";
+  $("pageContent").innerHTML=`<div class="card">
+    <div class="toolbar">
+      <input id="packagingPrepSearch" class="search" placeholder="พิมพ์ค้นหา รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / Supplier..." oninput="filterPackagingPrep()">
+      <span id="packagingPrepCount"></span>
+      ${canManage?'<button class="primary" onclick="openPackagingPrepEditor()">+ เพิ่มรายการ</button>':""}
+    </div>
+    <div id="packagingPrepEditor"></div>
+    <div id="packagingPrepTable">กำลังโหลด...</div>
+  </div>`;
+  await loadPackagingPrep();
+}
+async function loadPackagingPrep(){
+  try{
+    window.packagingPrepData=await api("/api/packaging-prep");
+    window.packagingPrepJobs=await api("/api/packaging-prep/jobs");
+  }catch(e){
+    window.packagingPrepData=[];
+    toast("โหลดข้อมูลไม่สำเร็จ: "+(e?.message||e));
+  }
+  renderPackagingPrepTable(window.packagingPrepData||[]);
+}
+function renderPackagingPrepTable(rows){
+  const canManage=["ADMIN","PURCHASE"].includes(me?.role);
+  const countEl=document.getElementById("packagingPrepCount");
+  if(countEl)countEl.textContent=`${rows.length} รายการ`;
+  const out=(rows||[]).map(x=>`<tr>
+    <td>${x.seq??""}</td>
+    <td>${esc(x.job_code||"")}</td>
+    <td>${esc(x.job_name||"")}</td>
+    <td>${esc(x.item_name||"")}</td>
+    <td>${esc(x.spec||"")}</td>
+    <td>${esc(x.supplier||"")}</td>
+    <td>${x.quantity??""}</td>
+    <td>${esc(x.unit||"")}</td>
+    <td>${money(x.cost)}</td>
+    <td>${money(x.sell_price)}</td>
+    ${canManage?`<td class="mini-actions"><button onclick="openPackagingPrepEditor(${x.id})">แก้ไข</button><button onclick="deletePackagingPrepItem(${x.id})">ลบ</button></td>`:""}
+  </tr>`);
+  const headers=["ลำดับ","รหัสงาน","ชื่องาน","บรรจุภัณฑ์","สเปค","Supplier","จำนวน","หน่วย","ราคา","ราคาขาย"];
+  if(canManage)headers.push("จัดการ");
+  const box=document.getElementById("packagingPrepTable");
+  if(box)box.innerHTML=table(headers,out);
+}
+function filterPackagingPrep(){
+  const q=String(document.getElementById("packagingPrepSearch")?.value||"").trim().toLowerCase();
+  const rows=(window.packagingPrepData||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
+  renderPackagingPrepTable(rows);
+}
+function openPackagingPrepEditor(id=null){
+  packagingPrepEditingId=id;
+  const d=id?((window.packagingPrepData||[]).find(x=>x.id===id)||{}):{};
+  const box=document.getElementById("packagingPrepEditor");
+  if(!box)return;
+  const jobOptions=(window.packagingPrepJobs||[]).map(j=>`<option value="${esc(j.job_code||"")}">`).join("");
+  box.innerHTML=`
+    <div class="fda-editor">
+      <div class="fda-editor-title">${id?"แก้ไขรายการ":"เพิ่มรายการใหม่"}</div>
+      <div class="fda-editor-grid">
+        <div class="fda-field"><label>รหัสงาน</label><input id="pp_job_code" list="pp_job_code_list" value="${esc(d.job_code||"")}" oninput="fillPackagingPrepJobName()"><datalist id="pp_job_code_list">${jobOptions}</datalist></div>
+        <div class="fda-field"><label>ชื่องาน</label><input id="pp_job_name" value="${esc(d.job_name||"")}"></div>
+        <div class="fda-field"><label>บรรจุภัณฑ์</label><input id="pp_item_name" value="${esc(d.item_name||"")}"></div>
+        <div class="fda-field"><label>สเปค</label><input id="pp_spec" value="${esc(d.spec||"")}"></div>
+        <div class="fda-field"><label>Supplier</label><input id="pp_supplier" value="${esc(d.supplier||"")}"></div>
+        <div class="fda-field"><label>จำนวน</label><input id="pp_quantity" type="number" step="0.01" value="${esc(d.quantity??"")}"></div>
+        <div class="fda-field"><label>หน่วย</label><input id="pp_unit" value="${esc(d.unit||"")}"></div>
+        <div class="fda-field"><label>ราคา (ต้นทุน)</label><input id="pp_cost" type="number" step="0.01" value="${esc(d.cost??"")}"></div>
+        <div class="fda-field"><label>ราคาขาย</label><input id="pp_sell_price" type="number" step="0.01" value="${esc(d.sell_price??"")}"></div>
+      </div>
+      <div class="actions">
+        <button class="primary" onclick="savePackagingPrepItem()">บันทึก</button>
+        <button onclick="closePackagingPrepEditor()">ยกเลิก</button>
+      </div>
+    </div>`;
+  document.getElementById("pp_job_code")?.focus();
+}
+function fillPackagingPrepJobName(){
+  const code=String(document.getElementById("pp_job_code")?.value||"").trim();
+  const nameField=document.getElementById("pp_job_name");
+  if(!nameField || nameField.value.trim())return; // don't clobber a name the user already typed
+  const job=(window.packagingPrepJobs||[]).find(j=>String(j.job_code||"").trim()===code);
+  if(job)nameField.value=job.job_name||"";
+}
+function closePackagingPrepEditor(){
+  packagingPrepEditingId=null;
+  const box=document.getElementById("packagingPrepEditor");
+  if(box)box.innerHTML="";
+}
+async function savePackagingPrepItem(){
+  const val=id=>document.getElementById(id)?.value?.trim()||"";
+  const job_code=val("pp_job_code"), job_name=val("pp_job_name");
+  if(!job_code){toast("กรอกรหัสงานก่อน");return;}
+  if(!job_name){toast("กรอกชื่องานก่อน");return;}
+  const payload={
+    job_code, job_name,
+    item_name:val("pp_item_name")||null,
+    spec:val("pp_spec")||null,
+    supplier:val("pp_supplier")||null,
+    quantity:val("pp_quantity")?Number(val("pp_quantity")):null,
+    unit:val("pp_unit")||null,
+    cost:val("pp_cost")?Number(val("pp_cost")):null,
+    sell_price:val("pp_sell_price")?Number(val("pp_sell_price")):null,
+  };
+  try{
+    if(packagingPrepEditingId){
+      await api(`/api/packaging-prep/${packagingPrepEditingId}`,{method:"PUT",body:payload});
+    }else{
+      await api("/api/packaging-prep",{method:"POST",body:payload});
+    }
+    toast("บันทึกสำเร็จ");
+    closePackagingPrepEditor();
+    await loadPackagingPrep();
+  }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+async function deletePackagingPrepItem(id){
+  if(!confirm("ลบรายการนี้?"))return;
+  try{
+    await api(`/api/packaging-prep/${id}`,{method:"DELETE"});
+    toast("ลบสำเร็จ");
+    await loadPackagingPrep();
   }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
 }
 
@@ -3155,7 +3290,7 @@ async function openDepartmentWorkspace(code){
  ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Job Description","ฟอร์ม JL ต้นฉบับ • สูตร บรรจุภัณฑ์ ผู้รับผิดชอบออกแบบ/อย.","openExactForm('ADMIN-JOB')"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
  PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
  STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"],["ใบขอซื้อ (PR)","ขอซื้อวัตถุดิบจากจัดซื้อ","listPurchaseDocs('PR')"]]},
- PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"],["ใบสั่งซื้อ (PO)","ส่งให้ผู้จำหน่ายภายนอก","listPurchaseDocs('PO')"],["ใบขอซื้อ (PR)","ที่คลังส่งเข้ามา","listPurchaseDocs('PR')"]]},
+ PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["เตรียมระบบ (บรรจุภัณฑ์ต่องาน)","รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / จำนวน / หน่วย / ราคา / ราคาขาย","openPackagingPrepPage()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"],["ใบสั่งซื้อ (PO)","ส่งให้ผู้จำหน่ายภายนอก","listPurchaseDocs('PO')"],["ใบขอซื้อ (PR)","ที่คลังส่งเข้ามา","listPurchaseDocs('PR')"]]},
  PRODUCTION:{title:"PRODUCTION",text:"สูตรผลิตและคำสั่งผลิต",cards:[["สูตรผลิต","F-RD-002.1","openExactForm('F-RD-002.1')"],["Production / MRP","คำสั่งผลิต","openPage('production')"]]},
  QUALITY:{title:"QUALITY",text:"ระบบคุณภาพ เอกสาร และการขึ้นทะเบียน",cards:[["Registration / FDA","สูตรขึ้นทะเบียน","openPage('registration')"],["Quality Data","ให้ใส่ Data สำหรับ QUALITY","openDepartmentPlaceholder('QUALITY')"]]},
  QC:{title:"QC",text:"ตรวจสอบคุณภาพสินค้า",cards:[["QC Data","ให้ใส่ Data สำหรับ QC","openDepartmentPlaceholder('QC')"]]},
