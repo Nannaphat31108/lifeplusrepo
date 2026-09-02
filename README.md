@@ -1,3 +1,64 @@
+## v31.53 — new ADMIN databases: ต้นทุน/ราคาขาย อุปกรณ์เสริม + ค่าแรง (Rate Card)
+
+First upload targeting ADMIN rather than PURCHASE, and the broadest ask
+yet: "เพิ่ม database นี้ไปใน admin และเพิ่มระบบทุกอย่างทุกฟังก์ชันทุกฟีเจอร์
+ที่ควรมี" (add this database to admin, and add every system/function/
+feature that should exist). The uploaded workbook turned out to hold two
+unrelated things, so it became two features:
+
+- **ต้นทุน/ราคาขาย อุปกรณ์เสริม** (`AdminPricingRow`, `/api/admin-pricing/
+  rows`) — accessory packaging supplies (shrink film, silica gel, foil
+  caps, PVC blister sheets, ...). The source sheet grouped several rows
+  under one ลำดับ, but NOT with a clean shared-header/variant split: two
+  spec-variants of the same shrink film share one selling price, while
+  four cut sizes of "แผง PVC" grouped under the same ลำดับ each have their
+  *own* distinct selling-price tiers. Modeling that as item-header +
+  variant-rows would need fragile inheritance rules with real
+  counterexamples in the data, so every row was denormalized at import
+  time instead: each carries its own resolved item_name and its own
+  sell_tiers_json, fully independent and editable with no cross-row
+  inheritance to reason about. `section` distinguishes the two stacked
+  tables the sheet had (no titles given for either); group_no (ลำดับ) is
+  only unique within a section.
+  **Tried adding an automatic margin/profit % per sell tier, then killed
+  it before shipping**: cost turned out to be priced per a different unit
+  than the sell price for a chunk of these rows (e.g. cost 1520 THB for
+  "1-20 ม้วน" -- per *roll* -- against a sell price per *piece* a roll is
+  later cut into, ~7,400 of them per the row's own notes), so
+  `(price-cost)/cost` came out as a nonsense **-99.9% "loss"** on a row
+  that's actually profitable. Nothing in the data says which rows share a
+  unit and which don't, and a number that's right some of the time and
+  wildly wrong other times is worse than showing none -- so cost and
+  sell-price tiers are shown side by side as-is, no computed margin.
+- **ค่าแรง (Rate Card)** (`AdminLaborRate`, `/api/admin-pricing/labor-
+  rates`) — labor/packing fee per box, by ประเภท (แคปซูล/ตอกเม็ด/ชงดื่ม/
+  .../ลิควิด) x จำนวนการบรรจุ x order-quantity tier. The source sheet was
+  a **blank template** (every rate cell empty) -- imported as pure
+  structure (62 product_type/fill_count rows, 8 shared quantity tiers)
+  ready to fill in, not invented numbers. Rendered as an inline-editable
+  grid (each cell autosaves on change, merged into the row's tiers_json
+  rather than replacing it, so editing one cell never wipes the others)
+  plus a "ค้นหาเรท" tool: pick ประเภท + จำนวนการบรรจุ, type an order
+  quantity, and it parses the tier labels' numeric bounds to find and
+  show the matching rate automatically -- reliable here specifically
+  because these tier labels *are* well-formed numeric ranges, unlike
+  อุปกรณ์เสริม's free-text purchasing-quantity breaks.
+- **Caught and fixed two real quote-escaping bugs during Playwright
+  verification** (not in earlier manual review): an inline `onclick`
+  built via `insertAdjacentHTML` with a hand-escaped HTML-string-inside-a-
+  JS-string-inside-an-HTML-attribute broke the moment the browser's
+  attribute parser hit the nested quotes -- replaced with a real named
+  function using DOM methods (`addAdminPricingTierRow`). Separately, an
+  `onchange="saveAdminLaborCell(id, ${JSON.stringify(tierLabel)}, ...)"`
+  broke identically whenever `JSON.stringify` produced a double-quoted
+  string (which is always) landing inside a double-quoted HTML attribute
+  -- replaced with `data-id`/`data-tier` attributes read back in a
+  wrapper function. The same mistake also existed in the section-tab
+  buttons (`JSON.stringify("")` for the "ทั้งหมด" tab specifically breaks
+  the attribute). Both classes of bug are exactly why every new page in
+  this pass got a real headless-Chromium pass, not just a curl check of
+  the API -- jsdom or an API-only check would never have caught either.
+
 ## v31.52 — new PURCHASE database: บรรจุภัณฑ์ตามประเภท (packaging options catalog)
 
 Third database the user has now asked for under PURCHASE, explicitly "อีก

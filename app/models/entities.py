@@ -403,6 +403,60 @@ class PackagingOption(Base, TimestampMixin):
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
+class AdminPricingRow(Base, TimestampMixin):
+    """ต้นทุน/ราคาขาย อุปกรณ์เสริม (ADMIN dept) — accessory packaging supplies
+    (shrink film, silica gel, foil caps, PVC blister sheets, ...), each row
+    a self-contained pricing entry: its own cost/spec/supplier AND its own
+    selling-price tiers. The source workbook groups several rows under one
+    ลำดับ (e.g. two supplier-spec variants of the same shrink film, priced
+    the same to the customer; or four cut sizes of PVC sheet, each priced
+    differently) — rather than model that as a fragile shared/inherited
+    reference, every row was denormalized at import time to carry its own
+    resolved item_name/sell_tiers_json, so each is independently editable
+    with no cross-row inheritance to reason about.
+
+    `section` distinguishes the two stacked tables the source sheet had (no
+    titles given for either) — group_no (ลำดับ) is only unique *within* a
+    section, never globally, so it's always paired with section for display
+    grouping.
+    """
+    __tablename__ = "admin_pricing_rows"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    section: Mapped[int] = mapped_column(Integer, default=1)
+    group_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)   # ลำดับ (unique per section only)
+    item_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # รายการ
+    sell_tiers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)   # [{label, price}, ...]
+    spec: Mapped[Optional[str]] = mapped_column(Text, nullable=True)              # ต้นทุน(สเปค)
+    quantity_range: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)  # จำนวน (ช่วงต้นทุน)
+    cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 4), nullable=True)     # ราคาต้นทุน
+    supplier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)             # หมายเหตุ
+    source_row: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
+class AdminLaborRate(Base, TimestampMixin):
+    """ค่าแรง (labor / packing-fee rate card, ADMIN dept): เรทต่อกล่อง by
+    ประเภท (product form: แคปซูล/ตอกเม็ด/ชงดื่ม/...) x จำนวนการบรรจุ (fill
+    count per unit) x order-quantity tier. The source sheet was a blank
+    template (every rate cell empty) -- imported as-is so the row/column
+    structure exists ready to fill in, rather than inventing numbers.
+    Rates for the shared, fixed set of quantity tiers (see
+    app.api.admin_pricing.LABOR_RATE_TIERS) live together in `tiers_json`
+    as {tier_label: rate_or_null} so adding/renaming a tier never needs a
+    schema migration.
+    """
+    __tablename__ = "admin_labor_rates"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    product_type: Mapped[str] = mapped_column(String(120), index=True)   # ประเภท
+    fill_count: Mapped[str] = mapped_column(String(120))                 # จำนวนการบรรจุ
+    tiers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # {tier_label: rate}
+    source_row: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id: Mapped[int] = mapped_column(primary_key=True)
