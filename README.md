@@ -1,3 +1,61 @@
+## v31.54 — split PR reference field + cross-reference lookup; logo everywhere
+
+Three-part request from screenshots of the PR form and the F-RD-002 record
+list: split a combined reference field and link its data, make formulas
+and "job results" reachable via a click, and put the logo on every
+document's header.
+
+- **Split PR's "อ้างอิงสูตร/ผลิตภัณฑ์" into two real fields**: เลขที่ใบสั่งผลิต/
+  เลขที่สูตร + ชื่อผลิตภัณฑ์, both in the header and (already two separate
+  columns, just never linked) per row. Typing/selecting the reference
+  number now auto-fills the product name via a new shared lookup that
+  tries, in order: (1) `/api/source-forms/formula-link/{ref}` — matches
+  either an F-RD-002 formula_no or an F-RD-002/F-RD-002.1 record_no
+  (extended from F-RD-002-only, since a "production order number" in
+  practice usually names the สูตรผลิต record, not the base recipe), then
+  (2) the real MRP `ProductionOrder` list by production_order_no (now
+  also returns `product_name`, resolved server-side through
+  production_formula → formula_revision → formula → project). Old saved
+  records keep their combined value readable as the reference number (no
+  data lost), just not automatically split into two.
+- **"ดู" (view) button** next to the reference field, using the same
+  lookup: a formula match opens a **read-only** summary modal (record no,
+  customer, product, active/inactive ingredients) rather than navigating
+  into the actual record — `GET /record/{id}` stays ownership-gated
+  (404s for anyone but the record's own creator) by design, since a PR
+  is routinely created by a different department than the formula it
+  references; a production-order match opens the existing MRP modal
+  (`showMRP`). `formula_link_for_qp`'s response now also carries `id`/
+  `record_no` to support this, additively (existing callers unaffected).
+- **Logo on every document header** — turned out to be two different
+  gaps, not one:
+  - *On-screen web editor*: none of the exact forms or PO/PR pages ever
+    showed a logo, even though most of the real Excel masters already
+    have one baked in as a floating image (F-RD-002/002.1/003/004,
+    ADMIN-QP/INVOICE all confirmed via direct zip inspection) — the
+    on-screen renderer only ever draws *cell values*, so a floating
+    image was invisible there regardless. Added a `.doc-logo-header`
+    banner above the grid/card on every exact form and PO/PR page.
+  - *Exported .xlsx*: F-RD-001 and ADMIN-JOB's master templates have
+    **zero** embedded media (also confirmed directly) — genuinely no logo
+    in the real exported document, unlike every other form. PO/PR are
+    generated from scratch (no master template) and never had one either.
+    Fixed by inserting the logo image via `ws.add_image()` at export time
+    for exactly these four (`_add_logo_if_missing` / `_add_logo_if_present`),
+    left everything else untouched since it already has its own.
+  - Verified a plain `openpyxl.load_workbook(...).save(...)` round-trip
+    preserves an existing master's embedded images/drawing anchors
+    correctly (all 3 images + drawing.xml survived on F-RD-002) before
+    concluding those forms needed no server-side change — didn't assume.
+- Verified: curl checks (formula-link now finds F-RD-002.1 records and
+  returns id; production-orders includes product_name; all four Excel
+  exports confirmed to contain the logo via direct zip/openpyxl
+  inspection, others confirmed unaffected), then a real-browser
+  (Playwright) pass — opened F-RD-002.1 (logo banner visible), opened the
+  PR form, typed a reference number and watched both the header and a
+  row's product name field auto-fill, opened the ดู modal and confirmed
+  its content, zero JS/console errors throughout.
+
 ## v31.53 — new ADMIN databases: ต้นทุน/ราคาขาย อุปกรณ์เสริม + ค่าแรง (Rate Card)
 
 First upload targeting ADMIN rather than PURCHASE, and the broadest ask

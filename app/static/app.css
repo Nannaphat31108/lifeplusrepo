@@ -218,6 +218,14 @@ pre.json{white-space:pre-wrap;background:#0b1220;color:#d1fae5;padding:14px;bord
 .fda-editor{border:1px solid #d0d5dd;border-radius:10px;padding:14px;margin:12px 0;background:#f8fafc}
 .fda-editor-title{font-weight:800;font-size:16px;margin-bottom:10px}
 .packaging-option-use-panel{background:#eff6ff;border-color:#93c5fd}
+/* Sits above the exact-form grid / PO/PR card, never inside it -- both are
+   byte-perfect cell replicas or programmatically-built sheets, and this
+   banner is purely a web-view header, independent of what the exported
+   .xlsx itself carries (most master templates already have their own
+   logo baked in as a floating image; this is for the on-screen editor,
+   which only renders cell values and never showed that image). */
+.doc-logo-header{padding:10px 0 4px;text-align:right}
+.doc-logo-header img{height:40px;width:auto}
 .admin-labor-lookup-panel{background:#eff6ff;border-color:#93c5fd}
 .admin-labor-lookup-result{margin-top:10px;font-size:14px}
 .admin-labor-lookup-hit{color:var(--success,#067647);font-weight:700}

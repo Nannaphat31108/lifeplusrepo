@@ -672,6 +672,7 @@ async function openPurchaseDocForm(docType,existingId=null){
           <button class="primary" onclick="savePurchaseDoc('PO')">บันทึก</button>
         </div>
       </div>
+      <div class="doc-logo-header"><img src="/static/logo.png" alt="Life Plus Pharmaceutical"></div>
       <div class="card purchase-doc-grid">
         <div class="form-grid">
           <div><label>เลขที่</label><input id="po_no" value="${esc(existing?.doc_no||"")}" placeholder="PO2026080111"></div>
@@ -724,7 +725,7 @@ async function openPurchaseDocForm(docType,existingId=null){
       <td>${purchaseDocCell(r,1,'data-sub="description" placeholder="รายละเอียด"',it.description)}</td>
       <td>${purchaseDocCell(r,2,'data-sub="quantity" type="number" step="any"',it.quantity)}</td>
       <td>${purchaseDocCell(r,3,'data-sub="unit" placeholder="Kg"',it.unit)}</td>
-      <td>${purchaseDocCell(r,4,'data-sub="production_order_no" list="prProductionOrderList" placeholder="เลขที่ใบสั่งผลิต"',it.production_order_no)}</td>
+      <td>${purchaseDocCell(r,4,'data-sub="production_order_no" list="prProductionOrderList" placeholder="เลขที่ใบสั่งผลิต" onchange="linkPurchaseDocRowReference(this)"',it.production_order_no)}</td>
       <td>${purchaseDocCell(r,5,'data-sub="product_name" placeholder="ชื่อผลิตภัณฑ์/แผนก"',it.product_name)}</td>
       <td>${purchaseDocCell(r,6,'data-sub="po_no" placeholder="เลขที่ PO"',it.po_no)}</td>
       <td>${purchaseDocCell(r,7,'data-sub="note" placeholder="หมายเหตุ"',it.note)}</td>
@@ -740,6 +741,7 @@ async function openPurchaseDocForm(docType,existingId=null){
         <button class="primary" onclick="savePurchaseDoc('PR')">บันทึก</button>
       </div>
     </div>
+    <div class="doc-logo-header"><img src="/static/logo.png" alt="Life Plus Pharmaceutical"></div>
     <div class="card purchase-doc-grid">
       <div class="form-grid">
         <div><label>เลขที่แบบฟอร์ม</label><input id="pr_form_no" value="${esc(d.form_no||"F-PU-001-01")}"></div>
@@ -749,7 +751,14 @@ async function openPurchaseDocForm(docType,existingId=null){
         <div><label>เวลา</label><input id="pr_time" type="time" value="${esc(d.time||"")}"></div>
         <div><label>เตรียมโดย</label><input id="pr_prepared_by" value="${esc(d.prepared_by||"")}"></div>
         <div><label>อนุมัติโดย</label><input id="pr_approved_by" value="${esc(d.approved_by||"")}"></div>
-        <div class="wide"><label>อ้างอิงสูตร/ผลิตภัณฑ์</label><input id="pr_product_ref" value="${esc(d.product_ref||"")}" placeholder="P-C69-082#2 VITAOX PLUS ..."></div>
+        <div>
+          <label>เลขที่ใบสั่งผลิต/เลขที่สูตร</label>
+          <div class="qp-exact-link">
+            <input id="pr_ref_no" list="prProductionOrderList" value="${esc(d.ref_no||d.product_ref||"")}" placeholder="P-C6802 หรือ PO2026080111" onchange="linkPurchaseDocReference(this,'pr_ref_product')">
+            <button type="button" onclick="viewPurchaseDocReference('pr_ref_no')">ดู</button>
+          </div>
+        </div>
+        <div><label>ชื่อผลิตภัณฑ์</label><input id="pr_ref_product" value="${esc(d.ref_product||"")}" placeholder="เติมอัตโนมัติเมื่อพบข้อมูลที่ตรงกัน"></div>
       </div>
       <datalist id="prMaterialList">${materialOptions}</datalist>
       <datalist id="prProductionOrderList">${poOptions}</datalist>
@@ -789,6 +798,60 @@ function linkPurchaseDocMaterial(inp){
   const row=inp.dataset.row;
   const descEl=document.querySelector(`.purchase-doc-grid [data-row="${row}"][data-sub="description"]`);
   if(descEl && !descEl.value)descEl.value=m.name||"";
+}
+
+// "เลขที่ใบสั่งผลิต" reference lookup, shared by the PR form's header ref
+// field and each row's production_order_no cell. Tries two sources since
+// this number colloquially means either a real MRP ProductionOrder
+// (PO2026080111-style) or an F-RD-002/F-RD-002.1 formula record (P-C6802,
+// F-RD-002-001-style) depending on who's filling the form in -- checking
+// both makes the auto-fill/ดู button work regardless of convention.
+async function lookupPurchaseDocReference(refValue){
+  const ref=(refValue||"").trim();
+  if(!ref)return null;
+  try{
+    const linked=await api(`/api/source-forms/formula-link/${encodeURIComponent(ref)}`);
+    return {source:"formula",product_name:linked.product_name||"",customer_name:linked.customer_name||"",data:linked};
+  }catch(e){/* not a known formula/production-formula record -- fall through */}
+  const po=(window.productionOrderCache||[]).find(x=>String(x.production_order_no||"").toUpperCase()===ref.toUpperCase());
+  if(po)return {source:"production_order",product_name:po.product_name||"",id:po.id};
+  return null;
+}
+async function linkPurchaseDocReference(inp,productFieldId){
+  const productEl=document.getElementById(productFieldId);
+  if(!productEl || productEl.value.trim())return; // don't clobber a name already typed in
+  const found=await lookupPurchaseDocReference(inp.value);
+  if(found)productEl.value=found.product_name||"";
+}
+async function linkPurchaseDocRowReference(inp){
+  const row=inp.dataset.row;
+  const productEl=document.querySelector(`.purchase-doc-grid [data-row="${row}"][data-sub="product_name"]`);
+  if(!productEl || productEl.value.trim())return;
+  const found=await lookupPurchaseDocReference(inp.value);
+  if(found)productEl.value=found.product_name||"";
+}
+async function viewPurchaseDocReference(inputId){
+  const ref=document.getElementById(inputId)?.value||"";
+  if(!ref.trim()){toast("กรอกเลขที่อ้างอิงก่อน");return;}
+  let found;
+  try{found=await lookupPurchaseDocReference(ref);}
+  catch(e){toast("ค้นหาไม่สำเร็จ: "+(e?.message||e));return;}
+  if(!found){toast("ไม่พบข้อมูลอ้างอิงนี้ในระบบ (ไม่ตรงกับสูตร F-RD-002/002.1 หรือใบสั่งผลิตใดๆ)");return;}
+  if(found.source==="production_order"){showMRP(found.id);return;}
+  const d=found.data||{};
+  const ingRow=x=>`<tr><td>${esc(x.name)}</td><td>${x.quantity_mg??"-"}</td><td>${esc(x.origin||"-")}</td></tr>`;
+  const active=(d.ingredients||[]).map(ingRow).join("")||`<tr><td colspan="3" class="muted">-</td></tr>`;
+  const inactive=(d.inactive_ingredients||[]).map(ingRow).join("");
+  openModal(`สูตรอ้างอิง — ${esc(d.formula_no||d.record_no||ref)}`,`
+    <div class="info-grid">
+      <div><small>เลขที่รายการ</small><b>${esc(d.record_no||"-")}</b></div>
+      <div><small>ลูกค้า</small><b>${esc(d.customer_name||"-")}</b></div>
+      <div><small>ชื่อผลิตภัณฑ์</small><b>${esc(d.product_name||"-")}</b></div>
+    </div>
+    <h3>วัตถุดิบหลัก (Active)</h3>
+    ${table(["ชื่อ","จำนวน (mg)","แหล่งที่มา"],[active])}
+    ${inactive?`<h3>วัตถุดิบรอง (Inactive)</h3>${table(["ชื่อ","จำนวน (mg)","แหล่งที่มา"],[inactive])}`:""}
+  `);
 }
 
 function recalcPurchaseDocTotals(){
@@ -851,7 +914,11 @@ async function savePurchaseDoc(docType){
         form_no:$("pr_form_no")?.value||"", revision_no:$("pr_revision_no")?.value||"",
         date:$("pr_date")?.value||"", time:$("pr_time")?.value||"",
         prepared_by:$("pr_prepared_by")?.value||"", approved_by:$("pr_approved_by")?.value||"",
-        product_ref:$("pr_product_ref")?.value||"",
+        ref_no:$("pr_ref_no")?.value||"", ref_product:$("pr_ref_product")?.value||"",
+        // product_ref kept as a combined string too, purely so the Excel
+        // exporter and any old code path that still reads it never breaks;
+        // the two split fields above are the source of truth going forward.
+        product_ref:[$("pr_ref_no")?.value,$("pr_ref_product")?.value].filter(Boolean).join(" "),
         items:collectPurchaseDocItems(["material_code","description","quantity","unit","production_order_no","product_name","po_no","note","received_date"])
       };
       for(const key of ["requester","warehouse_officer","purchasing_officer","reviewer","warehouse_manager"]){
@@ -1116,14 +1183,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.53",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.54",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.53",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.54",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -2582,6 +2649,8 @@ async function openPrivateExactForm(code){
         <button class="primary" onclick="saveExactForm('${code}')">บันทึก</button>
       </div>
     </div>
+
+    <div class="doc-logo-header"><img src="/static/logo.png" alt="Life Plus Pharmaceutical"></div>
 
     ${isQPLikeForm(code)?`<div class="exact-form-tabs">
       <button class="exact-tab-btn active" data-tab="main" onclick="switchExactFormTab('main')">แบบฟอร์ม</button>

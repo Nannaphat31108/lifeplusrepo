@@ -17,6 +17,26 @@ from app.models.entities import SourceFormRecord, Customer, SupplementAlias, Rec
 
 router=APIRouter(prefix="/api/source-forms",tags=["Source Forms"])
 ROOT=Path(__file__).resolve().parents[2]/"original_forms"
+LOGO_PATH=Path(__file__).resolve().parents[1]/"static"/"logo.png"
+
+def _add_logo_if_missing(ws, anchor: str, width: int = 170, height: int = 73) -> None:
+    """Insert the company logo at `anchor` for templates that never had one
+    baked in -- F-RD-001_TEMPLATE.xlsx and ADMIN-JOB_MASTER.xlsx both have
+    zero embedded media (checked directly against the real files), unlike
+    every other exact-form master, which already carries its own logo as a
+    floating image that survives a plain openpyxl load+save round-trip
+    (verified separately). Never raises: a missing/corrupt logo file should
+    never break the export it's decorating.
+    """
+    if not LOGO_PATH.exists():
+        return
+    try:
+        from openpyxl.drawing.image import Image as XLImage
+        img = XLImage(str(LOGO_PATH))
+        img.width, img.height = width, height
+        ws.add_image(img, anchor)
+    except Exception:
+        pass
 
 class FormSave(BaseModel):
     record_no:str
@@ -187,9 +207,16 @@ def formula_link_for_qp(
     # shared internal references, so ADMIN must be able to resolve a formula
     # created by R&D regardless of who owns the underlying record. Only the
     # slim quotation-safe fields below are returned.
+    #
+    # Includes F-RD-002.1 (สูตรผลิต / production formula) alongside F-RD-002
+    # (the base recipe) -- fill_formula() already fills both from the same
+    # data shape (formula_no/customer_name/product_name/ingredients), so this
+    # also serves the PR form's "เลขที่ใบสั่งผลิต" reference lookup, which in
+    # practice usually names a production-formula record rather than the
+    # base recipe.
     rows = db.scalars(
         select(SourceFormRecord)
-        .where(SourceFormRecord.form_code == "F-RD-002")
+        .where(SourceFormRecord.form_code.in_(["F-RD-002", "F-RD-002.1"]))
         .order_by(SourceFormRecord.id.desc())
     ).all()
 
@@ -216,6 +243,12 @@ def formula_link_for_qp(
             return out
 
         return {
+            # id/record_no: purely so a caller (e.g. the PR form's "ดู"
+            # reference button) can show which record this resolved to --
+            # NOT an invitation to fetch /record/{id} directly, which stays
+            # ownership-gated (404s for anyone but the record's own creator).
+            "id": rec.id,
+            "record_no": rec.record_no,
             "formula_no": data.get("formula_no") or formula_no,
             "customer_name": data.get("customer_name") or "",
             "product_name": data.get("product_name") or data.get("formula_name") or "",
@@ -223,7 +256,7 @@ def formula_link_for_qp(
             "inactive_ingredients": slim(data.get("inactive_ingredients"), 7),
         }
 
-    raise HTTPException(404, "ไม่พบรหัสสูตรนี้ในไฟล์สูตร F-RD-002")
+    raise HTTPException(404, "ไม่พบรหัสสูตรนี้ในไฟล์สูตร F-RD-002 / F-RD-002.1")
 
 @router.get("/{code}")
 def list_records(
@@ -1349,6 +1382,7 @@ def export_record(
 
             if x.form_code=="F-RD-001":
                 fill_001(ws,d)
+                _add_logo_if_missing(ws,"AK1")
             elif x.form_code=="F-RD-002":
                 fill_formula(ws,d,False)
             elif x.form_code=="F-RD-002.1":
@@ -1359,6 +1393,7 @@ def export_record(
                 fill_004(ws,d)
             elif x.form_code=="ADMIN-JOB":
                 fill_admin_job(ws,d)
+                _add_logo_if_missing(ws,"AO1")
             else:
                 raise HTTPException(400,"Unsupported form")
 
