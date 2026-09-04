@@ -2,6 +2,7 @@ import json
 import re
 from datetime import date
 from io import BytesIO
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -21,6 +22,23 @@ from app.models.entities import PurchaseDocument, RecordVersion
 router = APIRouter(prefix="/api/purchase-docs", tags=["Purchase Documents"])
 
 DOC_TYPES = {"PO", "PR"}
+LOGO_PATH = Path(__file__).resolve().parents[1] / "static" / "logo.png"
+
+
+def _add_logo_if_present(ws, anchor: str, width: int = 170, height: int = 73) -> None:
+    """PO/PR workbooks are built from scratch (no master template), so
+    unlike the other exact-form exports they never had a logo to begin
+    with. Never raises: a missing/corrupt logo file should never break
+    the document it's decorating."""
+    if not LOGO_PATH.exists():
+        return
+    try:
+        from openpyxl.drawing.image import Image as XLImage
+        img = XLImage(str(LOGO_PATH))
+        img.width, img.height = width, height
+        ws.add_image(img, anchor)
+    except Exception:
+        pass
 
 
 def _check_doc_type(doc_type: str) -> str:
@@ -276,6 +294,8 @@ def _build_po_workbook(doc_no: str, data: dict) -> Workbook:
     ws.merge_cells("A1:F1")
     ws["A1"] = "ใบสั่งซื้อ (Purchase Order)"
     ws["A1"].font = _TITLE_FONT
+    ws.row_dimensions[1].height = 56
+    _add_logo_if_present(ws, "G1")
 
     r = 3
     _label_value(ws, r, 1, "เลขที่", doc_no); r += 1
@@ -352,6 +372,8 @@ def _build_pr_workbook(doc_no: str, data: dict) -> Workbook:
     ws.merge_cells("A1:J1")
     ws["A1"] = "ใบขอซื้อ (Purchase Request)"
     ws["A1"].font = _TITLE_FONT
+    ws.row_dimensions[1].height = 56
+    _add_logo_if_present(ws, "K1")
 
     r = 3
     _label_value(ws, r, 1, "เลขที่แบบฟอร์ม", data.get("form_no")); r += 1
@@ -361,7 +383,11 @@ def _build_pr_workbook(doc_no: str, data: dict) -> Workbook:
     _label_value(ws, r, 1, "เวลา", data.get("time")); r += 1
     _label_value(ws, r, 1, "เตรียมโดย", data.get("prepared_by")); r += 1
     _label_value(ws, r, 1, "อนุมัติโดย", data.get("approved_by")); r += 1
-    _label_value(ws, r, 1, "อ้างอิงสูตร/ผลิตภัณฑ์", data.get("product_ref")); r += 1
+    # ref_no/ref_product are the split fields the PR form now collects
+    # (was a single combined "อ้างอิงสูตร/ผลิตภัณฑ์" field); product_ref is
+    # kept only as a fallback for records saved before the split.
+    _label_value(ws, r, 1, "เลขที่ใบสั่งผลิต/เลขที่สูตร", data.get("ref_no") or data.get("product_ref")); r += 1
+    _label_value(ws, r, 1, "ชื่อผลิตภัณฑ์", data.get("ref_product")); r += 1
 
     r += 1
     headers = ["ลำดับ", "รหัสสินค้า", "รายละเอียด", "จำนวน", "หน่วย", "เลขที่ใบสั่งผลิต",

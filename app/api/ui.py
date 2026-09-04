@@ -156,7 +156,35 @@ def production_formulas(db: Session = Depends(get_db), u=Depends(get_current_use
 
 @router.get("/production-orders")
 def production_orders(db: Session = Depends(get_db), u=Depends(get_current_user)):
-    return db.scalars(select(ProductionOrder).order_by(ProductionOrder.id.desc())).all()
+    rows = db.scalars(select(ProductionOrder).order_by(ProductionOrder.id.desc())).all()
+    out = []
+    for o in rows:
+        # Resolve the product name through production_formula -> formula_revision
+        # -> formula -> project, purely so callers (e.g. the PR form's
+        # "เลขที่ใบสั่งผลิต" -> "ชื่อผลิตภัณฑ์" auto-link) don't need a second
+        # round trip per order; never fails the whole list if one order's
+        # chain is broken.
+        product_name = None
+        try:
+            pf = db.get(ProductionFormula, o.production_formula_id)
+            rev = db.get(FormulaRevision, pf.source_formula_revision_id) if pf else None
+            formula = db.get(Formula, rev.formula_id) if rev else None
+            project = db.get(ProductProject, formula.project_id) if formula else None
+            product_name = project.product_name if project else None
+        except Exception:
+            product_name = None
+        out.append({
+            "id": o.id,
+            "production_order_no": o.production_order_no,
+            "product_name": product_name,
+            "ordered_quantity": o.ordered_quantity,
+            "planned_quantity": o.planned_quantity,
+            "waste_percent": o.waste_percent,
+            "unit_name": o.unit_name,
+            "status": o.status,
+            "planning_status": o.planning_status,
+        })
+    return out
 
 
 @router.get("/registration-formulas")
