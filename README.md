@@ -1,3 +1,52 @@
+## v31.55 — Stock Card วัตถุดิบ (STOCK dept), per-lot ledger with "ตัดสตอค"
+
+First of a multi-part request (three uploaded workbooks + two screenshots
+of a "STOCK CARD วัตถุดิบ" spreadsheet): add the per-lot raw-material stock
+card, let users insert extra lot rows since one material code routinely
+carries many lots, and let them cut stock themselves via a button instead
+of editing a wide day-by-day grid.
+
+- New `StockCardLot` + `StockCardTransaction` tables, `/api/stock-card/*`,
+  new dashboard card "Stock Card วัตถุดิบ" under STOCK. One row per
+  (material_code, lot) — the source workbook had 13 separate lot rows
+  under material code A0001 alone — with a "+ เพิ่ม Lot" button so a new
+  lot for an existing (or new) material code is just another insert, not
+  a schema change.
+- Balance is **never** stored/edited directly — it's always
+  `opening_qty_kg + Σรับเข้า - Σเบิกออก + Σคืน` over that lot's
+  transactions, computed fresh on every read (same reasoning as
+  PackagingItem's derived selling price). Matches the source workbook's
+  own formula chain exactly (`L = K+M-N+O`, verified by reading its actual
+  cell formulas, not guessed).
+- **"ตัดสตอค" button** (the other half of the request): pick รับเข้า/
+  เบิกออก/คืน, type a quantity in **kg or g** (g auto-converts ÷1000
+  server-side), optional note, submit — the balance updates immediately.
+  Replaces the spreadsheet's ~90-column day-by-day grid with a proper
+  transaction log (a "ประวัติ" button per lot lists it, each row
+  individually deletable to correct a mistake) — closer to what was
+  actually asked for ("we key in the code, add/remove, how many kg or
+  grams, and the system cuts on its own") than replicating the wide grid
+  would have been.
+- Material code lookup (`/api/stock-card/materials/lookup`) reuses this
+  app's existing FDAMaterial master (~5000 rows already imported) to
+  auto-fill หมวด/Product name/ผู้ขาย when adding a lot — mirrors the
+  source workbook's own `=VLOOKUP(code, DATA!..., ...)` without needing
+  a separate import of its DATA sheet.
+- Two of the three uploaded workbooks turned out to be different
+  documents: the one matching the screenshots (raw-material, per lot)
+  is what this ships; a second, larger file was a *finished-goods*
+  stock card (different columns entirely — เลขที่สั่งผลิต/ชื่อลูกค้า/
+  จำนวนกล่อง, tracking production→shipment, not raw material lots) and
+  the third (.xls) turned out to be an unrelated production work-order
+  document set — confirmed by actually reading their headers rather than
+  assuming from the filenames, and left for the other two parts of this
+  request (see next entries).
+- Verified: curl (material lookup against real FDA data, gram→kg
+  conversion, balance math, validation, auth), then a real-browser
+  (Playwright) pass — added a lot through the real form with live
+  auto-fill, ran a ตัดสตอค transaction and confirmed the balance updated
+  correctly on screen, opened the history modal — zero JS/console errors.
+
 ## v31.54 — split PR reference field + cross-reference lookup; logo everywhere
 
 Three-part request from screenshots of the PR form and the F-RD-002 record

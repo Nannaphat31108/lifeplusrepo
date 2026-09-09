@@ -586,3 +586,46 @@ class FormulaAIFeedback(Base, TimestampMixin):
     suggested_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_accepted: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     reviewer_comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class StockCardLot(Base, TimestampMixin):
+    """Stock Card วัตถุดิบ (STOCK dept) — one row per (material_code, lot),
+    since a material code routinely has many lots on hand at once (matches
+    the source "STOCK CARD วัตถุดิบ" workbook, which listed 13 separate lot
+    rows under material code A0001 alone). `opening_qty_kg` is this lot's
+    starting balance; the running balance is always computed live from
+    `opening_qty_kg` plus its StockCardTransaction history (never stored/
+    cached), so it can never drift out of sync -- same reasoning as
+    PackagingItem's derived selling price.
+    """
+    __tablename__ = "stock_card_lots"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    material_code: Mapped[str] = mapped_column(String(80), index=True)          # รหัสวัตถุดิบ
+    supplier_category: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)  # หมวด Supplier
+    lot_no: Mapped[str] = mapped_column(String(80))                              # Lot.
+    product_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    supplier_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # ผู้ขาย
+    price: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 4), nullable=True)   # ราคา
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)            # หมายเหตุ
+    analysis_no: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)  # เลขวิเคราะห์
+    received_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)   # วันที่รับเข้า
+    expiry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)     # วันหมดอายุ
+    opening_qty_kg: Mapped[Decimal] = mapped_column(Numeric(16, 4), default=0)   # ยกมา
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
+class StockCardTransaction(Base, TimestampMixin):
+    """One daily movement against a StockCardLot -- รับเข้า (IN) / เบิกออก
+    (OUT) / คืน (RETURN), always stored in kg regardless of what unit the
+    "ตัดสตอค" button was filled in with. The lot's running balance is the
+    sum of these plus its opening_qty_kg, computed at read time."""
+    __tablename__ = "stock_card_transactions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lot_id: Mapped[int] = mapped_column(ForeignKey("stock_card_lots.id"), index=True)
+    tx_type: Mapped[str] = mapped_column(String(10))  # IN | OUT | RETURN
+    quantity_kg: Mapped[Decimal] = mapped_column(Numeric(16, 4))
+    tx_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
