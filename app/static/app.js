@@ -1183,14 +1183,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.54",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.55",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.54",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.55",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -2508,6 +2508,229 @@ function computeAdminLaborLookup(){
   box.innerHTML=rate!=null
     ? `<div class="admin-labor-lookup-hit">ช่วง <b>${esc(matchLabel)}</b> → เรท <b>${money(rate)}</b> ต่อกล่อง</div>`
     : `<div class="muted">ช่วง <b>${esc(matchLabel)}</b> ตรงกัน แต่ยังไม่ได้กรอกเรทไว้</div>`;
+}
+
+// Stock Card วัตถุดิบ (STOCK dept) -- one row per (material_code, lot),
+// since a material code routinely has many lots on hand at once (the
+// source workbook listed 13 separate lots under material code A0001
+// alone). Balance is always computed server-side from opening_qty_kg +
+// transaction history, never edited directly -- "ตัดสตอค" only ever adds
+// a transaction row.
+window.stockCardData=[];
+let stockCardLotEditingId=null;
+let stockCardMonthFilter=currentYearMonth();
+async function openStockCardPage(){
+  stockCardLotEditingId=null;
+  const canManage=["ADMIN","STOCK"].includes(me?.role);
+  $("pageTitle").textContent="Stock Card วัตถุดิบ";
+  $("pageSubtitle").textContent="ต่อ Lot ตามรหัสวัตถุดิบ • ยกมา + รับเข้า/เบิกออก/คืน = คงเหลือ (คำนวณอัตโนมัติ)";
+  $("pageContent").innerHTML=`<div class="card">
+    <div class="toolbar">
+      <input id="stockCardSearch" class="search" placeholder="พิมพ์ค้นหา รหัสวัตถุดิบ / Lot / Product name / ผู้ขาย..." oninput="loadStockCard()">
+      <input id="stockCardMonth" type="month" value="${esc(stockCardMonthFilter)}" title="เดือนที่ดูสรุปรับเข้า/เบิกออก/คืน" onchange="stockCardMonthFilter=this.value;loadStockCard()">
+      <span id="stockCardCount"></span>
+      ${canManage?'<button class="primary" onclick="openStockCardLotEditor()">+ เพิ่ม Lot</button>':""}
+    </div>
+    <div id="stockCardEditor"></div>
+    <div id="stockCardTable">กำลังโหลด...</div>
+  </div>`;
+  await loadStockCard();
+}
+let stockCardSearchTimer=null;
+function loadStockCard(){
+  clearTimeout(stockCardSearchTimer);
+  stockCardSearchTimer=setTimeout(fetchStockCard,250);
+}
+async function fetchStockCard(){
+  const q=document.getElementById("stockCardSearch")?.value||"";
+  const month=stockCardMonthFilter||"";
+  try{
+    window.stockCardData=await api(`/api/stock-card/lots?q=${encodeURIComponent(q)}&month=${encodeURIComponent(month)}`);
+  }catch(e){
+    window.stockCardData=[];
+    toast("โหลดข้อมูลไม่สำเร็จ: "+(e?.message||e));
+  }
+  renderStockCardTable(window.stockCardData||[]);
+}
+function renderStockCardTable(rows){
+  const canManage=["ADMIN","STOCK"].includes(me?.role);
+  const countEl=document.getElementById("stockCardCount");
+  if(countEl)countEl.textContent=`${rows.length} Lot`;
+  const out=rows.map(x=>`<tr>
+    <td><b>${esc(x.material_code)}</b></td>
+    <td>${esc(x.supplier_category)}</td>
+    <td>${esc(x.lot_no)}</td>
+    <td>${esc(x.product_name)}</td>
+    <td>${esc(x.supplier_name)}</td>
+    <td>${x.price!=null?money(x.price):"-"}</td>
+    <td>${esc(x.analysis_no)}</td>
+    <td>${esc(x.received_date||"")}</td>
+    <td>${esc(x.expiry_date||"")}</td>
+    <td>${x.opening_qty_kg}</td>
+    <td class="${Number(x.balance_kg)<0?'diff-red':''}"><b>${x.balance_kg}</b></td>
+    <td>${x.month_in_kg!=null?`<div>รับ ${x.month_in_kg}</div><div>เบิก ${x.month_out_kg}</div><div>คืน ${x.month_return_kg}</div>`:"-"}</td>
+    <td>${esc(x.notes)}</td>
+    <td class="mini-actions">
+      ${canManage?`<button class="primary" onclick="openStockCardTxModal(${x.id})">ตัดสตอค</button>`:""}
+      <button onclick="openStockCardHistoryModal(${x.id})">ประวัติ</button>
+      ${canManage?`<button onclick="openStockCardLotEditor(${x.id})">แก้ไข</button><button onclick="deleteStockCardLot(${x.id})">ลบ</button>`:""}
+    </td>
+  </tr>`);
+  const headers=["รหัสวัตถุดิบ","หมวด","Lot","Product name","ผู้ขาย","ราคา","เลขวิเคราะห์","วันที่รับเข้า","วันหมดอายุ","ยกมา (kg)","คงเหลือ (kg)","สรุปเดือนนี้ (kg)","หมายเหตุ","จัดการ"];
+  const box=document.getElementById("stockCardTable");
+  if(box)box.innerHTML=table(headers,out);
+}
+async function stockCardLookupMaterial(){
+  const codeEl=document.getElementById("sc_material_code");
+  const code=(codeEl?.value||"").trim();
+  if(!code)return;
+  try{
+    const m=await api(`/api/stock-card/materials/lookup?code=${encodeURIComponent(code)}`);
+    const catEl=document.getElementById("sc_supplier_category"), nameEl=document.getElementById("sc_product_name"), supEl=document.getElementById("sc_supplier_name");
+    if(catEl && !catEl.value)catEl.value=m.supplier_category||"";
+    if(nameEl && !nameEl.value)nameEl.value=m.product_name||"";
+    if(supEl && !supEl.value)supEl.value=m.supplier_name||"";
+  }catch(e){/* not found -- leave fields for manual entry, no error toast needed for a lookup miss */}
+}
+function openStockCardLotEditor(id=null){
+  stockCardLotEditingId=id;
+  const d=id?((window.stockCardData||[]).find(x=>x.id===id)||{}):{};
+  const box=document.getElementById("stockCardEditor");
+  if(!box)return;
+  box.innerHTML=`
+    <div class="fda-editor">
+      <div class="fda-editor-title">${id?"แก้ไข Lot":"เพิ่ม Lot ใหม่"}</div>
+      <div class="fda-editor-grid">
+        <div class="fda-field"><label>รหัสวัตถุดิบ</label><input id="sc_material_code" value="${esc(d.material_code||"")}" onchange="stockCardLookupMaterial()" placeholder="เช่น A0001"></div>
+        <div class="fda-field"><label>Lot.</label><input id="sc_lot_no" value="${esc(d.lot_no||"")}" placeholder="เช่น 017"></div>
+        <div class="fda-field"><label>หมวด Supplier</label><input id="sc_supplier_category" value="${esc(d.supplier_category||"")}"></div>
+        <div class="fda-field"><label>Product name</label><input id="sc_product_name" value="${esc(d.product_name||"")}"></div>
+        <div class="fda-field"><label>ผู้ขาย</label><input id="sc_supplier_name" value="${esc(d.supplier_name||"")}"></div>
+        <div class="fda-field"><label>ราคา</label><input id="sc_price" type="number" step="0.01" value="${esc(d.price??"")}"></div>
+        <div class="fda-field"><label>เลขวิเคราะห์</label><input id="sc_analysis_no" value="${esc(d.analysis_no||"")}"></div>
+        <div class="fda-field"><label>วันที่รับเข้า</label><input id="sc_received_date" type="date" value="${esc(d.received_date||"")}"></div>
+        <div class="fda-field"><label>วันหมดอายุ</label><input id="sc_expiry_date" type="date" value="${esc(d.expiry_date||"")}"></div>
+        <div class="fda-field"><label>ยกมา (kg)</label><input id="sc_opening_qty_kg" type="number" step="0.0001" value="${esc(d.opening_qty_kg??0)}"></div>
+        <div class="fda-field wide"><label>หมายเหตุ</label><input id="sc_notes" value="${esc(d.notes||"")}"></div>
+      </div>
+      <div class="actions">
+        <button class="primary" onclick="saveStockCardLot()">บันทึก</button>
+        <button onclick="closeStockCardLotEditor()">ยกเลิก</button>
+      </div>
+    </div>`;
+  document.getElementById("sc_material_code")?.focus();
+}
+function closeStockCardLotEditor(){
+  stockCardLotEditingId=null;
+  const box=document.getElementById("stockCardEditor");
+  if(box)box.innerHTML="";
+}
+async function saveStockCardLot(){
+  const val=id=>document.getElementById(id)?.value?.trim()||"";
+  const material_code=val("sc_material_code"), lot_no=val("sc_lot_no");
+  if(!material_code){toast("กรอกรหัสวัตถุดิบก่อน");return;}
+  if(!lot_no){toast("กรอกเลข Lot ก่อน");return;}
+  const payload={
+    material_code, lot_no,
+    supplier_category:val("sc_supplier_category")||null,
+    product_name:val("sc_product_name")||null,
+    supplier_name:val("sc_supplier_name")||null,
+    price:val("sc_price")?Number(val("sc_price")):null,
+    analysis_no:val("sc_analysis_no")||null,
+    received_date:val("sc_received_date")||null,
+    expiry_date:val("sc_expiry_date")||null,
+    opening_qty_kg:val("sc_opening_qty_kg")?Number(val("sc_opening_qty_kg")):0,
+    notes:val("sc_notes")||null,
+  };
+  try{
+    if(stockCardLotEditingId){
+      await api(`/api/stock-card/lots/${stockCardLotEditingId}`,{method:"PUT",body:payload});
+    }else{
+      await api("/api/stock-card/lots",{method:"POST",body:payload});
+    }
+    toast("บันทึกสำเร็จ");
+    closeStockCardLotEditor();
+    await fetchStockCard();
+  }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+async function deleteStockCardLot(id){
+  if(!confirm("ลบ Lot นี้?"))return;
+  try{
+    await api(`/api/stock-card/lots/${id}`,{method:"DELETE"});
+    toast("ลบสำเร็จ");
+    await fetchStockCard();
+  }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
+}
+
+// "ตัดสตอค" -- key in material code (shown, already fixed to this lot),
+// pick รับเข้า/เบิกออก/คืน, quantity in kg or g, submit; the server turns
+// that into one more transaction and returns the recomputed balance.
+function openStockCardTxModal(lotId){
+  const lot=(window.stockCardData||[]).find(x=>x.id===lotId);
+  if(!lot)return;
+  openModal(`ตัดสตอค — ${lot.material_code} / Lot ${lot.lot_no}`,`
+    <div class="form-grid">
+      <div class="wide"><small class="muted">${esc(lot.product_name||"")} • คงเหลือปัจจุบัน <b>${lot.balance_kg} kg</b></small></div>
+      <div>
+        <label>ประเภทรายการ</label>
+        <select id="sctx_type">
+          <option value="IN">รับเข้า (เพิ่มสตอค)</option>
+          <option value="OUT">เบิกออก (ตัดสตอค)</option>
+          <option value="RETURN">คืน</option>
+        </select>
+      </div>
+      <div><label>วันที่</label><input id="sctx_date" type="date" value="${currentDateISO()}"></div>
+      <div>
+        <label>จำนวน</label>
+        <div class="qp-exact-link">
+          <input id="sctx_qty" type="number" step="0.0001" min="0" placeholder="เช่น 500">
+          <select id="sctx_unit" style="max-width:90px"><option value="kg">kg</option><option value="g">g</option></select>
+        </div>
+      </div>
+      <div class="wide"><label>หมายเหตุ</label><input id="sctx_note" placeholder="เช่น เบิกให้ Lot ผลิต P-C6802"></div>
+      <div class="wide"><button class="primary" onclick="submitStockCardTx(${lotId})">บันทึกรายการ</button></div>
+    </div>`);
+}
+async function submitStockCardTx(lotId){
+  const qty=document.getElementById("sctx_qty")?.value||"";
+  if(!qty || Number(qty)<=0){toast("กรอกจำนวนมากกว่า 0");return;}
+  const payload={
+    tx_type:document.getElementById("sctx_type")?.value||"IN",
+    quantity:Number(qty),
+    unit:document.getElementById("sctx_unit")?.value||"kg",
+    tx_date:document.getElementById("sctx_date")?.value||currentDateISO(),
+    note:document.getElementById("sctx_note")?.value||null,
+  };
+  try{
+    await api(`/api/stock-card/lots/${lotId}/transactions`,{method:"POST",body:payload});
+    toast("ตัดสตอคสำเร็จ");
+    closeModal();
+    await fetchStockCard();
+  }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+async function openStockCardHistoryModal(lotId){
+  const lot=(window.stockCardData||[]).find(x=>x.id===lotId);
+  openModal(`ประวัติรายการ — ${lot?.material_code||""} / Lot ${lot?.lot_no||""}`,'<div id="scHistBody">กำลังโหลด...</div>');
+  try{
+    const rows=await api(`/api/stock-card/lots/${lotId}/transactions`);
+    const canManage=["ADMIN","STOCK"].includes(me?.role);
+    const typeLabel={IN:"รับเข้า",OUT:"เบิกออก",RETURN:"คืน"};
+    const trs=rows.map(t=>`<tr><td>${esc(t.tx_date)}</td><td>${esc(typeLabel[t.tx_type]||t.tx_type)}</td><td>${t.quantity_kg} kg</td><td>${esc(t.note)}</td><td class="mini-actions">${canManage?`<button onclick="deleteStockCardTx(${lotId},${t.id})">ลบ</button>`:""}</td></tr>`);
+    const box=document.getElementById("scHistBody");
+    if(box)box.innerHTML=table(["วันที่","ประเภท","จำนวน","หมายเหตุ","จัดการ"],trs);
+  }catch(e){
+    const box=document.getElementById("scHistBody");
+    if(box)box.innerHTML=`<div class="error">โหลดไม่สำเร็จ: ${esc(e?.message||e)}</div>`;
+  }
+}
+async function deleteStockCardTx(lotId,txId){
+  if(!confirm("ลบรายการนี้?"))return;
+  try{
+    await api(`/api/stock-card/transactions/${txId}`,{method:"DELETE"});
+    toast("ลบสำเร็จ");
+    await fetchStockCard();
+    openStockCardHistoryModal(lotId);
+  }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
 }
 
 function isExactFormCode(code){
@@ -3843,7 +4066,7 @@ async function openDepartmentWorkspace(code){
  SALE:{title:"SALE",text:"รับความต้องการลูกค้าและส่งต่อ R&D",cards:[["F-RD-001 Customer Requirement","รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","openExactForm('F-RD-001')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"],["Product Development","ติดตามโครงการลูกค้า","openPage('projects')"]]},
  ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Job Description","ฟอร์ม JL ต้นฉบับ • สูตร บรรจุภัณฑ์ ผู้รับผิดชอบออกแบบ/อย.","openExactForm('ADMIN-JOB')"],["ต้นทุน/ราคาขาย อุปกรณ์เสริม","ชริ้งค์ฟิล์ม/ฝาฟอยล์/PVC ฯลฯ • ต้นทุนตามสเปค + ราคาขายตามช่วงจำนวน","openAdminPricingPage()"],["ค่าแรง (Rate Card)","ประเภท/จำนวนการบรรจุ x ช่วงจำนวน • แก้ไขได้ พร้อมค้นหาเรท","openAdminLaborRatesPage()"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
  PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
- STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"],["ใบขอซื้อ (PR)","ขอซื้อวัตถุดิบจากจัดซื้อ","listPurchaseDocs('PR')"]]},
+ STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Stock Card วัตถุดิบ","ต่อ Lot ตามรหัสวัตถุดิบ • ตัดสตอครับเข้า/เบิกออก/คืน","openStockCardPage()"],["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"],["ใบขอซื้อ (PR)","ขอซื้อวัตถุดิบจากจัดซื้อ","listPurchaseDocs('PR')"]]},
  PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["เตรียมระบบ (บรรจุภัณฑ์ต่องาน)","รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / จำนวน / หน่วย / ราคา / ราคาขาย","openPackagingPrepPage()"],["บรรจุภัณฑ์ตามประเภท","สติ๊กเกอร์ / ซองอลูมิเนียม / ม้วนอลูมิเนียม / กล่อง • เลือกใช้งานส่งเข้าเตรียมระบบได้","openPackagingOptionsPage()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"],["ใบสั่งซื้อ (PO)","ส่งให้ผู้จำหน่ายภายนอก","listPurchaseDocs('PO')"],["ใบขอซื้อ (PR)","ที่คลังส่งเข้ามา","listPurchaseDocs('PR')"]]},
  PRODUCTION:{title:"PRODUCTION",text:"สูตรผลิตและคำสั่งผลิต",cards:[["สูตรผลิต","F-RD-002.1","openExactForm('F-RD-002.1')"],["Production / MRP","คำสั่งผลิต","openPage('production')"]]},
  QUALITY:{title:"QUALITY",text:"ระบบคุณภาพ เอกสาร และการขึ้นทะเบียน",cards:[["Registration / FDA","สูตรขึ้นทะเบียน","openPage('registration')"],["Quality Data","ให้ใส่ Data สำหรับ QUALITY","openDepartmentPlaceholder('QUALITY')"]]},
