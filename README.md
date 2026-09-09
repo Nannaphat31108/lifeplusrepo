@@ -1,3 +1,37 @@
+## v31.56 — new department: บัญชี (Accounting)
+
+Second part of the multi-part request: "สร้างอีกแผนกเป็นแผนกบัญชี" (create
+another department, an accounting department). Confirmed this was a real,
+needed department rather than inventing one — the production work-order
+document from the same upload (used for the next part of this request)
+already lists บัญชี as one of its distribution departments alongside
+ผลิต/QC/WH.
+
+- Added ACCOUNTING throughout: employee create/edit department+role
+  dropdowns, the department portal/sidebar, `allowedDepartments()`'s role
+  fallback map, and the workspace dashboard.
+- Starter cards give it **read** access to the documents accounting
+  routinely needs — QP/Invoice, PO/PR, Customers, Suppliers, and the two
+  ADMIN cost/rate references added earlier this session — all pages that
+  already existed, so no new backend was needed for the cards themselves.
+  Write access on each stays with its owning department (no `require_roles`
+  changed); this only adds the ability to open and read them. A real
+  write-capable Accounting feature (e.g. payment tracking) is a natural
+  follow-up once there's a concrete spec for it.
+- **Caught a second hardcoded department list while wiring this up**:
+  `app/api/work_handoff.py`'s `ALL_DEPARTMENTS` (used to both populate and
+  *validate* the "ส่งงานไปแผนกอื่น" department checkboxes) didn't know about
+  ACCOUNTING either — left as just the frontend dropdowns, Accounting
+  would have been picked in the UI but rejected server-side with every
+  cross-department handoff attempt. Fixed both together rather than
+  discovering the second one after shipping the first.
+- Verified: a real-browser (Playwright) login as a freshly-created
+  ACCOUNTING employee — single-department accounts skip the picker and go
+  straight into their workspace, which rendered all 8 cards correctly;
+  clicked through to Customers and the pricing reference page, both
+  loaded cleanly. `GET /api/work-handoffs/departments` confirmed
+  ACCOUNTING now appears in the list. Zero JS/console errors.
+
 ## v31.55 — Stock Card วัตถุดิบ (STOCK dept), per-lot ledger with "ตัดสตอค"
 
 First of a multi-part request (three uploaded workbooks + two screenshots
