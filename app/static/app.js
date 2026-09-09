@@ -971,8 +971,8 @@ async function listPurchaseDocs(docType){
   $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่/อ้างอิง..." oninput="filterRecordRows(this)"><button class="primary" onclick="openPurchaseDocForm('${docType}')">+ ${docType==="PO"?"ใบสั่งซื้อใหม่":"ใบขอซื้อใหม่"}</button></div>${table(["ID","เลขที่",docType==="PO"?"สถานะ":"สถานะ","ผู้สร้าง","อ้างอิง","บันทึกเมื่อ","จัดการ"],tr)}</div>`;
 }
 
-const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","CEO"];
-const EMPLOYEE_ROLES=["RD_HEAD","RD_ASSISTANT","RD_OFFICER","SALES","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","CEO","ADMIN"];
+const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","ACCOUNTING","CEO"];
+const EMPLOYEE_ROLES=["RD_HEAD","RD_ASSISTANT","RD_OFFICER","SALES","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","ACCOUNTING","CEO","ADMIN"];
 
 async function renderAdmin(){
  if(!["ADMIN","RD_HEAD"].includes(me.role)){throw new Error("Permission denied")}
@@ -1183,14 +1183,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.55",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.56",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.55",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.56",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -4033,6 +4033,7 @@ const DEPARTMENTS=[
  {code:"GRAPHIC",name:"GRAPHIC",desc:"งานออกแบบและบรรจุภัณฑ์"},
  {code:"QC",name:"QC",desc:"ตรวจสอบคุณภาพการผลิต"},
  {code:"QUALITY",name:"QUALITY",desc:"ระบบคุณภาพ / เอกสาร / FDA"},
+ {code:"ACCOUNTING",name:"บัญชี",desc:"เอกสารการเงิน ลูกค้า และ Supplier"},
  {code:"CEO",name:"CEO",desc:"ภาพรวมบริษัทและ AI Insights"}
 ];
 let currentDepartment=localStorage.getItem("department")||null;
@@ -4042,7 +4043,7 @@ function allowedDepartments(){
  // guess, so one real person can be created in any department regardless of role.
  if(["ADMIN","CEO"].includes(me?.role))return DEPARTMENTS.map(x=>x.code);
  if(me?.department)return [me.department];
- const roleMap={RD_HEAD:["RD"],RD_ASSISTANT:["RD"],RD_OFFICER:["RD"],SALES:["SALE"],JOB:["JOB"],PLANNING:["PLANNING"],STOCK:["STOCK"],PURCHASE:["PURCHASE"],PRODUCTION:["PRODUCTION"],GRAPHIC:["GRAPHIC"],QC:["QC"],QUALITY:["QUALITY"]};
+ const roleMap={RD_HEAD:["RD"],RD_ASSISTANT:["RD"],RD_OFFICER:["RD"],SALES:["SALE"],JOB:["JOB"],PLANNING:["PLANNING"],STOCK:["STOCK"],PURCHASE:["PURCHASE"],PRODUCTION:["PRODUCTION"],GRAPHIC:["GRAPHIC"],QC:["QC"],QUALITY:["QUALITY"],ACCOUNTING:["ACCOUNTING"]};
  return roleMap[me?.role]||[];
 }
 function renderDepartmentPortal(){
@@ -4072,7 +4073,24 @@ async function openDepartmentWorkspace(code){
  QUALITY:{title:"QUALITY",text:"ระบบคุณภาพ เอกสาร และการขึ้นทะเบียน",cards:[["Registration / FDA","สูตรขึ้นทะเบียน","openPage('registration')"],["Quality Data","ให้ใส่ Data สำหรับ QUALITY","openDepartmentPlaceholder('QUALITY')"]]},
  QC:{title:"QC",text:"ตรวจสอบคุณภาพสินค้า",cards:[["QC Data","ให้ใส่ Data สำหรับ QC","openDepartmentPlaceholder('QC')"]]},
  JOB:{title:"JOB",text:"พื้นที่จัดการงาน",cards:[["JOB Data","ให้ใส่ Data สำหรับ JOB","openDepartmentPlaceholder('JOB')"]]},
- GRAPHIC:{title:"GRAPHIC",text:"พื้นที่งานออกแบบ",cards:[["GRAPHIC Data","ให้ใส่ Data สำหรับ GRAPHIC","openDepartmentPlaceholder('GRAPHIC')"]]}
+ GRAPHIC:{title:"GRAPHIC",text:"พื้นที่งานออกแบบ",cards:[["GRAPHIC Data","ให้ใส่ Data สำหรับ GRAPHIC","openDepartmentPlaceholder('GRAPHIC')"]]},
+ // New department: บัญชี (Accounting). Starts with read access to the
+ // documents accounting routinely needs (customers/suppliers for
+ // invoicing & payables, QP/Invoice, PO/PR, and the ADMIN cost/rate
+ // references) -- all pages that already exist, so no new backend was
+ // needed here. Write access on each stays with its owning department
+ // (require_roles on those endpoints is unchanged); this only adds the
+ // ability to open and read them.
+ ACCOUNTING:{title:"บัญชี",text:"เอกสารการเงิน ลูกค้า และ Supplier",cards:[
+   ["QP / Quotation","ดูใบเสนอราคา","openExactForm('ADMIN-QP')"],
+   ["Invoice / ใบแจ้งหนี้","ดูใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],
+   ["ใบสั่งซื้อ (PO)","รายการสั่งซื้อภายนอก","listPurchaseDocs('PO')"],
+   ["ใบขอซื้อ (PR)","รายการขอซื้อจากคลัง","listPurchaseDocs('PR')"],
+   ["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"],
+   ["Suppliers","ฐาน Supplier","openPage('suppliers')"],
+   ["ต้นทุน/ราคาขาย อุปกรณ์เสริม","อ้างอิงต้นทุนบรรจุภัณฑ์","openAdminPricingPage()"],
+   ["ค่าแรง (Rate Card)","อ้างอิงเรทค่าแรง","openAdminLaborRatesPage()"],
+ ]}
  };
  const c=configs[code]||{title:code,text:"พื้นที่ทำงาน",cards:[[`${code} Data`,`ให้ใส่ Data สำหรับ ${code}`,`openDepartmentPlaceholder('${code}')`]]};
  $("pageTitle").textContent=c.title;$("pageSubtitle").textContent=c.text;$("pageContent").innerHTML=`<div class="department-workspace-grid">${c.cards.map(x=>`<button class="workspace-feature-card" onclick="${x[2]}"><b>${x[0]}</b><span>${x[1]}</span><i>→</i></button>`).join("")}</div>`;

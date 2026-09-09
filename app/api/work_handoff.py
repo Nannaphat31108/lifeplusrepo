@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/work-handoffs", tags=["Work Handoffs"])
 
 ALL_DEPARTMENTS = [
     "RD", "ADMIN", "SALE", "JOB", "PLANNING", "STOCK", "PURCHASE",
-    "PRODUCTION", "GRAPHIC", "QC", "QUALITY", "CEO",
+    "PRODUCTION", "GRAPHIC", "QC", "QUALITY", "ACCOUNTING", "CEO",
 ]
 
 # Same role -> department fallback used on the frontend/auth side, for
@@ -22,7 +22,7 @@ _LEGACY_ROLE_DEPARTMENT = {
     "RD_HEAD": "RD", "RD_ASSISTANT": "RD", "RD_OFFICER": "RD",
     "SALES": "SALE", "JOB": "JOB", "PLANNING": "PLANNING", "STOCK": "STOCK",
     "PURCHASE": "PURCHASE", "PRODUCTION": "PRODUCTION", "GRAPHIC": "GRAPHIC",
-    "QC": "QC", "QUALITY": "QUALITY", "CEO": "CEO", "ADMIN": "ADMIN",
+    "QC": "QC", "QUALITY": "QUALITY", "ACCOUNTING": "ACCOUNTING", "CEO": "CEO", "ADMIN": "ADMIN",
 }
 
 
