@@ -629,3 +629,28 @@ class StockCardTransaction(Base, TimestampMixin):
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
+class ProductionWorkOrder(Base, TimestampMixin):
+    """ใบสั่งผลิต (ผลิตจริง) -- production work order (PLANNING dept).
+    Same shared-department-document shape as PurchaseDocument (JSON
+    payload_json, not a rigid relational schema): the real form has
+    deeply nested repeatable sections (packaging breakdown by "packing
+    type", a multi-step workflow/handoff timeline spanning Stock/
+    Graphic/Purchasing/RD/QA/Production/Sales/Shipping, and a signature
+    block) that vary in shape between orders, which a flexible JSON
+    structure handles far better than a fixed set of columns -- same
+    reasoning that already applies to every SourceFormRecord/
+    PurchaseDocument in this app.
+    """
+    __tablename__ = "production_work_orders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_no: Mapped[str] = mapped_column(String(100), index=True)  # เลขที่ใบสั่งผลิต
+    status: Mapped[str] = mapped_column(String(30), default="DRAFT")
+    payload_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_by_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Free-text cross-reference, same convention as PurchaseDocument.
+    # linked_reference -- e.g. the QP/formula number this order was raised
+    # from -- not a foreign key since either side can be created first.
+    linked_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)

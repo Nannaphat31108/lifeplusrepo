@@ -1,3 +1,51 @@
+## v31.57 — ใบสั่งผลิต (ผลิตจริง), Production Work Order (PLANNING dept)
+
+Third and last part of the multi-part request: "เอกสาร planning เพิ่มระบบ
+เอกสารนี้ไปในplanning logic ทุกอย่างเหมือนแผนกอื่น" -- turns out to refer to
+the third uploaded file, a completely different document from the two
+Stock Card ones (confirmed by reading its actual sheets): a production
+work-order form spanning nearly every department (its own header literally
+lists ผลิต/QC/WH/บัญชี/EN as distribution departments -- the ผลิต/บัญชี
+mention is what confirmed the ACCOUNTING department from the previous
+entry was worth building for real, not invented).
+
+- New `ProductionWorkOrder` table + `/api/production-work-orders/*`, new
+  dashboard card "ใบสั่งผลิต (ผลิตจริง)" under PLANNING. Same shared-
+  department-document shape as PurchaseDocument (JSON `payload_json`, full
+  save/list/edit/delete/Excel-export/version-history/restore, matching
+  "logic ทุกอย่างเหมือนแผนกอื่น") rather than a rigid relational schema --
+  the real form's packaging breakdown, workflow timeline and signature
+  block are all repeatable, variable-shape sections that a fixed set of
+  columns handles far worse than JSON does everywhere else in this app.
+- Header fields (order/job/product/QP/formula/customer refs, LOT/MFG/EXP,
+  product/packing codes, notes) plus three repeatable sections: packaging
+  breakdown grouped by "packing type" (add/remove both groups and their
+  line items), a workflow/handoff timeline (task + responsible role +
+  start/end date-time + signer -- pre-filled with the source document's
+  own real 10 steps spanning Stock→Graphic→Purchasing→RD→QA→Production→
+  Sales→Shipping as an editable starting point, not invented), and a
+  signature block (role, name, department, date).
+- Editor is driven by one in-memory draft object (`window.pwoDraft`),
+  re-rendered on add/remove rather than re-parsed from the DOM or built
+  with per-row inline-onclick string HTML -- the latter is exactly what
+  produced the two quote-escaping bugs caught and fixed in the ADMIN
+  pricing page earlier this session; this sidesteps that class of bug
+  entirely. **Caught one real bug from this design before shipping**: an
+  early version re-rendered using a value re-read from the order_no
+  `<input>`'s DOM element on every add/remove-row click, which reset to
+  blank for a still-unsaved new order (its value lived only in the DOM,
+  not the draft) -- fixed by moving order_no into the draft object like
+  every other field, so it now survives every re-render.
+- No master Excel template exists for this document (unlike F-RD-00x),
+  so its export is built programmatically like PO/PR's, logo included.
+- Verified: curl (validation, create/update/versions, Excel export
+  confirmed via zip listing + cell contents), then a real-browser
+  (Playwright) pass -- created a new order through the real form,
+  confirmed the default 10-step workflow loaded, added a second packing
+  group and confirmed order_no/product_name survived the re-render (the
+  bug above), saved and confirmed the data round-tripped correctly. Zero
+  JS/console errors.
+
 ## v31.56 — new department: บัญชี (Accounting)
 
 Second part of the multi-part request: "สร้างอีกแผนกเป็นแผนกบัญชี" (create

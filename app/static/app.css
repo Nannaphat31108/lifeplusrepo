@@ -226,6 +226,10 @@ pre.json{white-space:pre-wrap;background:#0b1220;color:#d1fae5;padding:14px;bord
    which only renders cell values and never showed that image). */
 .doc-logo-header{padding:10px 0 4px;text-align:right}
 .doc-logo-header img{height:40px;width:auto}
+.pwo-packing-group{border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0}
+.pwo-group-head{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+.pwo-group-head .pwo-group-label{flex:1;font-weight:700}
+.purchase-doc-grid h3{margin:20px 0 8px}
 .admin-labor-lookup-panel{background:#eff6ff;border-color:#93c5fd}
 .admin-labor-lookup-result{margin-top:10px;font-size:14px}
 .admin-labor-lookup-hit{color:var(--success,#067647);font-weight:700}

@@ -1115,9 +1115,14 @@ function closeModal(){$("modal").classList.add("hidden")}
 // Version history -- shared by F-RD-* records (recordType "source_form") and
 // PO/PR (recordType "purchase_doc"), the two record kinds RecordVersion
 // snapshots on every update (see app/core/record_versions.py).
+function recordVersionBase(recordType){
+  if(recordType==="source_form")return "/api/source-forms";
+  if(recordType==="production_work_order")return "/api/production-work-orders";
+  return "/api/purchase-docs";
+}
 async function showRecordVersions(recordType,recordId){
   try{
-    const base=recordType==="source_form"?"/api/source-forms":"/api/purchase-docs";
+    const base=recordVersionBase(recordType);
     const versions=await api(`${base}/record/${recordId}/versions`);
     if(!versions.length){
       openModal("ประวัติการแก้ไข","<p>ยังไม่มีประวัติสำหรับรายการนี้ (ประวัติจะถูกบันทึกเมื่อมีการแก้ไขครั้งถัดไป)</p>");
@@ -1141,7 +1146,7 @@ async function showRecordVersions(recordType,recordId){
 
 async function viewRecordVersion(recordType,recordId,versionId){
   try{
-    const base=recordType==="source_form"?"/api/source-forms":"/api/purchase-docs";
+    const base=recordVersionBase(recordType);
     const v=await api(`${base}/record/${recordId}/versions/${versionId}`);
     const body=`
       <div class="workspace-note">บันทึกเมื่อ ${new Date(v.saved_at).toLocaleString()} โดย ${esc(v.saved_by_name||"-")}</div>
@@ -1157,12 +1162,14 @@ async function viewRecordVersion(recordType,recordId,versionId){
 async function restoreRecordVersion(recordType,recordId,versionId){
   if(!confirm("ต้องการกู้คืนข้อมูลเป็นเวอร์ชันนี้หรือไม่? (สถานะปัจจุบันจะถูกบันทึกไว้ในประวัติเช่นกัน ไม่สูญหาย)"))return;
   try{
-    const base=recordType==="source_form"?"/api/source-forms":"/api/purchase-docs";
+    const base=recordVersionBase(recordType);
     await api(`${base}/record/${recordId}/versions/${versionId}/restore`,{method:"POST"});
     closeModal();
     toast("กู้คืนข้อมูลสำเร็จ");
     if(recordType==="source_form"){
       await editOwnSourceRecord(recordId);
+    }else if(recordType==="production_work_order"){
+      await openProductionWorkOrderForm(recordId);
     }else{
       const rec=await api(`/api/purchase-docs/record/${recordId}`);
       await openPurchaseDocForm(rec.doc_type,recordId);
@@ -1183,14 +1190,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.56",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.57",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.56",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.57",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -2733,6 +2740,197 @@ async function deleteStockCardTx(lotId,txId){
   }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
 }
 
+// ใบสั่งผลิต (ผลิตจริง) -- Production Work Order, PLANNING dept. Same
+// shared-department-document pattern as PO/PR (openPurchaseDocForm),
+// but its nested repeatable sections (packaging breakdown by "packing
+// type", a multi-step workflow timeline, a signature block) are edited
+// against one in-memory draft object (window.pwoDraft) that's re-rendered
+// whenever a row is added/removed, rather than re-parsed from the DOM on
+// every change -- simpler and safer than hand-building nested HTML
+// strings with dynamic per-row onclick handlers (see the quote-escaping
+// bugs caught and fixed earlier this session in the ADMIN pricing page).
+window.pwoDraft=null;
+window.pwoEditingId=null;
+window.pwoListData=[];
+function pwoBlankDraft(){
+  return {
+    order_no:"", job_no:"", product_name:"", qp_ref:"", formula_ref:"", customer_code:"",
+    fda_no:"", lot_no:"", mfg_date:"", exp_date:"", product_code:"", packing_code:"",
+    notes:"", packing_summary:"",
+    packing_groups:[{label:"บรรจุแบบที่1",items:[{description:"",detail:"",qty:"",unit:"",unit_note:""}]}],
+    workflow_steps:[],
+    signatures:[{role_label:"ผู้จัดทำเอกสาร",name:"",department:"",date:""}],
+  };
+}
+async function listProductionWorkOrders(){
+  $("pageTitle").textContent="ใบสั่งผลิต (ผลิตจริง)";
+  $("pageSubtitle").textContent="รายการใบสั่งผลิตทั้งหมด";
+  $("pageContent").innerHTML=`<div class="card">
+    <div class="toolbar">
+      <input class="search" placeholder="ค้นหาเลขที่ใบสั่งผลิต / ชื่อผลิตภัณฑ์..." oninput="filterTable(this)">
+      <button class="primary" onclick="openProductionWorkOrderForm()">+ สร้างใบสั่งผลิต</button>
+    </div>
+    <div id="pwoListTable">กำลังโหลด...</div>
+  </div>`;
+  try{
+    window.pwoListData=await api("/api/production-work-orders");
+  }catch(e){
+    window.pwoListData=[];
+    $("pwoListTable").innerHTML=`<div class="error">โหลดไม่สำเร็จ: ${esc(e?.message||e)}</div>`;
+    return;
+  }
+  const rows=window.pwoListData.map(x=>{
+    const search=esc(`${x.order_no||""} ${x.data?.product_name||""} ${x.data?.customer_code||""}`.toLowerCase());
+    return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.order_no)}</td><td>${esc(x.data?.product_name||"")}</td><td>${esc(x.data?.customer_code||"")}</td><td>${statusBadge(x.status)}</td><td>${esc(x.created_by_name||"")}</td><td>${new Date(x.updated_at).toLocaleString()}</td><td class="mini-actions"><button onclick="openProductionWorkOrderForm(${x.id})">แก้ไข</button><button onclick="exportProductionWorkOrderExcel(${x.id})">Excel</button><button onclick="showRecordVersions('production_work_order',${x.id})">ประวัติ</button></td></tr>`;
+  });
+  $("pwoListTable").innerHTML=table(["ID","เลขที่ใบสั่งผลิต","ชื่อผลิตภัณฑ์","รหัสลูกค้า","สถานะ","สร้างโดย","แก้ไขล่าสุด","จัดการ"],rows);
+}
+async function exportProductionWorkOrderExcel(id){
+  try{ return await exportExcel(`/api/production-work-orders/record/${id}/excel`); }
+  catch(e){ toast("ดาวน์โหลด Excel ไม่สำเร็จ: "+(e?.message||e)); }
+}
+async function openProductionWorkOrderForm(existingId=null){
+  window.pwoEditingId=existingId;
+  let existing=null;
+  if(existingId){
+    try{existing=await api(`/api/production-work-orders/record/${existingId}`);}
+    catch(e){toast("โหลดข้อมูลไม่สำเร็จ: "+(e?.message||e));}
+  }
+  if(existing){
+    window.pwoDraft=Object.assign(pwoBlankDraft(),existing.data,{order_no:existing.order_no||""});
+    if(!window.pwoDraft.packing_groups?.length)window.pwoDraft.packing_groups=pwoBlankDraft().packing_groups;
+    if(!window.pwoDraft.signatures?.length)window.pwoDraft.signatures=pwoBlankDraft().signatures;
+  }else{
+    window.pwoDraft=pwoBlankDraft();
+    try{
+      const steps=await api("/api/production-work-orders/default-workflow");
+      window.pwoDraft.workflow_steps=steps.map(s=>({task:s.task,responsible:s.responsible,start_date:"",start_time:"",end_date:"",end_time:"",signer:""}));
+    }catch(e){/* default workflow is a convenience only -- fine to start blank if it fails to load */}
+  }
+  renderProductionWorkOrderForm(existing);
+}
+function pwoField(label,key,type="text"){
+  return `<div><label>${esc(label)}</label><input data-pwo-field="${esc(key)}" type="${type}" value="${esc(window.pwoDraft[key]||"")}" onchange="pwoDraft[this.dataset.pwoField]=this.value"></div>`;
+}
+function renderProductionWorkOrderForm(existing){
+  const d=window.pwoDraft;
+  const groupsHtml=(d.packing_groups||[]).map((g,gi)=>`
+    <div class="pwo-packing-group">
+      <div class="pwo-group-head">
+        <input class="pwo-group-label" value="${esc(g.label||"")}" onchange="pwoDraft.packing_groups[${gi}].label=this.value">
+        <button type="button" onclick="pwoRemoveGroup(${gi})">ลบกลุ่มนี้</button>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>รายละเอียด</th><th>สเปค/สี/รหัส</th><th>จำนวน</th><th>หน่วย</th><th>หมายเหตุ</th><th></th></tr></thead><tbody>
+        ${(g.items||[]).map((it,ii)=>`<tr>
+          <td>${ii+1}</td>
+          <td><input value="${esc(it.description||"")}" onchange="pwoDraft.packing_groups[${gi}].items[${ii}].description=this.value"></td>
+          <td><input value="${esc(it.detail||"")}" onchange="pwoDraft.packing_groups[${gi}].items[${ii}].detail=this.value"></td>
+          <td><input type="number" step="any" value="${esc(it.qty??"")}" onchange="pwoDraft.packing_groups[${gi}].items[${ii}].qty=this.value"></td>
+          <td><input value="${esc(it.unit||"")}" onchange="pwoDraft.packing_groups[${gi}].items[${ii}].unit=this.value"></td>
+          <td><input value="${esc(it.unit_note||"")}" onchange="pwoDraft.packing_groups[${gi}].items[${ii}].unit_note=this.value"></td>
+          <td><button type="button" onclick="pwoRemoveItem(${gi},${ii})">ลบ</button></td>
+        </tr>`).join("")}
+      </tbody></table></div>
+      <button type="button" onclick="pwoAddItem(${gi})">+ เพิ่มรายการ</button>
+    </div>`).join("");
+
+  const stepsHtml=`<div class="table-wrap"><table><thead><tr><th>#</th><th>รายละเอียดงานและผู้รับผิดชอบ</th><th>เริ่ม (วันที่)</th><th>เริ่ม (เวลา)</th><th>สิ้นสุด (วันที่)</th><th>สิ้นสุด (เวลา)</th><th>ผู้ปฏิบัติงาน</th><th></th></tr></thead><tbody>
+    ${(d.workflow_steps||[]).map((s,si)=>`<tr>
+      <td>${si+1}</td>
+      <td><input value="${esc(s.task||"")}" onchange="pwoDraft.workflow_steps[${si}].task=this.value" placeholder="งาน"><input value="${esc(s.responsible||"")}" onchange="pwoDraft.workflow_steps[${si}].responsible=this.value" placeholder="ผู้รับผิดชอบ"></td>
+      <td><input type="date" value="${esc(s.start_date||"")}" onchange="pwoDraft.workflow_steps[${si}].start_date=this.value"></td>
+      <td><input type="time" value="${esc(s.start_time||"")}" onchange="pwoDraft.workflow_steps[${si}].start_time=this.value"></td>
+      <td><input type="date" value="${esc(s.end_date||"")}" onchange="pwoDraft.workflow_steps[${si}].end_date=this.value"></td>
+      <td><input type="time" value="${esc(s.end_time||"")}" onchange="pwoDraft.workflow_steps[${si}].end_time=this.value"></td>
+      <td><input value="${esc(s.signer||"")}" onchange="pwoDraft.workflow_steps[${si}].signer=this.value"></td>
+      <td><button type="button" onclick="pwoRemoveStep(${si})">ลบ</button></td>
+    </tr>`).join("")}
+  </tbody></table></div><button type="button" onclick="pwoAddStep()">+ เพิ่มขั้นตอน</button>`;
+
+  const sigHtml=`<div class="table-wrap"><table><thead><tr><th>ตำแหน่ง</th><th>ชื่อ</th><th>แผนก</th><th>วันที่</th><th></th></tr></thead><tbody>
+    ${(d.signatures||[]).map((s,si)=>`<tr>
+      <td><input value="${esc(s.role_label||"")}" onchange="pwoDraft.signatures[${si}].role_label=this.value"></td>
+      <td><input value="${esc(s.name||"")}" onchange="pwoDraft.signatures[${si}].name=this.value"></td>
+      <td><input value="${esc(s.department||"")}" onchange="pwoDraft.signatures[${si}].department=this.value"></td>
+      <td><input type="date" value="${esc(s.date||"")}" onchange="pwoDraft.signatures[${si}].date=this.value"></td>
+      <td><button type="button" onclick="pwoRemoveSignature(${si})">ลบ</button></td>
+    </tr>`).join("")}
+  </tbody></table></div><button type="button" onclick="pwoAddSignature()">+ เพิ่มผู้ลงนาม</button>`;
+
+  const idLabel=d.order_no?`#${esc(d.order_no)}`:"(ฉบับใหม่)";
+  $("pageTitle").textContent="ใบสั่งผลิต (ผลิตจริง)";
+  $("pageSubtitle").textContent=idLabel;
+  $("pageContent").innerHTML=`
+    <div class="exact-form-toolbar">
+      <div><b>ใบสั่งผลิต ${idLabel}</b><small>สร้าง/แก้ไขใบสั่งผลิตจริง พร้อมขั้นตอนงานและผู้ลงนาม</small></div>
+      <div class="actions">
+        <button onclick="listProductionWorkOrders()">รายการใบสั่งผลิตทั้งหมด</button>
+        ${existing?.id?`<button onclick="exportProductionWorkOrderExcel(${existing.id})">Excel</button><button onclick="showRecordVersions('production_work_order',${existing.id})">ประวัติ</button>`:""}
+        <button class="primary" onclick="saveProductionWorkOrder()">บันทึก</button>
+      </div>
+    </div>
+    <div class="doc-logo-header"><img src="/static/logo.png" alt="Life Plus Pharmaceutical"></div>
+    <div class="card purchase-doc-grid">
+      <div class="form-grid">
+        ${pwoField("เลขที่ใบสั่งผลิต","order_no")}
+        ${pwoField("เลขที่งาน","job_no")}
+        ${pwoField("ชื่อผลิตภัณฑ์","product_name")}
+        ${pwoField("ใบเสนอราคา (QP)","qp_ref")}
+        ${pwoField("เลขที่สูตร","formula_ref")}
+        ${pwoField("รหัสลูกค้า","customer_code")}
+        ${pwoField("เลขที่ อย.","fda_no")}
+        ${pwoField("LOT","lot_no")}
+        ${pwoField("MFG (วันผลิต)","mfg_date","date")}
+        ${pwoField("EXP (วันหมดอายุ)","exp_date","date")}
+        ${pwoField("รหัสสินค้า","product_code")}
+        ${pwoField("Packing code","packing_code")}
+        <div class="wide"><label>หมายเหตุ</label><input data-pwo-field="notes" value="${esc(d.notes||"")}" onchange="pwoDraft.notes=this.value"></div>
+        <div class="wide"><label>รายละเอียดการบรรจุของผลิตภัณฑ์</label><textarea data-pwo-field="packing_summary" onchange="pwoDraft.packing_summary=this.value">${esc(d.packing_summary||"")}</textarea></div>
+      </div>
+
+      <h3>รายละเอียดการบรรจุ (แยกตามแบบบรรจุ)</h3>
+      ${groupsHtml}
+      <button type="button" onclick="pwoAddGroup()">+ เพิ่มแบบบรรจุ</button>
+
+      <h3>ขั้นตอนการทำงาน</h3>
+      ${stepsHtml}
+
+      <h3>ผู้ลงนาม</h3>
+      ${sigHtml}
+    </div>
+  `;
+}
+// All add/remove helpers re-render from the in-memory pwoDraft (already
+// kept current by every field's onchange), passing along only whether
+// this is an existing saved record (for the Excel/ประวัติ buttons) --
+// never re-reads field values from the DOM, so nothing typed is ever
+// lost by an add/remove click.
+function pwoRerender(){renderProductionWorkOrderForm(window.pwoEditingId?{id:window.pwoEditingId}:null);}
+function pwoAddGroup(){pwoDraft.packing_groups.push({label:`บรรจุแบบที่${pwoDraft.packing_groups.length+1}`,items:[{description:"",detail:"",qty:"",unit:"",unit_note:""}]});pwoRerender();}
+function pwoRemoveGroup(gi){if(!confirm("ลบแบบบรรจุนี้ทั้งหมด?"))return;pwoDraft.packing_groups.splice(gi,1);pwoRerender();}
+function pwoAddItem(gi){pwoDraft.packing_groups[gi].items.push({description:"",detail:"",qty:"",unit:"",unit_note:""});pwoRerender();}
+function pwoRemoveItem(gi,ii){pwoDraft.packing_groups[gi].items.splice(ii,1);pwoRerender();}
+function pwoAddStep(){pwoDraft.workflow_steps.push({task:"",responsible:"",start_date:"",start_time:"",end_date:"",end_time:"",signer:""});pwoRerender();}
+function pwoRemoveStep(si){pwoDraft.workflow_steps.splice(si,1);pwoRerender();}
+function pwoAddSignature(){pwoDraft.signatures.push({role_label:"",name:"",department:"",date:""});pwoRerender();}
+function pwoRemoveSignature(si){pwoDraft.signatures.splice(si,1);pwoRerender();}
+async function saveProductionWorkOrder(){
+  const order_no=String(pwoDraft.order_no||"").trim();
+  if(!order_no){toast("กรอกเลขที่ใบสั่งผลิตก่อน");return;}
+  if(!String(pwoDraft.product_name||"").trim()){toast("กรอกชื่อผลิตภัณฑ์ก่อน");return;}
+  const payload={order_no,status:"DRAFT",data:pwoDraft};
+  try{
+    if(window.pwoEditingId){
+      await api(`/api/production-work-orders/record/${window.pwoEditingId}`,{method:"PUT",body:payload});
+    }else{
+      const saved=await api("/api/production-work-orders",{method:"POST",body:payload});
+      window.pwoEditingId=saved.id;
+    }
+    toast("บันทึกสำเร็จ");
+    await openProductionWorkOrderForm(window.pwoEditingId);
+  }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+
 function isExactFormCode(code){
   return ["F-RD-001","F-RD-002","F-RD-002.1","F-RD-003","F-RD-004","ADMIN-QP","ADMIN-INVOICE","ADMIN-JOB"].includes(code);
 }
@@ -4066,7 +4264,7 @@ async function openDepartmentWorkspace(code){
  RD:{title:"R&D",text:"จัดการสูตร สูตรผลิต Tester และ Rate",cards:[["F-RD-002 สูตร","แบบฟอร์มสูตร R&D","openExactForm('F-RD-002')"],["F-RD-002.1 สูตรผลิต","สูตรสำหรับผลิตจริง","openExactForm('F-RD-002.1')"],["F-RD-003 Tester","ขอทำสินค้าทดลอง","openExactForm('F-RD-003')"],["F-RD-004 Rate","ขอเรทราคา","openExactForm('F-RD-004')"]]},
  SALE:{title:"SALE",text:"รับความต้องการลูกค้าและส่งต่อ R&D",cards:[["F-RD-001 Customer Requirement","รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","openExactForm('F-RD-001')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"],["Product Development","ติดตามโครงการลูกค้า","openPage('projects')"]]},
  ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Job Description","ฟอร์ม JL ต้นฉบับ • สูตร บรรจุภัณฑ์ ผู้รับผิดชอบออกแบบ/อย.","openExactForm('ADMIN-JOB')"],["ต้นทุน/ราคาขาย อุปกรณ์เสริม","ชริ้งค์ฟิล์ม/ฝาฟอยล์/PVC ฯลฯ • ต้นทุนตามสเปค + ราคาขายตามช่วงจำนวน","openAdminPricingPage()"],["ค่าแรง (Rate Card)","ประเภท/จำนวนการบรรจุ x ช่วงจำนวน • แก้ไขได้ พร้อมค้นหาเรท","openAdminLaborRatesPage()"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
- PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
+ PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["ใบสั่งผลิต (ผลิตจริง)","สร้าง/แก้ไขใบสั่งผลิต พร้อมขั้นตอนงานและผู้ลงนาม","listProductionWorkOrders()"],["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
  STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Stock Card วัตถุดิบ","ต่อ Lot ตามรหัสวัตถุดิบ • ตัดสตอครับเข้า/เบิกออก/คืน","openStockCardPage()"],["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"],["ใบขอซื้อ (PR)","ขอซื้อวัตถุดิบจากจัดซื้อ","listPurchaseDocs('PR')"]]},
  PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["เตรียมระบบ (บรรจุภัณฑ์ต่องาน)","รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / จำนวน / หน่วย / ราคา / ราคาขาย","openPackagingPrepPage()"],["บรรจุภัณฑ์ตามประเภท","สติ๊กเกอร์ / ซองอลูมิเนียม / ม้วนอลูมิเนียม / กล่อง • เลือกใช้งานส่งเข้าเตรียมระบบได้","openPackagingOptionsPage()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"],["ใบสั่งซื้อ (PO)","ส่งให้ผู้จำหน่ายภายนอก","listPurchaseDocs('PO')"],["ใบขอซื้อ (PR)","ที่คลังส่งเข้ามา","listPurchaseDocs('PR')"]]},
  PRODUCTION:{title:"PRODUCTION",text:"สูตรผลิตและคำสั่งผลิต",cards:[["สูตรผลิต","F-RD-002.1","openExactForm('F-RD-002.1')"],["Production / MRP","คำสั่งผลิต","openPage('production')"]]},
