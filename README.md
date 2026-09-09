@@ -1,3 +1,70 @@
+## v31.58 — "ทำต่อให้ครบ": Stock Card สำเร็จรูป + ใบสั่งผลิต attachment sections
+
+Completes the two pieces explicitly deferred at the end of the v31.55–v31.57
+Stock Card work, per the follow-up instruction "ทำต่อให้ครบ" (finish it all).
+Both deferred items were investigated by actually reading their real sheet
+content (not assumed from filenames/sheet names), same verification
+discipline as the earlier stages:
+
+**1. Stock Card สำเร็จรูป (finished-goods stock card), from stock1.xlsx**
+- stock1.xlsx turned out to be a genuinely different document from
+  stock2.xlsx (already built as Stock Card วัตถุดิบ in v31.55): "Stock card
+  สำเร็จรูปอาหารเสริม" -- one row per production-order/lot, tracking
+  รับเข้าจากผลิต (received off the production line) vs. เบิกออกให้จัดส่ง
+  (issued for shipment) instead of วัตถุดิบ's รับเข้า/เบิกออก/คืน, keyed by
+  เลขที่สั่งผลิต (production order no.) instead of a material code.
+- New `FinishedGoodsLot` + `FinishedGoodsTransaction` tables,
+  `/api/finished-goods-stock/*`, new "Stock Card สำเร็จรูป" card under STOCK
+  (alongside Stock Card วัตถุดิบ). Same live-computed-balance pattern as
+  StockCardLot: balance is never stored, always
+  `(ยกยอดรับเข้า + Σรับเข้า) - (ยกยอดเบิกออก + Σเบิกออก)` at read time.
+- `/orders/lookup?order_no=` auto-fills ชื่อผลิตภัณฑ์/ลูกค้า/Lot from an
+  already-saved ใบสั่งผลิต (ProductionWorkOrder, v31.57) with the same
+  order_no -- reuses that document instead of requiring a separate DATA
+  import, same reasoning as Stock Card วัตถุดิบ's FDAMaterial lookup.
+- Same "ตัดสตอค" button UX: pick รับเข้าจากผลิต/เบิกออกให้จัดส่ง, quantity,
+  date, note; ประวัติ (history) modal lists/deletes past transactions.
+
+**2. ใบสั่งผลิต attachment sections, from stock3.xls's other 7 sheets**
+- Inspected all 7 remaining sheets (กำหนดงบและการใช้งานผลิต, ผลิต (1-4)/(2-4),
+  ผลิต+WH(3-4), WH(1-2)/(2-2), สีเคลือบ): every one of them turned out to
+  reference the *same* เลขที่ใบสั่งผลิต (order no.) as the main "ใบส่งผลิต"
+  sheet already built in v31.57 -- they're attachments to that one document
+  (their own headers say so: "ผลิต,QC แนบ (1/3)", "WH,QC (1/2)", etc.), not
+  7 separate documents. Built as additional sections on the *same*
+  `ProductionWorkOrder` record (its flexible `payload_json` already fits
+  this far better than 7 new tables would) rather than new entities:
+  - Header additions: จำนวนผลิต, มก./หน่วย, แบ่งบรรจุลง, ปริมาณต่อ 1
+    หน่วยบรรจุ, จำนวนที่ผลิตเกิน (from ผลิต (1-4)/+WH(3-4)'s shared header).
+  - งบและเวลาการทำงาน (ค่าแรง) -- labor/time budget (จำนวนคน, วันทำงาน,
+    ค่าแรง, ค่าแรงที่ได้รับ, ต้นทุน, กำไร/ขาดทุน), from กำหนดงบและการใช้งานผลิต.
+  - รายการเบิกใช้วัตถุดิบ/สารสกัด -- raw material requisition table
+    (LOT/รายการ/จำนวน/หน่วย/หมายเหตุ), from WH(1-2) + ผลิต(2-4)'s "เทส 3 กก."
+    withdrawal list (same row shape, merged into one editable table).
+  - รายการเบิกใช้บรรจุภัณฑ์ -- packaging requisition table, from WH(2-2).
+  - สูตรคำนวณสีเคลือบ -- coating-formula calc table (ชื่อสาร/LOT/สูตร Test
+    %W/W/ปริมาณจริง (g,kg)/ที่ต้องใช้+10% (g,kg)), from สีเคลือบ -- only
+    relevant for coated-tablet products, so it's fine to leave empty.
+  - All four sections are optional add/remove-row tables edited against the
+    existing `pwoDraft` object (no new draft-array class of bug -- reused
+    the exact add/remove/re-render pattern from v31.57's packing_groups).
+    Excel export gains matching sections, skipped entirely when empty.
+- Deliberately *not* built as 7 separate CRUD entities: every sheet is
+  single-purpose internal paperwork scoped to one order, edited by whoever
+  is filling in that order's ใบสั่งผลิต, not looked up independently the
+  way a Stock Card lot or a PO is -- the shared-document pattern already
+  used for PO/PR/ใบสั่งผลิต fits this exactly, and building 7 new tables
+  for essentially one attachment packet would be needless duplication.
+
+Verified via curl (lot CRUD, ตัดสตอค receive/issue, balance recomputation,
+order lookup, validation errors) and a real-browser Playwright pass
+(STOCK → Stock Card สำเร็จรูป list/editor/order-autofill/ตัดสตอค/ประวัติ,
+PLANNING → ใบสั่งผลิต form's 4 new sections rendering and surviving
+add/remove-row re-renders, zero console/page errors) plus a direct
+openpyxl read-back of the Excel export confirming every new section
+(labor budget, both requisition tables, coating formula) appears with the
+right values.
+
 ## v31.57 — ใบสั่งผลิต (ผลิตจริง), Production Work Order (PLANNING dept)
 
 Third and last part of the multi-part request: "เอกสาร planning เพิ่มระบบ

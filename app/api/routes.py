@@ -20,7 +20,8 @@ from app.api.work_handoff import router as work_handoff_router
 from app.api.purchase_docs import router as purchase_docs_router
 from app.api.stock_card import router as stock_card_router
 from app.api.production_work_order import router as production_work_order_router
+from app.api.finished_goods_stock import router as finished_goods_stock_router
 
 router=APIRouter()
-for r in [auth_router,master_router,formula_router,workflow_router,dashboard_router,ui_router,final_ui_router,export_excel_router,original_forms_router,source_forms_router,form_workspace_router,ai_formula_router,fda_materials_router,packaging_router,packaging_prep_router,packaging_options_router,admin_pricing_router,work_handoff_router,purchase_docs_router,stock_card_router,production_work_order_router]:
+for r in [auth_router,master_router,formula_router,workflow_router,dashboard_router,ui_router,final_ui_router,export_excel_router,original_forms_router,source_forms_router,form_workspace_router,ai_formula_router,fda_materials_router,packaging_router,packaging_prep_router,packaging_options_router,admin_pricing_router,work_handoff_router,purchase_docs_router,stock_card_router,production_work_order_router,finished_goods_stock_router]:
     router.include_router(r)

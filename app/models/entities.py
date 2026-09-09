@@ -631,6 +631,43 @@ class StockCardTransaction(Base, TimestampMixin):
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
 
+class FinishedGoodsLot(Base, TimestampMixin):
+    """Stock card สำเร็จรูป -- finished-goods stock card, one row per
+    production order/lot (matches the source workbook's "Stock card
+    สำเร็จรูปอาหารเสริม" sheet). Sibling of StockCardLot (raw material)
+    but keyed by production order no. instead of material code, and
+    tracks รับเข้าจากผลิต (received from production) vs. เบิกออกให้จัดส่ง
+    (issued for shipment) instead of รับเข้า/เบิกออก/คืน."""
+    __tablename__ = "finished_goods_lots"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    order_no: Mapped[Optional[str]] = mapped_column(String(100), index=True, nullable=True)
+    lot_no: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    product_name: Mapped[str] = mapped_column(String(500))
+    customer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    packing_desc: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    order_qty: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 2), nullable=True)
+    opening_received_qty: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=0)
+    opening_issued_qty: Mapped[Decimal] = mapped_column(Numeric(16, 2), default=0)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
+class FinishedGoodsTransaction(Base, TimestampMixin):
+    """One movement against a FinishedGoodsLot -- รับเข้าจากผลิต (RECEIVE)
+    or เบิกออกให้จัดส่ง (ISSUE). Balance is opening qty +/- these, computed
+    at read time, same live-balance pattern as StockCardTransaction."""
+    __tablename__ = "finished_goods_transactions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lot_id: Mapped[int] = mapped_column(ForeignKey("finished_goods_lots.id"), index=True)
+    tx_type: Mapped[str] = mapped_column(String(10))  # RECEIVE | ISSUE
+    quantity: Mapped[Decimal] = mapped_column(Numeric(16, 2))
+    tx_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
 class ProductionWorkOrder(Base, TimestampMixin):
     """ใบสั่งผลิต (ผลิตจริง) -- production work order (PLANNING dept).
     Same shared-department-document shape as PurchaseDocument (JSON

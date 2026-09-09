@@ -250,6 +250,16 @@ def _build_workbook(order_no: str, data: dict) -> Workbook:
     _label_value(ws, r, "EXP", data.get("exp_date")); r += 1
     _label_value(ws, r, "รหัสสินค้า", data.get("product_code")); r += 1
     _label_value(ws, r, "Packing code", data.get("packing_code")); r += 1
+    if data.get("production_qty"):
+        _label_value(ws, r, "จำนวนผลิต", f"{data.get('production_qty')} {data.get('production_qty_unit') or ''}".strip()); r += 1
+    if data.get("mg_per_unit"):
+        _label_value(ws, r, "น้ำหนัก/ปริมาณต่อหน่วย", f"{data.get('mg_per_unit')} มก."); r += 1
+    if data.get("bottling_qty"):
+        _label_value(ws, r, "แบ่งบรรจุลง", f"{data.get('bottling_qty')} {data.get('bottling_unit') or ''}".strip()); r += 1
+    if data.get("qty_per_bottle"):
+        _label_value(ws, r, "ปริมาณต่อ 1 หน่วยบรรจุ", data.get("qty_per_bottle")); r += 1
+    if data.get("overproduced_qty"):
+        _label_value(ws, r, "จำนวนที่ผลิตเกิน", data.get("overproduced_qty")); r += 1
     _label_value(ws, r, "หมายเหตุ", data.get("notes")); r += 1
     if data.get("packing_summary"):
         _label_value(ws, r, "รายละเอียดการบรรจุ", data.get("packing_summary")); r += 1
@@ -301,6 +311,80 @@ def _build_workbook(order_no: str, data: dict) -> Workbook:
             for col, v in enumerate(vals, start=1):
                 c = ws.cell(row=r, column=col, value=v)
                 c.border = _BORDER
+            r += 1
+
+    lb = data.get("labor_budget") or {}
+    if any(str(v or "").strip() for v in lb.values()):
+        r += 1
+        ws.merge_cells(f"A{r}:G{r}")
+        ws[f"A{r}"] = "งบและเวลาการทำงาน (ค่าแรง)"
+        ws[f"A{r}"].font = _HEAD_FONT
+        r += 1
+        _label_value(ws, r, "จำนวนคน/Job", lb.get("labor_count")); r += 1
+        _label_value(ws, r, "วันทำงาน/Job", lb.get("work_days")); r += 1
+        _label_value(ws, r, "ค่าแรง (บาท/วัน หรือ บาท/job)", lb.get("wage_per_job")); r += 1
+        _label_value(ws, r, "ค่าแรงที่ได้รับ (บาท)", lb.get("wage_received")); r += 1
+        _label_value(ws, r, "ต้นทุนค่าแรง (บาท)", lb.get("labor_cost")); r += 1
+        _label_value(ws, r, "กำไร/ขาดทุนค่าแรง (บาท)", lb.get("profit_loss")); r += 1
+        if lb.get("notes"):
+            _label_value(ws, r, "หมายเหตุ", lb.get("notes")); r += 1
+
+    def _write_req_table(title, rows, headers, keys):
+        nonlocal r
+        rows = [x for x in rows if any(str(x.get(k) or "").strip() for k in keys)]
+        if not rows:
+            return
+        r += 1
+        ws.merge_cells(f"A{r}:G{r}")
+        ws[f"A{r}"] = title
+        ws[f"A{r}"].font = _HEAD_FONT
+        r += 1
+        for i, h in enumerate(headers, start=1):
+            c = ws.cell(row=r, column=i, value=h)
+            c.font = _HEAD_FONT
+            c.border = _BORDER
+        r += 1
+        for i, it in enumerate(rows, start=1):
+            vals = [i] + [it.get(k) or "" for k in keys]
+            for col, v in enumerate(vals, start=1):
+                c = ws.cell(row=r, column=col, value=v)
+                c.border = _BORDER
+            r += 1
+
+    _write_req_table(
+        "รายการเบิกใช้วัตถุดิบ / สารสกัด", data.get("material_requisitions") or [],
+        ["ลำดับ", "LOT", "รายการที่เบิก", "จำนวนที่เบิก", "หน่วย", "หมายเหตุ"],
+        ["lot_no", "item_name", "qty", "unit", "note"],
+    )
+    _write_req_table(
+        "รายการเบิกใช้บรรจุภัณฑ์", data.get("packaging_requisitions") or [],
+        ["ลำดับ", "LOT", "รายการเบิกใช้บรรจุภัณฑ์", "จำนวนที่เบิก", "หน่วย", "หมายเหตุ"],
+        ["lot_no", "item_name", "qty", "unit", "note"],
+    )
+
+    coating = [x for x in (data.get("coating_formula") or [])
+               if any(str(x.get(k) or "").strip() for k in ("name", "lot_no", "actual_kg"))]
+    if coating:
+        r += 1
+        ws.merge_cells(f"A{r}:G{r}")
+        ws[f"A{r}"] = "สูตรคำนวณสีเคลือบ"
+        ws[f"A{r}"].font = _HEAD_FONT
+        r += 1
+        headers = ["ลำดับ", "ชื่อสาร", "LOT", "สูตร Test %W/W", "จริง (g)", "จริง (kg)", "+10% (g)/(kg)"]
+        for i, h in enumerate(headers, start=1):
+            c = ws.cell(row=r, column=i, value=h)
+            c.font = _HEAD_FONT
+            c.border = _BORDER
+        r += 1
+        for i, it in enumerate(coating, start=1):
+            vals = [i, it.get("name") or "", it.get("lot_no") or "", it.get("test_pct") or "",
+                    it.get("actual_g") or "", it.get("actual_kg") or "",
+                    f"{it.get('need10_g') or ''} / {it.get('need10_kg') or ''}"]
+            for col, v in enumerate(vals, start=1):
+                c = ws.cell(row=r, column=col, value=v)
+                c.border = _BORDER
+                if col == 2:
+                    c.alignment = _WRAP
             r += 1
 
     sigs = data.get("signatures") or []
