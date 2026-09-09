@@ -1190,14 +1190,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.57",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.58",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.57",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.58",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -2740,6 +2740,205 @@ async function deleteStockCardTx(lotId,txId){
   }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
 }
 
+// Stock Card สำเร็จรูป -- finished-goods stock card, sibling of Stock Card
+// วัตถุดิบ above but keyed by production order no. and tracking
+// รับเข้าจากผลิต (RECEIVE) / เบิกออกให้จัดส่ง (ISSUE) instead of วัตถุดิบ's
+// รับเข้า/เบิกออก/คืน. Same live-balance, same "ตัดสตอค" pattern.
+window.fgStockData=[];
+let fgStockLotEditingId=null;
+async function openFinishedGoodsStockPage(){
+  fgStockLotEditingId=null;
+  const canManage=["ADMIN","STOCK","PLANNING"].includes(me?.role);
+  $("pageTitle").textContent="Stock Card สำเร็จรูป";
+  $("pageSubtitle").textContent="ต่อ Lot ตามเลขที่สั่งผลิต • รับเข้าจากผลิต / เบิกออกให้จัดส่ง = คงเหลือ (คำนวณอัตโนมัติ)";
+  $("pageContent").innerHTML=`<div class="card">
+    <div class="toolbar">
+      <input id="fgStockSearch" class="search" placeholder="พิมพ์ค้นหา เลขที่สั่งผลิต / Lot / ชื่อผลิตภัณฑ์ / ลูกค้า..." oninput="loadFinishedGoodsStock()">
+      <span id="fgStockCount"></span>
+      ${canManage?'<button class="primary" onclick="openFGStockLotEditor()">+ เพิ่ม Lot</button>':""}
+    </div>
+    <div id="fgStockEditor"></div>
+    <div id="fgStockTable">กำลังโหลด...</div>
+  </div>`;
+  await fetchFinishedGoodsStock();
+}
+let fgStockSearchTimer=null;
+function loadFinishedGoodsStock(){
+  clearTimeout(fgStockSearchTimer);
+  fgStockSearchTimer=setTimeout(fetchFinishedGoodsStock,250);
+}
+async function fetchFinishedGoodsStock(){
+  const q=document.getElementById("fgStockSearch")?.value||"";
+  try{
+    window.fgStockData=await api(`/api/finished-goods-stock/lots?q=${encodeURIComponent(q)}`);
+  }catch(e){
+    window.fgStockData=[];
+    toast("โหลดข้อมูลไม่สำเร็จ: "+(e?.message||e));
+  }
+  renderFGStockTable(window.fgStockData||[]);
+}
+function renderFGStockTable(rows){
+  const canManage=["ADMIN","STOCK","PLANNING"].includes(me?.role);
+  const countEl=document.getElementById("fgStockCount");
+  if(countEl)countEl.textContent=`${rows.length} Lot`;
+  const out=rows.map(x=>`<tr>
+    <td><b>${esc(x.order_no)}</b></td>
+    <td>${esc(x.lot_no)}</td>
+    <td>${esc(x.product_name)}</td>
+    <td>${esc(x.customer_name)}</td>
+    <td>${esc(x.packing_desc)}</td>
+    <td>${x.order_qty??"-"}</td>
+    <td>${x.total_received}</td>
+    <td>${x.total_issued}</td>
+    <td class="${Number(x.balance)<0?'diff-red':''}"><b>${x.balance}</b></td>
+    <td>${esc(x.notes)}</td>
+    <td class="mini-actions">
+      ${canManage?`<button class="primary" onclick="openFGStockTxModal(${x.id})">ตัดสตอค</button>`:""}
+      <button onclick="openFGStockHistoryModal(${x.id})">ประวัติ</button>
+      ${canManage?`<button onclick="openFGStockLotEditor(${x.id})">แก้ไข</button><button onclick="deleteFGStockLot(${x.id})">ลบ</button>`:""}
+    </td>
+  </tr>`);
+  const headers=["เลขที่สั่งผลิต","Lot ผลิต","ชื่อผลิตภัณฑ์","ชื่อลูกค้า","จำนวน/กล่อง/กระปุก","ยอดสั่งผลิต","รับเข้าสะสม","เบิกออกสะสม","คงเหลือ","หมายเหตุ","จัดการ"];
+  const box=document.getElementById("fgStockTable");
+  if(box)box.innerHTML=table(headers,out);
+}
+async function fgStockLookupOrder(){
+  const orderEl=document.getElementById("fg_order_no");
+  const orderNo=(orderEl?.value||"").trim();
+  if(!orderNo)return;
+  try{
+    const o=await api(`/api/finished-goods-stock/orders/lookup?order_no=${encodeURIComponent(orderNo)}`);
+    const nameEl=document.getElementById("fg_product_name"), custEl=document.getElementById("fg_customer_name"), lotEl=document.getElementById("fg_lot_no");
+    if(nameEl && !nameEl.value)nameEl.value=o.product_name||"";
+    if(custEl && !custEl.value)custEl.value=o.customer_name||"";
+    if(lotEl && !lotEl.value)lotEl.value=o.lot_no||"";
+  }catch(e){/* not found -- leave fields for manual entry */}
+}
+function openFGStockLotEditor(id=null){
+  fgStockLotEditingId=id;
+  const d=id?((window.fgStockData||[]).find(x=>x.id===id)||{}):{};
+  const box=document.getElementById("fgStockEditor");
+  if(!box)return;
+  box.innerHTML=`
+    <div class="fda-editor">
+      <div class="fda-editor-title">${id?"แก้ไข Lot":"เพิ่ม Lot ใหม่"}</div>
+      <div class="fda-editor-grid">
+        <div class="fda-field"><label>เลขที่สั่งผลิต</label><input id="fg_order_no" value="${esc(d.order_no||"")}" onchange="fgStockLookupOrder()" placeholder="เช่น P-C67-021#2"></div>
+        <div class="fda-field"><label>เลขที่ผลิต Lot.</label><input id="fg_lot_no" value="${esc(d.lot_no||"")}"></div>
+        <div class="fda-field wide"><label>ชื่อผลิตภัณฑ์</label><input id="fg_product_name" value="${esc(d.product_name||"")}"></div>
+        <div class="fda-field wide"><label>ชื่อลูกค้า</label><input id="fg_customer_name" value="${esc(d.customer_name||"")}"></div>
+        <div class="fda-field wide"><label>จำนวน/กล่อง/กระปุก</label><input id="fg_packing_desc" value="${esc(d.packing_desc||"")}" placeholder="เช่น 2,500 กระปุก 60 แคปซูล/กระปุก"></div>
+        <div class="fda-field"><label>ยอดสั่งผลิต</label><input id="fg_order_qty" type="number" step="0.01" value="${esc(d.order_qty??"")}"></div>
+        <div class="fda-field"><label>ยกยอด รับเข้าจากผลิต</label><input id="fg_opening_received_qty" type="number" step="0.01" value="${esc(d.opening_received_qty??0)}"></div>
+        <div class="fda-field"><label>ยกยอด เบิกออกให้จัดส่ง</label><input id="fg_opening_issued_qty" type="number" step="0.01" value="${esc(d.opening_issued_qty??0)}"></div>
+        <div class="fda-field wide"><label>หมายเหตุ</label><input id="fg_notes" value="${esc(d.notes||"")}"></div>
+      </div>
+      <div class="actions">
+        <button class="primary" onclick="saveFGStockLot()">บันทึก</button>
+        <button onclick="closeFGStockLotEditor()">ยกเลิก</button>
+      </div>
+    </div>`;
+  document.getElementById("fg_order_no")?.focus();
+}
+function closeFGStockLotEditor(){
+  fgStockLotEditingId=null;
+  const box=document.getElementById("fgStockEditor");
+  if(box)box.innerHTML="";
+}
+async function saveFGStockLot(){
+  const val=id=>document.getElementById(id)?.value?.trim()||"";
+  const product_name=val("fg_product_name");
+  if(!product_name){toast("กรอกชื่อผลิตภัณฑ์ก่อน");return;}
+  const payload={
+    order_no:val("fg_order_no")||null,
+    lot_no:val("fg_lot_no")||null,
+    product_name,
+    customer_name:val("fg_customer_name")||null,
+    packing_desc:val("fg_packing_desc")||null,
+    order_qty:val("fg_order_qty")?Number(val("fg_order_qty")):null,
+    opening_received_qty:val("fg_opening_received_qty")?Number(val("fg_opening_received_qty")):0,
+    opening_issued_qty:val("fg_opening_issued_qty")?Number(val("fg_opening_issued_qty")):0,
+    notes:val("fg_notes")||null,
+  };
+  try{
+    if(fgStockLotEditingId){
+      await api(`/api/finished-goods-stock/lots/${fgStockLotEditingId}`,{method:"PUT",body:payload});
+    }else{
+      await api("/api/finished-goods-stock/lots",{method:"POST",body:payload});
+    }
+    toast("บันทึกสำเร็จ");
+    closeFGStockLotEditor();
+    await fetchFinishedGoodsStock();
+  }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+async function deleteFGStockLot(id){
+  if(!confirm("ลบ Lot นี้?"))return;
+  try{
+    await api(`/api/finished-goods-stock/lots/${id}`,{method:"DELETE"});
+    toast("ลบสำเร็จ");
+    await fetchFinishedGoodsStock();
+  }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
+}
+function openFGStockTxModal(lotId){
+  const lot=(window.fgStockData||[]).find(x=>x.id===lotId);
+  if(!lot)return;
+  openModal(`ตัดสตอค — ${lot.order_no||"(ไม่มีเลขที่สั่งผลิต)"} / Lot ${lot.lot_no||""}`,`
+    <div class="form-grid">
+      <div class="wide"><small class="muted">${esc(lot.product_name||"")} • คงเหลือปัจจุบัน <b>${lot.balance}</b></small></div>
+      <div>
+        <label>ประเภทรายการ</label>
+        <select id="fgtx_type">
+          <option value="RECEIVE">รับเข้าจากผลิต</option>
+          <option value="ISSUE">เบิกออกให้จัดส่ง</option>
+        </select>
+      </div>
+      <div><label>วันที่</label><input id="fgtx_date" type="date" value="${currentDateISO()}"></div>
+      <div><label>จำนวน</label><input id="fgtx_qty" type="number" step="0.01" min="0" placeholder="เช่น 500"></div>
+      <div class="wide"><label>หมายเหตุ</label><input id="fgtx_note" placeholder="เช่น ส่งมอบให้ลูกค้างวดที่ 1"></div>
+      <div class="wide"><button class="primary" onclick="submitFGStockTx(${lotId})">บันทึกรายการ</button></div>
+    </div>`);
+}
+async function submitFGStockTx(lotId){
+  const qty=document.getElementById("fgtx_qty")?.value||"";
+  if(!qty || Number(qty)<=0){toast("กรอกจำนวนมากกว่า 0");return;}
+  const payload={
+    tx_type:document.getElementById("fgtx_type")?.value||"RECEIVE",
+    quantity:Number(qty),
+    tx_date:document.getElementById("fgtx_date")?.value||currentDateISO(),
+    note:document.getElementById("fgtx_note")?.value||null,
+  };
+  try{
+    await api(`/api/finished-goods-stock/lots/${lotId}/transactions`,{method:"POST",body:payload});
+    toast("ตัดสตอคสำเร็จ");
+    closeModal();
+    await fetchFinishedGoodsStock();
+  }catch(e){toast("บันทึกไม่สำเร็จ: "+(e?.message||e));}
+}
+async function openFGStockHistoryModal(lotId){
+  const lot=(window.fgStockData||[]).find(x=>x.id===lotId);
+  openModal(`ประวัติรายการ — ${lot?.order_no||""} / Lot ${lot?.lot_no||""}`,'<div id="fgHistBody">กำลังโหลด...</div>');
+  try{
+    const rows=await api(`/api/finished-goods-stock/lots/${lotId}/transactions`);
+    const canManage=["ADMIN","STOCK","PLANNING"].includes(me?.role);
+    const typeLabel={RECEIVE:"รับเข้าจากผลิต",ISSUE:"เบิกออกให้จัดส่ง"};
+    const trs=rows.map(t=>`<tr><td>${esc(t.tx_date)}</td><td>${esc(typeLabel[t.tx_type]||t.tx_type)}</td><td>${t.quantity}</td><td>${esc(t.note)}</td><td class="mini-actions">${canManage?`<button onclick="deleteFGStockTx(${lotId},${t.id})">ลบ</button>`:""}</td></tr>`);
+    const box=document.getElementById("fgHistBody");
+    if(box)box.innerHTML=table(["วันที่","ประเภท","จำนวน","หมายเหตุ","จัดการ"],trs);
+  }catch(e){
+    const box=document.getElementById("fgHistBody");
+    if(box)box.innerHTML=`<div class="error">โหลดไม่สำเร็จ: ${esc(e?.message||e)}</div>`;
+  }
+}
+async function deleteFGStockTx(lotId,txId){
+  if(!confirm("ลบรายการนี้?"))return;
+  try{
+    await api(`/api/finished-goods-stock/transactions/${txId}`,{method:"DELETE"});
+    toast("ลบสำเร็จ");
+    await fetchFinishedGoodsStock();
+    openFGStockHistoryModal(lotId);
+  }catch(e){toast("ลบไม่สำเร็จ: "+(e?.message||e));}
+}
+
 // ใบสั่งผลิต (ผลิตจริง) -- Production Work Order, PLANNING dept. Same
 // shared-department-document pattern as PO/PR (openPurchaseDocForm),
 // but its nested repeatable sections (packaging breakdown by "packing
@@ -2757,8 +2956,19 @@ function pwoBlankDraft(){
     order_no:"", job_no:"", product_name:"", qp_ref:"", formula_ref:"", customer_code:"",
     fda_no:"", lot_no:"", mfg_date:"", exp_date:"", product_code:"", packing_code:"",
     notes:"", packing_summary:"",
+    production_qty:"", production_qty_unit:"", mg_per_unit:"",
+    bottling_qty:"", bottling_unit:"", qty_per_bottle:"", overproduced_qty:"",
     packing_groups:[{label:"บรรจุแบบที่1",items:[{description:"",detail:"",qty:"",unit:"",unit_note:""}]}],
     workflow_steps:[],
+    // ใบแนบ (attachments) copied from the source workbook's supporting
+    // sheets -- งบและการใช้งานผลิต (labor/time budget), WH/ผลิตแนบ (raw
+    // material + packaging requisitions), and สีเคลือบ (coating formula
+    // calc, only relevant for coated-tablet products). All optional --
+    // fine to leave empty on orders that don't need them.
+    labor_budget:{labor_count:"",work_days:"",wage_per_job:"",wage_received:"",labor_cost:"",profit_loss:"",notes:""},
+    material_requisitions:[],
+    packaging_requisitions:[],
+    coating_formula:[],
     signatures:[{role_label:"ผู้จัดทำเอกสาร",name:"",department:"",date:""}],
   };
 }
@@ -2800,6 +3010,10 @@ async function openProductionWorkOrderForm(existingId=null){
     window.pwoDraft=Object.assign(pwoBlankDraft(),existing.data,{order_no:existing.order_no||""});
     if(!window.pwoDraft.packing_groups?.length)window.pwoDraft.packing_groups=pwoBlankDraft().packing_groups;
     if(!window.pwoDraft.signatures?.length)window.pwoDraft.signatures=pwoBlankDraft().signatures;
+    if(!window.pwoDraft.labor_budget)window.pwoDraft.labor_budget=pwoBlankDraft().labor_budget;
+    if(!window.pwoDraft.material_requisitions)window.pwoDraft.material_requisitions=[];
+    if(!window.pwoDraft.packaging_requisitions)window.pwoDraft.packaging_requisitions=[];
+    if(!window.pwoDraft.coating_formula)window.pwoDraft.coating_formula=[];
   }else{
     window.pwoDraft=pwoBlankDraft();
     try{
@@ -2811,6 +3025,10 @@ async function openProductionWorkOrderForm(existingId=null){
 }
 function pwoField(label,key,type="text"){
   return `<div><label>${esc(label)}</label><input data-pwo-field="${esc(key)}" type="${type}" value="${esc(window.pwoDraft[key]||"")}" onchange="pwoDraft[this.dataset.pwoField]=this.value"></div>`;
+}
+function pwoObjField(label,objKey,key,type="text"){
+  const v=(window.pwoDraft[objKey]||{})[key];
+  return `<div><label>${esc(label)}</label><input type="${type}" step="any" value="${esc(v??"")}" onchange="pwoDraft.${objKey}.${key}=this.value"></div>`;
 }
 function renderProductionWorkOrderForm(existing){
   const d=window.pwoDraft;
@@ -2846,6 +3064,44 @@ function renderProductionWorkOrderForm(existing){
       <td><button type="button" onclick="pwoRemoveStep(${si})">ลบ</button></td>
     </tr>`).join("")}
   </tbody></table></div><button type="button" onclick="pwoAddStep()">+ เพิ่มขั้นตอน</button>`;
+
+  const materialReqHtml=`<div class="table-wrap"><table><thead><tr><th>#</th><th>LOT</th><th>รายการที่เบิก (สารสกัด/วัตถุดิบ)</th><th>จำนวนที่เบิก</th><th>หน่วย</th><th>หมายเหตุ</th><th></th></tr></thead><tbody>
+    ${(d.material_requisitions||[]).map((it,ii)=>`<tr>
+      <td>${ii+1}</td>
+      <td><input value="${esc(it.lot_no||"")}" onchange="pwoDraft.material_requisitions[${ii}].lot_no=this.value"></td>
+      <td><input value="${esc(it.item_name||"")}" onchange="pwoDraft.material_requisitions[${ii}].item_name=this.value"></td>
+      <td><input type="number" step="any" value="${esc(it.qty??"")}" onchange="pwoDraft.material_requisitions[${ii}].qty=this.value"></td>
+      <td><input value="${esc(it.unit||"")}" onchange="pwoDraft.material_requisitions[${ii}].unit=this.value" placeholder="kg./g."></td>
+      <td><input value="${esc(it.note||"")}" onchange="pwoDraft.material_requisitions[${ii}].note=this.value"></td>
+      <td><button type="button" onclick="pwoRemoveMaterialReq(${ii})">ลบ</button></td>
+    </tr>`).join("")}
+  </tbody></table></div>`;
+
+  const packagingReqHtml=`<div class="table-wrap"><table><thead><tr><th>#</th><th>LOT</th><th>รายการเบิกใช้บรรจุภัณฑ์</th><th>จำนวนที่เบิก</th><th>หน่วย</th><th>หมายเหตุ</th><th></th></tr></thead><tbody>
+    ${(d.packaging_requisitions||[]).map((it,ii)=>`<tr>
+      <td>${ii+1}</td>
+      <td><input value="${esc(it.lot_no||"")}" onchange="pwoDraft.packaging_requisitions[${ii}].lot_no=this.value"></td>
+      <td><input value="${esc(it.item_name||"")}" onchange="pwoDraft.packaging_requisitions[${ii}].item_name=this.value"></td>
+      <td><input type="number" step="any" value="${esc(it.qty??"")}" onchange="pwoDraft.packaging_requisitions[${ii}].qty=this.value"></td>
+      <td><input value="${esc(it.unit||"")}" onchange="pwoDraft.packaging_requisitions[${ii}].unit=this.value" placeholder="ชิ้น"></td>
+      <td><input value="${esc(it.note||"")}" onchange="pwoDraft.packaging_requisitions[${ii}].note=this.value"></td>
+      <td><button type="button" onclick="pwoRemovePackagingReq(${ii})">ลบ</button></td>
+    </tr>`).join("")}
+  </tbody></table></div>`;
+
+  const coatingHtml=`<div class="table-wrap"><table><thead><tr><th>#</th><th>ชื่อสาร</th><th>LOT</th><th>สูตร Test %W/W</th><th>ปริมาณจริง (g)</th><th>ปริมาณจริง (kg)</th><th>ที่ต้องใช้ +10% (g)</th><th>ที่ต้องใช้ +10% (kg)</th><th></th></tr></thead><tbody>
+    ${(d.coating_formula||[]).map((it,ii)=>`<tr>
+      <td>${ii+1}</td>
+      <td><input value="${esc(it.name||"")}" onchange="pwoDraft.coating_formula[${ii}].name=this.value"></td>
+      <td><input value="${esc(it.lot_no||"")}" onchange="pwoDraft.coating_formula[${ii}].lot_no=this.value"></td>
+      <td><input type="number" step="any" value="${esc(it.test_pct??"")}" onchange="pwoDraft.coating_formula[${ii}].test_pct=this.value"></td>
+      <td><input type="number" step="any" value="${esc(it.actual_g??"")}" onchange="pwoDraft.coating_formula[${ii}].actual_g=this.value"></td>
+      <td><input type="number" step="any" value="${esc(it.actual_kg??"")}" onchange="pwoDraft.coating_formula[${ii}].actual_kg=this.value"></td>
+      <td><input type="number" step="any" value="${esc(it.need10_g??"")}" onchange="pwoDraft.coating_formula[${ii}].need10_g=this.value"></td>
+      <td><input type="number" step="any" value="${esc(it.need10_kg??"")}" onchange="pwoDraft.coating_formula[${ii}].need10_kg=this.value"></td>
+      <td><button type="button" onclick="pwoRemoveCoatingRow(${ii})">ลบ</button></td>
+    </tr>`).join("")}
+  </tbody></table></div>`;
 
   const sigHtml=`<div class="table-wrap"><table><thead><tr><th>ตำแหน่ง</th><th>ชื่อ</th><th>แผนก</th><th>วันที่</th><th></th></tr></thead><tbody>
     ${(d.signatures||[]).map((s,si)=>`<tr>
@@ -2884,6 +3140,13 @@ function renderProductionWorkOrderForm(existing){
         ${pwoField("EXP (วันหมดอายุ)","exp_date","date")}
         ${pwoField("รหัสสินค้า","product_code")}
         ${pwoField("Packing code","packing_code")}
+        ${pwoField("จำนวนผลิต","production_qty","number")}
+        ${pwoField("หน่วยจำนวนผลิต (เม็ด/แคปซูล/...)","production_qty_unit")}
+        ${pwoField("น้ำหนัก/ปริมาณต่อหน่วย (มก.)","mg_per_unit","number")}
+        ${pwoField("แบ่งบรรจุลง (จำนวน)","bottling_qty","number")}
+        ${pwoField("หน่วยแบ่งบรรจุ (ขวด/ซอง/...)","bottling_unit")}
+        ${pwoField("ปริมาณต่อ 1 หน่วยบรรจุ","qty_per_bottle","number")}
+        ${pwoField("จำนวนที่ผลิตเกิน (สำรอง/ตัวอย่าง)","overproduced_qty","number")}
         <div class="wide"><label>หมายเหตุ</label><input data-pwo-field="notes" value="${esc(d.notes||"")}" onchange="pwoDraft.notes=this.value"></div>
         <div class="wide"><label>รายละเอียดการบรรจุของผลิตภัณฑ์</label><textarea data-pwo-field="packing_summary" onchange="pwoDraft.packing_summary=this.value">${esc(d.packing_summary||"")}</textarea></div>
       </div>
@@ -2894,6 +3157,29 @@ function renderProductionWorkOrderForm(existing){
 
       <h3>ขั้นตอนการทำงาน</h3>
       ${stepsHtml}
+
+      <h3>งบและเวลาการทำงาน (ค่าแรง)</h3>
+      <div class="form-grid">
+        ${pwoObjField("จำนวนคน/Job","labor_budget","labor_count","number")}
+        ${pwoObjField("วันทำงาน/Job","labor_budget","work_days","number")}
+        ${pwoObjField("ค่าแรง (บาท/วัน หรือ บาท/job)","labor_budget","wage_per_job","number")}
+        ${pwoObjField("ค่าแรงที่ได้รับ (บาท)","labor_budget","wage_received","number")}
+        ${pwoObjField("ต้นทุนค่าแรง (บาท)","labor_budget","labor_cost","number")}
+        ${pwoObjField("กำไร/ขาดทุนค่าแรง (บาท)","labor_budget","profit_loss","number")}
+        <div class="wide"><label>หมายเหตุ</label><input value="${esc(d.labor_budget?.notes||"")}" onchange="pwoDraft.labor_budget.notes=this.value"></div>
+      </div>
+
+      <h3>รายการเบิกใช้วัตถุดิบ / สารสกัด</h3>
+      ${materialReqHtml}
+      <button type="button" onclick="pwoAddMaterialReq()">+ เพิ่มรายการเบิกวัตถุดิบ</button>
+
+      <h3>รายการเบิกใช้บรรจุภัณฑ์</h3>
+      ${packagingReqHtml}
+      <button type="button" onclick="pwoAddPackagingReq()">+ เพิ่มรายการเบิกบรรจุภัณฑ์</button>
+
+      <h3>สูตรคำนวณสีเคลือบ (เฉพาะสินค้าเคลือบ)</h3>
+      ${coatingHtml}
+      <button type="button" onclick="pwoAddCoatingRow()">+ เพิ่มรายการสีเคลือบ</button>
 
       <h3>ผู้ลงนาม</h3>
       ${sigHtml}
@@ -2914,6 +3200,12 @@ function pwoAddStep(){pwoDraft.workflow_steps.push({task:"",responsible:"",start
 function pwoRemoveStep(si){pwoDraft.workflow_steps.splice(si,1);pwoRerender();}
 function pwoAddSignature(){pwoDraft.signatures.push({role_label:"",name:"",department:"",date:""});pwoRerender();}
 function pwoRemoveSignature(si){pwoDraft.signatures.splice(si,1);pwoRerender();}
+function pwoAddMaterialReq(){pwoDraft.material_requisitions.push({lot_no:"",item_name:"",qty:"",unit:"",note:""});pwoRerender();}
+function pwoRemoveMaterialReq(ii){pwoDraft.material_requisitions.splice(ii,1);pwoRerender();}
+function pwoAddPackagingReq(){pwoDraft.packaging_requisitions.push({lot_no:"",item_name:"",qty:"",unit:"",note:""});pwoRerender();}
+function pwoRemovePackagingReq(ii){pwoDraft.packaging_requisitions.splice(ii,1);pwoRerender();}
+function pwoAddCoatingRow(){pwoDraft.coating_formula.push({name:"",lot_no:"",test_pct:"",actual_g:"",actual_kg:"",need10_g:"",need10_kg:""});pwoRerender();}
+function pwoRemoveCoatingRow(ii){pwoDraft.coating_formula.splice(ii,1);pwoRerender();}
 async function saveProductionWorkOrder(){
   const order_no=String(pwoDraft.order_no||"").trim();
   if(!order_no){toast("กรอกเลขที่ใบสั่งผลิตก่อน");return;}
@@ -4265,7 +4557,7 @@ async function openDepartmentWorkspace(code){
  SALE:{title:"SALE",text:"รับความต้องการลูกค้าและส่งต่อ R&D",cards:[["F-RD-001 Customer Requirement","รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","openExactForm('F-RD-001')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"],["Product Development","ติดตามโครงการลูกค้า","openPage('projects')"]]},
  ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Job Description","ฟอร์ม JL ต้นฉบับ • สูตร บรรจุภัณฑ์ ผู้รับผิดชอบออกแบบ/อย.","openExactForm('ADMIN-JOB')"],["ต้นทุน/ราคาขาย อุปกรณ์เสริม","ชริ้งค์ฟิล์ม/ฝาฟอยล์/PVC ฯลฯ • ต้นทุนตามสเปค + ราคาขายตามช่วงจำนวน","openAdminPricingPage()"],["ค่าแรง (Rate Card)","ประเภท/จำนวนการบรรจุ x ช่วงจำนวน • แก้ไขได้ พร้อมค้นหาเรท","openAdminLaborRatesPage()"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
  PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["ใบสั่งผลิต (ผลิตจริง)","สร้าง/แก้ไขใบสั่งผลิต พร้อมขั้นตอนงานและผู้ลงนาม","listProductionWorkOrders()"],["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
- STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Stock Card วัตถุดิบ","ต่อ Lot ตามรหัสวัตถุดิบ • ตัดสตอครับเข้า/เบิกออก/คืน","openStockCardPage()"],["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"],["ใบขอซื้อ (PR)","ขอซื้อวัตถุดิบจากจัดซื้อ","listPurchaseDocs('PR')"]]},
+ STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Stock Card วัตถุดิบ","ต่อ Lot ตามรหัสวัตถุดิบ • ตัดสตอครับเข้า/เบิกออก/คืน","openStockCardPage()"],["Stock Card สำเร็จรูป","ต่อ Lot ตามเลขที่สั่งผลิต • ตัดสตอครับเข้าจากผลิต/เบิกออกให้จัดส่ง","openFinishedGoodsStockPage()"],["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"],["ใบขอซื้อ (PR)","ขอซื้อวัตถุดิบจากจัดซื้อ","listPurchaseDocs('PR')"]]},
  PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["เตรียมระบบ (บรรจุภัณฑ์ต่องาน)","รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / จำนวน / หน่วย / ราคา / ราคาขาย","openPackagingPrepPage()"],["บรรจุภัณฑ์ตามประเภท","สติ๊กเกอร์ / ซองอลูมิเนียม / ม้วนอลูมิเนียม / กล่อง • เลือกใช้งานส่งเข้าเตรียมระบบได้","openPackagingOptionsPage()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"],["ใบสั่งซื้อ (PO)","ส่งให้ผู้จำหน่ายภายนอก","listPurchaseDocs('PO')"],["ใบขอซื้อ (PR)","ที่คลังส่งเข้ามา","listPurchaseDocs('PR')"]]},
  PRODUCTION:{title:"PRODUCTION",text:"สูตรผลิตและคำสั่งผลิต",cards:[["สูตรผลิต","F-RD-002.1","openExactForm('F-RD-002.1')"],["Production / MRP","คำสั่งผลิต","openPage('production')"]]},
  QUALITY:{title:"QUALITY",text:"ระบบคุณภาพ เอกสาร และการขึ้นทะเบียน",cards:[["Registration / FDA","สูตรขึ้นทะเบียน","openPage('registration')"],["Quality Data","ให้ใส่ Data สำหรับ QUALITY","openDepartmentPlaceholder('QUALITY')"]]},
