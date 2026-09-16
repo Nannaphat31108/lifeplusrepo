@@ -13,7 +13,7 @@
     {
       "cell": "H9",
       "key": "product_category",
-      "type": "select",
+      "type": "text_select",
       "options": [
         "แคปซูล",
         "ตอกเม็ด",

@@ -1,3 +1,79 @@
+## v31.59 — Exact-form fit-to-screen, Package Database รหัส/ต้นทุน/หมวด, AI Formula draft persistence
+
+Bundle of 5 screenshot-driven fixes from one multi-part request (2 more
+parts of that same request -- supplier tax-ID history + PR/PO linking --
+are being shipped in a separate, larger follow-up PR right after this one).
+
+- **Exact-form grid no longer needs horizontal scrolling** (screenshot 1:
+  the ADMIN-QP ingredient row's scrollbar). Every exact form (F-RD-00x,
+  ADMIN-QP/INVOICE/JOB) is a pixel-exact replica of its original Excel
+  sheet, so some are 45+ columns wide -- wider than any screen. Added
+  `fitExactFormGrid()`: measures the table's natural width against the
+  available viewport width and applies a CSS `transform:scale()` (wrapped
+  in a sized `.excel-sheet-fit` div with `overflow:hidden` so the scaled
+  box, not the pre-transform one, is what the scroll container sees) so
+  the whole sheet always fits with zero side-scroll, re-run on window
+  resize. Trade-off, stated plainly: a very wide sheet (F-RD-001 needed
+  ~0.35x) renders with correspondingly small text -- browser zoom
+  (Ctrl/Cmd +) still works normally on top of it if that's too small to
+  read comfortably; there's no artificial floor stopping the scale from
+  going that low, since a floor would just bring back the scrolling this
+  was built to remove.
+- **F-RD-001's ประเภทของผลิตภัณฑ์ field now lets you type your own value**
+  (screenshot 2 -- best-effort read of a hand-drawn annotation, since the
+  referenced cells only decode to "ทำเอง"/"ย้ายมาตรงนี้" this precisely
+  with real sheet data behind them; flagged to the user in case the
+  intended target was something else). It was a fixed `<select>` limited
+  to 6 preset options (แคปซูล/ตอกเม็ด/ชงดื่ม/กรอกปาก/เม็ดฟู่/อื่นๆ); new
+  `text_select` field type keeps those as `<datalist>` suggestions but no
+  longer blocks a custom typed value.
+- **Removed the instructional note baked into F-RD-002.1** (screenshot 3:
+  "จะส่งให้แพลนนิ่งผลิต / เป็นไฟล์สำหรับคำนวณต้นทุนสาร" at cells AS13/AS14)
+  -- blanked those two cells' text in `exact_forms.json`.
+- **Screenshot 4 (missing ADMIN checkbox in ส่งงานไปแผนกอื่น) turned out
+  not to be a bug**: `ALL_DEPARTMENTS` already includes ADMIN, and
+  `/api/work-handoffs/departments` already excludes only the caller's
+  *own* department (sending work to yourself is meaningless) -- the
+  screenshot was taken while logged in as an ADMIN-department account, so
+  ADMIN was correctly excluded as "self", the same as it would be for any
+  other department's own user. No code change; confirmed by reading both
+  the endpoint and its `_caller_department()` logic.
+- **Package Database (screenshot 5)**: added `item_code` (รหัส) --
+  new column, existing "ต้นทุน" backend field (already there, already
+  editable, just never displayed) now shown as its own table column next
+  to the existing "ราคา (ต้นทุน+20%)", a category filter dropdown (fed by
+  the already-existing `/api/packaging/categories` endpoint -- the data
+  was already meaningfully sub-categorized, กระปุก/กระปุกครีม/หลอดบีบ/etc.,
+  it just weren't filterable in the UI), and a `#packageDbTable`-scoped
+  `table-layout:fixed` with per-column widths tuned to actual content so
+  columns line up evenly instead of the ragged blank space in the
+  screenshot. `packaging_items.item_code` added via the same
+  ensure-column-on-existing-databases pattern as the earlier image
+  columns (`ensure_packaging_item_code_column()` in main.py).
+- **AI Formula Assistant modal (เลือกสาร flow) now survives being closed**:
+  previously every typed field (objective/requirement/etc.) and any
+  already-generated AI draft lived only in the modal's DOM, so closing it
+  -- even by accident -- meant retyping everything from scratch. Moved to
+  a `window.aiFormulaState` object keyed by form code (same principle as
+  `pwoDraft`), restored on reopen; reopening with an existing draft
+  re-shows it immediately without re-calling the AI. Also added a
+  **"Save As Excel"** button next to "นำสารที่ AI เลือกใส่ฟอร์ม" --
+  `POST /api/ai/formula-draft/export` builds an .xlsx of the drafted
+  ingredient list via openpyxl, for when R&D wants to keep/share the
+  draft as a file rather than only applying it straight into the form.
+
+Verified via curl (packaging item_code round-trip, categories endpoint,
+AI draft export producing a real .xlsx with correct rows) and a real-
+browser Playwright pass: confirmed `excel-sheet-scroll.scrollWidth ===
+clientWidth` (zero overflow) on F-RD-001 after the fit-to-screen fix,
+typed-and-persisted a custom product_category value, confirmed the
+AS13/14 sentence is gone from F-RD-002.1, confirmed Package Database's
+new headers/category filter/item_code editor field, and confirmed the AI
+Formula modal's objective text survives a close+reopen cycle plus a
+working Save As Excel download -- zero console/page errors throughout.
+
+Cache-busting version bumped to 31.59.
+
 ## v31.58 — "ทำต่อให้ครบ": Stock Card สำเร็จรูป + ใบสั่งผลิต attachment sections
 
 Completes the two pieces explicitly deferred at the end of the v31.55–v31.57

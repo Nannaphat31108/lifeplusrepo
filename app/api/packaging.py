@@ -41,6 +41,7 @@ class PackagingTierPayload(BaseModel):
 
 class PackagingItemPayload(BaseModel):
     category: Optional[str] = None
+    item_code: Optional[str] = None
     spec: str
     official_name: Optional[str] = None
     cost: Optional[float] = None
@@ -74,6 +75,7 @@ def serialize(x: PackagingItem) -> dict:
     return {
         "id": x.id,
         "category": x.category or "",
+        "item_code": x.item_code or "",
         "spec": x.spec or "",
         "official_name": x.official_name or "",
         "cost": float(x.cost) if x.cost is not None else None,
@@ -145,7 +147,7 @@ def create_packaging(
     _=Depends(require_roles("ADMIN", "PURCHASE")),
 ):
     x = PackagingItem(
-        category=p.category, spec=p.spec, official_name=p.official_name,
+        category=p.category, item_code=p.item_code, spec=p.spec, official_name=p.official_name,
         cost=p.cost, supplier=p.supplier, rate=p.rate,
         lead_time=p.lead_time, packing=p.packing,
         tiers_json=json.dumps([t.model_dump() for t in p.tiers], ensure_ascii=False) if p.tiers else None,
@@ -165,6 +167,7 @@ def update_packaging(
     if not x:
         raise HTTPException(404, "Packaging item not found")
     x.category = p.category
+    x.item_code = p.item_code
     x.spec = p.spec
     x.official_name = p.official_name
     x.cost = p.cost

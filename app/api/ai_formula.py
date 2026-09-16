@@ -34,6 +34,22 @@ class FormulaDraftRequest(BaseModel):
     notes: str | None = None
 
 
+class FormulaDraftIngredient(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    reason: str | None = None
+    supplier: str | None = None
+    import_country: str | None = None
+    price_kg: float | None = None
+    halal: str | None = None
+
+
+class FormulaDraftExportRequest(BaseModel):
+    form_code: str
+    product_name: str | None = None
+    ingredients: list[FormulaDraftIngredient] = []
+
+
 class FormulaFeedbackItem(BaseModel):
     material_code: str
     material_name: str | None = None
@@ -390,3 +406,40 @@ def formula_status(user=Depends(get_current_user)):
         "feedback_learning": True,
         "feedback_rule": "empty comment = accepted; comment = negative reviewer feedback",
     }
+
+
+@router.post("/formula-draft/export")
+def export_formula_draft(req: FormulaDraftExportRequest, user=Depends(get_current_user)):
+    """Save-as: lets R&D download the AI-drafted ingredient list as an
+    .xlsx file (e.g. to share outside the app) instead of only being able
+    to apply it directly into the exact-form grid."""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from fastapi.responses import StreamingResponse
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "AI Formula Draft"
+    headers = ["#", "Code", "สาร", "เหตุผลที่เสนอ", "Supplier", "Import", "ราคา/kg", "Halal"]
+    ws.append([f"AI Formula Draft — {req.form_code} — {req.product_name or ''}"])
+    ws["A1"].font = Font(bold=True, size=13)
+    ws.append([])
+    ws.append(headers)
+    for c in ws[3]:
+        c.font = Font(bold=True)
+    for i, ing in enumerate(req.ingredients, start=1):
+        ws.append([i, ing.code or "", ing.name or "", ing.reason or "", ing.supplier or "",
+                    ing.import_country or "", ing.price_kg, ing.halal or ""])
+    for col, width in zip("ABCDEFGH", [4, 12, 28, 32, 20, 12, 10, 10]):
+        ws.column_dimensions[col].width = width
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    safe = re.sub(r'[^A-Za-z0-9._-]+', '_', str(req.product_name or req.form_code)).strip('_') or "draft"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="AI_Formula_Draft_{safe}.xlsx"'}
+    )

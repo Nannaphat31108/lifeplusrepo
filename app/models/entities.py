@@ -317,6 +317,7 @@ class PackagingItem(Base, TimestampMixin):
     __tablename__ = "packaging_items"
     id: Mapped[int] = mapped_column(primary_key=True)
     category: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    item_code: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)  # รหัส
     spec: Mapped[str] = mapped_column(String(500), index=True)
     official_name: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6), nullable=True)
