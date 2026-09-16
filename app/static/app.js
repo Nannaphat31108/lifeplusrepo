@@ -187,13 +187,19 @@ async function renderDashboard(){
 }
 
 async function renderProjects(){cache.projects=await api("/api/final/projects-full");const rows=cache.projects.map(x=>`<tr><td>${esc(x.project_no)}</td><td>${esc(x.customer)}</td><td>${esc(x.product_name)}</td><td>${(x.supplements||[]).map(v=>`<div><b>${esc(v.code)}</b> ${esc(v.name)} — ${v.amount} ${esc(v.unit)}</div>`).join("")||'<span class="need-data">ให้ใส่ Data</span>'}</td><td>${x.target_quantity??"-"}</td><td>${statusBadge(x.status)}</td></tr>`);$("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input class="search" placeholder="Search project..." oninput="filterTable(this)"><div class="actions"><button class="secondary" onclick="exportExcel('/api/export/all.xlsx')">Export Excel</button><button class="primary" onclick="projectForm()">+ New Project</button></div></div>${table(["Project","Customer","Product","รหัสอาหารเสริม + ปริมาณ","Target Qty","Status"],rows)}</div>`}
-async function exportExcel(path){
+async function exportExcel(path,opts){
   try{
     const headers={Authorization:"Bearer "+token};
     if(window.currentPersonAccess?.person_key){
       headers["X-Person-Key"]=window.currentPersonAccess.person_key;
     }
-    const r=await fetch(path,{headers});
+    const fetchOpts={headers};
+    if(opts?.method && opts.method!=="GET"){
+      fetchOpts.method=opts.method;
+      headers["Content-Type"]="application/json";
+      fetchOpts.body=JSON.stringify(opts.body||{});
+    }
+    const r=await fetch(path,fetchOpts);
     if(!r.ok){
       let msg="Export failed";
       try{
@@ -1190,14 +1196,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.58",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.59",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.58",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.59",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -1288,6 +1294,13 @@ function exactInput(field,addr,cellValue){
  const common=`class="excel-input" data-addr="${addr}" ${field.key?`data-key="${field.key}"`:""} ${field.group?`data-group="${field.group}" data-index="${field.index}" data-sub="${field.sub}"`:""}`;
  const placeholder=field.placeholder||"พิมพ์ข้อมูล";
  if(field.type==="select") return `<select ${common}><option value="">เลือก/แก้ไข</option>${(field.options||[]).map(x=>`<option ${String(cellValue)==String(x)?"selected":""}>${esc(x)}</option>`).join("")}</select>`;
+ // Same idea as "select" but lets the user type their own value instead
+ // of being limited to the preset list -- the list is offered as
+ // suggestions via <datalist>, not enforced.
+ if(field.type==="text_select"){
+   const listId=`exactTextSelect_${addr}`;
+   return `<input ${common} type="text" list="${listId}" value="${esc(cellValue||"")}" placeholder="${esc(placeholder)}"><datalist id="${listId}">${(field.options||[]).map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
+ }
  if(field.type==="date_today") return `<input ${common} type="date" value="${new Date().toISOString().slice(0,10)}">`;
  if(field.type==="date") return `<input ${common} type="date">`;
  if(field.type==="date_text") return `<input ${common} type="text" inputmode="numeric" placeholder="DD/MM/YYYY" oninput="this.value=this.value.replace(/[^0-9\/\-]/g,'')">`;
@@ -1785,22 +1798,32 @@ async function openPackageDatabase(){
   await loadExactAssets();
   const rows=window.packageCatalogData||[];
   const canManage=["ADMIN","PURCHASE"].includes(me?.role);
+  const categories=[...new Set(rows.map(x=>String(x.category||"").trim()).filter(Boolean))].sort();
   $("pageTitle").textContent="Package Database";
   $("pageSubtitle").textContent="ราคาจริง = ต้นทุน + 20% • พิมพ์ค้นหาได้ทันที";
-  $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input id="packageDbSearch" class="search" placeholder="พิมพ์ค้นหา สเปค / ชื่อทางการ / ประเภท / Supplier..." oninput="filterPackageDatabase()"><span>${rows.length} รายการ</span>${canManage?'<button class="primary" onclick="openPackageItemEditor()">+ เพิ่มรายการ</button>':""}</div><div id="packageDbEditor"></div><div id="packageDbTable"></div></div>`;
+  $("pageContent").innerHTML=`<div class="card"><div class="toolbar">
+    <input id="packageDbSearch" class="search" placeholder="พิมพ์ค้นหา รหัส / สเปค / ชื่อทางการ / ประเภท / Supplier..." oninput="filterPackageDatabase()">
+    <select id="packageDbCategory" onchange="filterPackageDatabase()"><option value="">ทุกหมวด</option>${categories.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("")}</select>
+    <span id="packageDbCount">${rows.length} รายการ</span>${canManage?'<button class="primary" onclick="openPackageItemEditor()">+ เพิ่มรายการ</button>':""}</div><div id="packageDbEditor"></div><div id="packageDbTable"></div></div>`;
   renderPackageDatabase(rows);
 }
 function renderPackageDatabase(rows){
   const canManage=["ADMIN","PURCHASE"].includes(me?.role);
-  const out=(rows||[]).map(x=>`<tr><td>${x.image_url?`<img class="pkg-thumb" src="${esc(x.image_url)}" alt="${esc(x.spec||"")}">`:'<span class="muted">ไม่มีรูป</span>'}</td><td>${esc(x.category||"")}</td><td>${esc(x.spec||"")}</td><td>${esc(x.official_name||"")}</td><td>${esc(x.rate??"")}</td><td>${x.price??""}</td><td>${esc(x.lead_time??"")}</td><td>${esc(x.packing??"")}</td><td>${esc(x.supplier??"")}</td>${canManage?`<td class="mini-actions"><button onclick="openPackageItemEditor(${x.id})">แก้ไข</button><button onclick="deletePackageItem(${x.id})">ลบ</button></td>`:""}</tr>`);
-  const headers=["รูป","ประเภท","สเปค","ชื่อทางการ","เรท","ราคา (ต้นทุน+20%)","ระยะเวลา","การบรรจุ","Supplier"];
+  const countEl=document.getElementById("packageDbCount");
+  if(countEl)countEl.textContent=`${rows.length} รายการ`;
+  const out=(rows||[]).map(x=>`<tr><td>${x.image_url?`<img class="pkg-thumb" src="${esc(x.image_url)}" alt="${esc(x.spec||"")}">`:'<span class="muted">ไม่มีรูป</span>'}</td><td>${esc(x.item_code||"")}</td><td>${esc(x.category||"")}</td><td>${esc(x.spec||"")}</td><td>${esc(x.official_name||"")}</td><td>${esc(x.rate??"")}</td><td>${x.cost??""}</td><td>${x.price??""}</td><td>${esc(x.lead_time??"")}</td><td>${esc(x.packing??"")}</td><td>${esc(x.supplier??"")}</td>${canManage?`<td class="mini-actions"><button onclick="openPackageItemEditor(${x.id})">แก้ไข</button><button onclick="deletePackageItem(${x.id})">ลบ</button></td>`:""}</tr>`);
+  const headers=["รูป","รหัส","ประเภท","สเปค","ชื่อทางการ","เรท","ต้นทุน","ราคา (ต้นทุน+20%)","ระยะเวลา","การบรรจุ","Supplier"];
   if(canManage)headers.push("จัดการ");
   const box=document.getElementById("packageDbTable");
   if(box)box.innerHTML=table(headers,out);
 }
 function filterPackageDatabase(){
   const q=String(document.getElementById("packageDbSearch")?.value||"").trim().toLowerCase();
-  const rows=(window.packageCatalogData||[]).filter(x=>!q||JSON.stringify(x).toLowerCase().includes(q));
+  const cat=String(document.getElementById("packageDbCategory")?.value||"").trim();
+  const rows=(window.packageCatalogData||[]).filter(x=>
+    (!cat || String(x.category||"").trim()===cat) &&
+    (!q || JSON.stringify(x).toLowerCase().includes(q))
+  );
   renderPackageDatabase(rows);
 }
 
@@ -1814,7 +1837,8 @@ function openPackageItemEditor(id=null){
     <div class="fda-editor">
       <div class="fda-editor-title">${id?"แก้ไข Package":"เพิ่ม Package ใหม่"}</div>
       <div class="fda-editor-grid">
-        <div class="fda-field"><label>ประเภท</label><input id="pkg_category" value="${esc(d.category||"")}"></div>
+        <div class="fda-field"><label>รหัส</label><input id="pkg_item_code" value="${esc(d.item_code||"")}" placeholder="เช่น BOTCM022"></div>
+        <div class="fda-field"><label>ประเภท</label><input id="pkg_category" list="packageDbCategoryList" value="${esc(d.category||"")}" placeholder="เช่น กระปุก, หลอด"></div>
         <div class="fda-field"><label>สเปค</label><input id="pkg_spec" value="${esc(d.spec||"")}"></div>
         <div class="fda-field"><label>ชื่อทางการของบรรจุภัณฑ์</label><input id="pkg_official_name" value="${esc(d.official_name||"")}"></div>
         <div class="fda-field"><label>ต้นทุน</label><input id="pkg_cost" type="number" step="0.01" value="${esc(d.cost??"")}"></div>
@@ -1828,6 +1852,7 @@ function openPackageItemEditor(id=null){
           ${d.image_url?`<img class="pkg-thumb" id="pkg_image_preview" src="${esc(d.image_url)}" alt="">`:""}
         </div>
       </div>
+      <datalist id="packageDbCategoryList">${[...new Set((window.packageCatalogData||[]).map(x=>String(x.category||"").trim()).filter(Boolean))].sort().map(c=>`<option value="${esc(c)}">`).join("")}</datalist>
       <div class="actions">
         <button class="primary" onclick="savePackageItem()">บันทึก</button>
         <button onclick="closePackageItemEditor()">ยกเลิก</button>
@@ -1859,6 +1884,7 @@ async function savePackageItem(){
   if(!spec){toast("กรอกสเปคก่อน");return;}
   const payload={
     category:val("pkg_category")||null,
+    item_code:val("pkg_item_code")||null,
     spec,
     official_name:val("pkg_official_name")||null,
     cost:val("pkg_cost")?Number(val("pkg_cost")):null,
@@ -3372,7 +3398,7 @@ async function openPrivateExactForm(code){
 
     <div id="exactFormTabMain">
     <div class="excel-sheet-scroll">
-      <table class="excel-sheet">${cols}<tbody>${rows}</tbody></table>
+      <div class="excel-sheet-fit" id="excelSheetFit"><table class="excel-sheet" id="excelSheetTable">${cols}<tbody>${rows}</tbody></table></div>
     </div>
     </div>
 
@@ -3405,6 +3431,40 @@ async function openPrivateExactForm(code){
     setTimeout(()=>linkFDAForExactFormula(false),600);
   }
   if(isQPLikeForm(code)) setTimeout(recalculateAdminQP,0);
+  // Every exact form is a pixel-exact replica of a wide Excel sheet, so
+  // it's naturally wider than any screen -- scale it down to fit the
+  // available width instead of forcing left/right scrolling to reach
+  // far columns. Runs after the browser has laid out the table (needs a
+  // real offsetWidth), and again on resize.
+  setTimeout(fitExactFormGrid,0);
+}
+let exactFormGridResizeBound=false;
+function fitExactFormGrid(){
+  const scroller=document.querySelector(".excel-sheet-scroll");
+  const fit=document.getElementById("excelSheetFit");
+  const tableEl=document.getElementById("excelSheetTable");
+  if(!scroller||!fit||!tableEl)return;
+  // Reset before measuring -- otherwise a previous scale from an earlier
+  // render/resize would be baked into offsetWidth/offsetHeight.
+  tableEl.style.transform="none";
+  fit.style.width="";
+  fit.style.height="";
+  const naturalWidth=tableEl.offsetWidth;
+  const naturalHeight=tableEl.offsetHeight;
+  const scrollerStyle=getComputedStyle(scroller);
+  const availWidth=scroller.clientWidth-parseFloat(scrollerStyle.paddingLeft||0)-parseFloat(scrollerStyle.paddingRight||0)-2;
+  if(naturalWidth<=0||availWidth<=0)return;
+  // No floor: the whole point is that this sheet never needs horizontal
+  // scrolling, however many columns wide the original Excel layout is.
+  const scale=Math.min(1,availWidth/naturalWidth);
+  tableEl.style.transform=`scale(${scale})`;
+  fit.style.width=Math.ceil(naturalWidth*scale)+"px";
+  fit.style.height=Math.ceil(naturalHeight*scale)+"px";
+  if(!exactFormGridResizeBound){
+    exactFormGridResizeBound=true;
+    let resizeTimer=null;
+    window.addEventListener("resize",()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(fitExactFormGrid,150);});
+  }
 }
 
 function buildAliasPanel(code){ return ""; }
@@ -4687,9 +4747,19 @@ function setIngredientAuto(i,sub,value,digits=6){
 }
 
 
-let lastAIFormulaDraft=null;
-let lastAIFormulaContext=null;
-let lastAIFormulaFeedbackSaved=false;
+// Per form-code state, kept alive on `window` across modal close/reopen --
+// otherwise closing this modal (even by accident) discarded everything
+// typed plus any AI draft already generated, forcing a full retype. Same
+// "in-memory draft object, survives re-render" principle used for
+// pwoDraft, just keyed by form code since two forms (F-RD-002/002.1) can
+// each be mid-draft independently.
+window.aiFormulaState=window.aiFormulaState||{};
+function aiFormulaStateFor(code){
+  if(!window.aiFormulaState[code])window.aiFormulaState[code]={fields:{},draft:null,context:null,feedbackSaved:false,feedbackComments:{}};
+  return window.aiFormulaState[code];
+}
+function aiSetField(code,key,val){aiFormulaStateFor(code).fields[key]=val;}
+function aiSetFeedbackComment(code,i,val){aiFormulaStateFor(code).feedbackComments[i]=val;}
 
 function formValueByKey(key){
   return document.querySelector(`.excel-input[data-key="${key}"]`)?.value||"";
@@ -4697,22 +4767,28 @@ function formValueByKey(key){
 
 async function openAIFormulaAssistant(code){
   if(code!=="F-RD-002" && code!=="F-RD-002.1")return;
-  const count=Math.max(1,Number(window.formulaIngredientCount?.[code]||5));
+  const state=aiFormulaStateFor(code);
+  const f=state.fields;
+  const count=Math.max(1,Number(f.desired_ingredient_count||window.formulaIngredientCount?.[code]||5));
   openModal(`AI คิดสูตรร่าง — ${code}`,`
     <div class="ai-formula-modal">
       <div class="ai-safe-note">AI จะเลือกสารจากฐานรหัสสารจริงในระบบ แต่จะไม่กำหนดปริมาณรับประทานหรือ mg แทน R&D</div>
       <div class="form-grid">
-        <div><label>ชื่อผลิตภัณฑ์</label><input id="ai_product_name" value="${esc(formValueByKey("product_name_fda"))}" placeholder="เช่น Brain Support"></div>
-        <div><label>ประเภทผลิตภัณฑ์</label><input id="ai_product_type" value="${esc(formValueByKey("product_type"))}" placeholder="Capsule / Powder / Tablet ..."></div>
-        <div class="wide"><label>เป้าหมาย / Concept</label><textarea id="ai_objective" placeholder="อธิบายสิ่งที่ต้องการให้ AI ช่วยเลือกสาร"></textarea></div>
-        <div class="wide"><label>Requirement ลูกค้า</label><textarea id="ai_requirement" placeholder="เงื่อนไขจากลูกค้า เช่น รูปแบบสินค้า กลุ่มวัตถุดิบที่ต้องการ/ไม่ต้องการ"></textarea></div>
-        <div><label>จำนวนสารที่ต้องการในสูตรร่าง</label><input id="ai_count" type="number" min="1" step="1" value="${count}"></div>
-        <div><label>ราคาเป้าหมาย (ถ้ามี)</label><input id="ai_target_price" type="number" step="0.01" placeholder="บาท/หน่วย"></div>
-        <div class="wide"><label>หมายเหตุเพิ่มเติม</label><textarea id="ai_notes" placeholder="เช่น ต้องการ Halal, หลีกเลี่ยงวัตถุดิบบางประเภท"></textarea></div>
+        <div><label>ชื่อผลิตภัณฑ์</label><input id="ai_product_name" value="${esc(f.product_name??formValueByKey("product_name_fda"))}" placeholder="เช่น Brain Support" oninput="aiSetField('${code}','product_name',this.value)"></div>
+        <div><label>ประเภทผลิตภัณฑ์</label><input id="ai_product_type" value="${esc(f.product_type??formValueByKey("product_type"))}" placeholder="Capsule / Powder / Tablet ..." oninput="aiSetField('${code}','product_type',this.value)"></div>
+        <div class="wide"><label>เป้าหมาย / Concept</label><textarea id="ai_objective" placeholder="อธิบายสิ่งที่ต้องการให้ AI ช่วยเลือกสาร" oninput="aiSetField('${code}','objective',this.value)">${esc(f.objective||"")}</textarea></div>
+        <div class="wide"><label>Requirement ลูกค้า</label><textarea id="ai_requirement" placeholder="เงื่อนไขจากลูกค้า เช่น รูปแบบสินค้า กลุ่มวัตถุดิบที่ต้องการ/ไม่ต้องการ" oninput="aiSetField('${code}','customer_requirement',this.value)">${esc(f.customer_requirement||"")}</textarea></div>
+        <div><label>จำนวนสารที่ต้องการในสูตรร่าง</label><input id="ai_count" type="number" min="1" step="1" value="${count}" oninput="aiSetField('${code}','desired_ingredient_count',this.value)"></div>
+        <div><label>ราคาเป้าหมาย (ถ้ามี)</label><input id="ai_target_price" type="number" step="0.01" placeholder="บาท/หน่วย" value="${esc(f.target_price??"")}" oninput="aiSetField('${code}','target_price',this.value)"></div>
+        <div class="wide"><label>หมายเหตุเพิ่มเติม</label><textarea id="ai_notes" placeholder="เช่น ต้องการ Halal, หลีกเลี่ยงวัตถุดิบบางประเภท" oninput="aiSetField('${code}','notes',this.value)">${esc(f.notes||"")}</textarea></div>
       </div>
       <div class="ai-actions"><button class="primary" onclick="generateAIFormulaDraft('${code}')">ให้ AI คิดสูตรร่าง</button></div>
       <div id="aiFormulaResult"></div>
     </div>`);
+  // A draft from earlier this session (before the modal was closed) is
+  // still in state -- show it again immediately instead of making R&D
+  // regenerate it.
+  if(state.draft)renderAIFormulaResult(code,state.draft);
 }
 
 async function generateAIFormulaDraft(code){
@@ -4730,54 +4806,82 @@ async function generateAIFormulaDraft(code){
       notes:document.getElementById("ai_notes")?.value||null
     };
     const data=await api("/api/ai/formula-draft",{method:"POST",body:requestBody});
-    lastAIFormulaDraft=data;
-    lastAIFormulaContext=requestBody;
-    lastAIFormulaFeedbackSaved=false;
-
-    const rows=(data.ingredients||[]).map((x,i)=>`<tr>
-      <td>${i+1}</td>
-      <td><b>${esc(x.variant_code||x.code||"")}</b></td>
-      <td>${esc(x.name||"")}</td>
-      <td>${esc(x.reason||"")}</td>
-      <td>${esc(x.supplier||"")}</td>
-      <td>${esc(x.import_country||"")}</td>
-      <td>${x.price_kg??"-"}</td>
-      <td>${esc(x.halal||"")}</td>
-      <td><span class="need-data">R&D ใส่เอง</span></td>
-      <td class="ai-feedback-cell">
-        <textarea data-ai-feedback="${i}" placeholder="เว้นว่าง = ถูกต้อง / ถ้าผิดให้บอกเหตุผล เช่น ไม่ควรเสนอสารนี้เพราะ..."></textarea>
-      </td>
-    </tr>`).join("");
-
-    box.innerHTML=`
-      <div class="ai-result-card">
-        <div class="ai-result-head">
-          <b>${data.mode==="openai"?"AI Formula Draft":"AI-assisted Draft"}</b>
-          <span>${esc(data.summary||"")}</span>
-        </div>
-        <div class="ai-learning-note">
-          AI ใช้ Feedback ที่เกี่ยวข้อง ${Number(data.feedback_examples_used||0)} รายการในการคิดครั้งนี้<br>
-          <b>กติกา:</b> ไม่คอมเมนต์ = สารนี้ถูกต้องในบริบทนี้ • มีคอมเมนต์ = บันทึกเป็นข้อผิดพลาดให้ AI เรียนรู้
-        </div>
-        <div class="table-wrap"><table><thead><tr>
-          <th>#</th><th>Code</th><th>สาร</th><th>เหตุผลที่เสนอ</th><th>Supplier</th><th>Import</th><th>ราคา/kg</th><th>Halal</th><th>ปริมาณ</th><th>คอมเมนต์สอน AI</th>
-        </tr></thead><tbody>${rows}</tbody></table></div>
-        <div class="ai-warning-list">${(data.warnings||[]).map(w=>`<div>• ${esc(w)}</div>`).join("")}</div>
-        <div class="ai-actions">
-          <button onclick="saveAIFormulaFeedback('${code}')">บันทึก Feedback ให้ AI</button>
-          <button class="primary" onclick="applyAIFormulaDraft('${code}')">นำสารที่ AI เลือกใส่ฟอร์ม</button>
-        </div>
-        <div id="aiFeedbackStatus"></div>
-      </div>`;
+    const state=aiFormulaStateFor(code);
+    state.draft=data;
+    state.context=requestBody;
+    state.feedbackSaved=false;
+    state.feedbackComments={};
+    renderAIFormulaResult(code,data);
   }catch(e){
     box.innerHTML=`<div class="card error">${esc(e.message||String(e))}</div>`;
   }
 }
 
-async function saveAIFormulaFeedback(code,quiet=false){
-  if(!lastAIFormulaDraft?.ingredients?.length || !lastAIFormulaContext)return null;
+function renderAIFormulaResult(code,data){
+  const box=document.getElementById("aiFormulaResult");
+  if(!box)return;
+  const state=aiFormulaStateFor(code);
+
+  const rows=(data.ingredients||[]).map((x,i)=>`<tr>
+    <td>${i+1}</td>
+    <td><b>${esc(x.variant_code||x.code||"")}</b></td>
+    <td>${esc(x.name||"")}</td>
+    <td>${esc(x.reason||"")}</td>
+    <td>${esc(x.supplier||"")}</td>
+    <td>${esc(x.import_country||"")}</td>
+    <td>${x.price_kg??"-"}</td>
+    <td>${esc(x.halal||"")}</td>
+    <td><span class="need-data">R&D ใส่เอง</span></td>
+    <td class="ai-feedback-cell">
+      <textarea data-ai-feedback="${i}" placeholder="เว้นว่าง = ถูกต้อง / ถ้าผิดให้บอกเหตุผล เช่น ไม่ควรเสนอสารนี้เพราะ..." oninput="aiSetFeedbackComment('${code}',${i},this.value)">${esc(state.feedbackComments[i]||"")}</textarea>
+    </td>
+  </tr>`).join("");
+
+  box.innerHTML=`
+    <div class="ai-result-card">
+      <div class="ai-result-head">
+        <b>${data.mode==="openai"?"AI Formula Draft":"AI-assisted Draft"}</b>
+        <span>${esc(data.summary||"")}</span>
+      </div>
+      <div class="ai-learning-note">
+        AI ใช้ Feedback ที่เกี่ยวข้อง ${Number(data.feedback_examples_used||0)} รายการในการคิดครั้งนี้<br>
+        <b>กติกา:</b> ไม่คอมเมนต์ = สารนี้ถูกต้องในบริบทนี้ • มีคอมเมนต์ = บันทึกเป็นข้อผิดพลาดให้ AI เรียนรู้
+      </div>
+      <div class="table-wrap"><table><thead><tr>
+        <th>#</th><th>Code</th><th>สาร</th><th>เหตุผลที่เสนอ</th><th>Supplier</th><th>Import</th><th>ราคา/kg</th><th>Halal</th><th>ปริมาณ</th><th>คอมเมนต์สอน AI</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="ai-warning-list">${(data.warnings||[]).map(w=>`<div>• ${esc(w)}</div>`).join("")}</div>
+      <div class="ai-actions">
+        <button onclick="saveAIFormulaFeedback('${code}')">บันทึก Feedback ให้ AI</button>
+        <button onclick="exportAIFormulaDraft('${code}')">Save As Excel</button>
+        <button class="primary" onclick="applyAIFormulaDraft('${code}')">นำสารที่ AI เลือกใส่ฟอร์ม</button>
+      </div>
+      <div id="aiFeedbackStatus"></div>
+    </div>`;
+}
+
+async function exportAIFormulaDraft(code){
+  const state=aiFormulaStateFor(code);
+  const ingredients=state.draft?.ingredients||[];
+  if(!ingredients.length){toast("ยังไม่มีสูตรร่างให้บันทึก");return;}
   try{
-    const items=lastAIFormulaDraft.ingredients.map((x,i)=>(
+    await exportExcel("/api/ai/formula-draft/export",{method:"POST",body:{
+      form_code:code,
+      product_name:state.context?.product_name||state.fields?.product_name||"",
+      ingredients:ingredients.map(x=>({
+        code:x.variant_code||x.code||"",name:x.name||"",reason:x.reason||"",
+        supplier:x.supplier||"",import_country:x.import_country||"",
+        price_kg:x.price_kg??null,halal:x.halal||"",
+      })),
+    }});
+  }catch(e){toast("บันทึกไฟล์ไม่สำเร็จ: "+(e?.message||e));}
+}
+
+async function saveAIFormulaFeedback(code,quiet=false){
+  const state=aiFormulaStateFor(code);
+  if(!state.draft?.ingredients?.length || !state.context)return null;
+  try{
+    const items=state.draft.ingredients.map((x,i)=>(
       {
         material_code:x.code||"",
         material_name:x.name||"",
@@ -4787,13 +4891,13 @@ async function saveAIFormulaFeedback(code,quiet=false){
     ));
     const result=await api("/api/ai/formula-feedback",{method:"POST",body:{
       form_code:code,
-      product_name:lastAIFormulaContext.product_name,
-      product_type:lastAIFormulaContext.product_type,
-      objective:lastAIFormulaContext.objective,
-      customer_requirement:lastAIFormulaContext.customer_requirement,
+      product_name:state.context.product_name,
+      product_type:state.context.product_type,
+      objective:state.context.objective,
+      customer_requirement:state.context.customer_requirement,
       items
     }});
-    lastAIFormulaFeedbackSaved=true;
+    state.feedbackSaved=true;
     const status=document.getElementById("aiFeedbackStatus");
     if(status)status.innerHTML=`<div class="ai-feedback-saved">บันทึกการเรียนรู้แล้ว ${result.saved} รายการ • ผ่าน ${result.accepted} • มีคอมเมนต์แก้ไข ${result.rejected}</div>`;
     if(!quiet)toast(`AI Feedback: ผ่าน ${result.accepted} / แก้ไข ${result.rejected}`);
@@ -4805,8 +4909,9 @@ async function saveAIFormulaFeedback(code,quiet=false){
 }
 
 async function applyAIFormulaDraft(code){
-  if(!lastAIFormulaFeedbackSaved)await saveAIFormulaFeedback(code,true);
-  const items=lastAIFormulaDraft?.ingredients||[];
+  const state=aiFormulaStateFor(code);
+  if(!state.feedbackSaved)await saveAIFormulaFeedback(code,true);
+  const items=state.draft?.ingredients||[];
   if(!items.length)return;
   const visibleCount=Math.max(1,Number(window.formulaIngredientCount?.[code]||1));
   if(items.length>visibleCount){
@@ -4817,6 +4922,10 @@ async function applyAIFormulaDraft(code){
     const item={code:x.code,name:x.name,vendor:x.supplier,origin:x.import_country,price:x.price_kg,halal:x.halal};
     applyLinkedMaterial(i,item);
   });
+  // Applied into the form -- this draft has done its job, so don't show
+  // it again as a stale "resume where you left off" draft next time the
+  // assistant is opened for this form.
+  delete window.aiFormulaState[code];
   closeModal();
   if(typeof recalculateFormulaBoth==="function")recalculateFormulaBoth();
   toast(`นำสูตรร่าง ${items.length} สารใส่ฟอร์มแล้ว — กรุณาใส่/ตรวจปริมาณโดย R&D`);

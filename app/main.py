@@ -127,6 +127,31 @@ def ensure_packaging_image_columns():
 ensure_packaging_image_columns()
 
 
+def ensure_packaging_item_code_column():
+    """Add packaging_items.item_code (รหัส) for existing databases created
+    before the code field was added."""
+    from sqlalchemy import text
+    from app.db.session import engine
+
+    try:
+        with engine.begin() as conn:
+            dialect = conn.dialect.name
+            if dialect == "postgresql":
+                conn.execute(text("ALTER TABLE packaging_items ADD COLUMN IF NOT EXISTS item_code VARCHAR(80)"))
+                print("[PACKAGING SCHEMA] PostgreSQL item_code column ensured")
+            elif dialect == "sqlite":
+                cols = {r[1] for r in conn.execute(text("PRAGMA table_info(packaging_items)")).fetchall()}
+                if "item_code" not in cols:
+                    conn.execute(text("ALTER TABLE packaging_items ADD COLUMN item_code VARCHAR(80)"))
+                print("[PACKAGING SCHEMA] SQLite item_code column ensured")
+            else:
+                print(f"[PACKAGING SCHEMA] No migration needed for {dialect}")
+    except Exception as e:
+        print(f"[PACKAGING SCHEMA] Warning: {type(e).__name__}: {e}")
+
+ensure_packaging_item_code_column()
+
+
 def ensure_user_department_column():
     """Add users.department for existing databases created before real
     per-employee accounts carried their department directly (previously
