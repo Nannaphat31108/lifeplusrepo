@@ -71,6 +71,60 @@ class DocSave(BaseModel):
     linked_reference: str | None = None
 
 
+def _apply_linked_pr_refs(db: Session, po_doc_no: str, data: dict, user) -> None:
+    """The PO form's "เลือกจาก PR ที่ค้างอยู่" picker tags each item it pulls
+    in from a pending PR with {pr_doc_no, pr_row_index} in
+    data["linked_pr_refs"]. On save, write this PO's doc_no back onto that
+    exact PR line item's po_no field -- the PR form already had a po_no
+    column per row (manually typed before this feature existed), so this
+    reuses it rather than adding a parallel status field. Never overwrites
+    a po_no a PR row already has (another PO may have claimed it first).
+    """
+    refs = data.get("linked_pr_refs") or []
+    if not refs:
+        return
+    touched_pr_ids: set[int] = set()
+    for ref in refs:
+        pr_doc_no = str((ref or {}).get("pr_doc_no") or "").strip()
+        row_index = (ref or {}).get("pr_row_index")
+        if not pr_doc_no or row_index is None:
+            continue
+        pr = db.scalar(
+            select(PurchaseDocument)
+            .where(PurchaseDocument.doc_type == "PR", PurchaseDocument.doc_no == pr_doc_no)
+            .order_by(PurchaseDocument.id.desc())
+        )
+        if not pr:
+            continue
+        # SQLAlchemy's identity map returns the same in-memory object for
+        # a repeat query by id within this session, so a second ref
+        # against the same PR (two rows pulled from one PR into this PO)
+        # safely accumulates onto the object already mutated below
+        # instead of clobbering it with a stale re-fetch.
+        try:
+            pr_data = json.loads(pr.payload_json or "{}")
+        except Exception:
+            continue
+        items = pr_data.get("items") or []
+        try:
+            idx = int(row_index)
+        except (TypeError, ValueError):
+            continue
+        if idx < 0 or idx >= len(items):
+            continue
+        if str(items[idx].get("po_no") or "").strip():
+            continue  # already claimed by another PO -- don't clobber
+        if pr.id not in touched_pr_ids:
+            snapshot_version(
+                db, record_type="purchase_doc", record_id=pr.id,
+                payload_json=pr.payload_json, label=pr.doc_no, status=pr.status, user=user,
+            )
+            touched_pr_ids.add(pr.id)
+        items[idx]["po_no"] = po_doc_no
+        pr_data["items"] = items
+        pr.payload_json = json.dumps(pr_data, ensure_ascii=False, default=str)
+
+
 def _serialize(x: PurchaseDocument) -> dict:
     return {
         "id": x.id,
@@ -83,6 +137,105 @@ def _serialize(x: PurchaseDocument) -> dict:
         "created_at": x.created_at,
         "updated_at": x.updated_at,
     }
+
+
+# NOTE: these two GET routes must stay registered ABOVE
+# `GET /{doc_type}` below -- FastAPI/Starlette matches routes in
+# registration order, and `/{doc_type}` is a single-segment path
+# parameter that would otherwise greedily swallow "supplier-lookup" or
+# "pending-materials" as if they were a doc_type value.
+@router.get("/supplier-lookup")
+def supplier_lookup(name: str, db: Session = Depends(get_db), u=Depends(get_current_user)):
+    """Real supplier history, mined from past PO documents -- typing a
+    supplier name that's been used before should bring back its code/
+    address/tax ID/contact instead of requiring them to be retyped every
+    time. (The plain Supplier master table has no tax ID/address fields
+    at all, so PO history is the only place this data actually lives.)"""
+    term = (name or "").strip()
+    if not term:
+        raise HTTPException(400, "ระบุชื่อผู้จำหน่าย")
+    rows = db.scalars(
+        select(PurchaseDocument)
+        .where(PurchaseDocument.doc_type == "PO")
+        .order_by(PurchaseDocument.id.desc())
+        .limit(500)
+    ).all()
+    for x in rows:
+        try:
+            data = json.loads(x.payload_json or "{}")
+        except Exception:
+            continue
+        if str(data.get("supplier_name") or "").strip().lower() == term.lower():
+            return {
+                "supplier_code": data.get("supplier_code") or "",
+                "supplier_name": data.get("supplier_name") or "",
+                "supplier_address": data.get("supplier_address") or "",
+                "supplier_tax_id": data.get("supplier_tax_id") or "",
+                "contact_person": data.get("contact_person") or "",
+                "contact_phone": data.get("contact_phone") or "",
+                "source_doc_no": x.doc_no,
+            }
+    raise HTTPException(404, "ไม่พบประวัติผู้จำหน่ายรายนี้")
+
+
+@router.get("/pending-materials")
+def pending_materials(
+    supplier: str = "",
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+):
+    """The PR→PO linking queue: every PR line item that has a material/
+    description but no po_no yet (i.e. requested but nobody has opened a
+    PO for it). Used by the PO form's "เลือกจาก PR ที่ค้างอยู่" checkbox
+    picker -- when a supplier name is given, matching items (by the
+    material's FDAMaterial.supplier_company) sort first, but nothing is
+    ever hidden just because the match isn't exact, so a PR item never
+    silently disappears from view."""
+    from app.models.entities import FDAMaterial
+
+    supplier_term = (supplier or "").strip().lower()
+    material_supplier: dict[str, str] = {}
+    if supplier_term:
+        for code, vendor in db.query(FDAMaterial.material_code, FDAMaterial.supplier_company).all():
+            if code:
+                material_supplier[code.strip().upper()] = (vendor or "").strip()
+
+    rows = db.scalars(
+        select(PurchaseDocument)
+        .where(PurchaseDocument.doc_type == "PR")
+        .order_by(PurchaseDocument.id.desc())
+        .limit(1000)
+    ).all()
+    out = []
+    for x in rows:
+        try:
+            data = json.loads(x.payload_json or "{}")
+        except Exception:
+            continue
+        for i, it in enumerate(data.get("items") or []):
+            material_code = str(it.get("material_code") or "").strip()
+            description = str(it.get("description") or "").strip()
+            if not material_code and not description:
+                continue
+            if str(it.get("po_no") or "").strip():
+                continue  # already has a PO -- not pending
+            vendor = material_supplier.get(material_code.upper(), "")
+            out.append({
+                "pr_id": x.id,
+                "pr_doc_no": x.doc_no,
+                "pr_row_index": i,
+                "material_code": material_code,
+                "description": description,
+                "quantity": it.get("quantity"),
+                "unit": it.get("unit") or "",
+                "product_name": it.get("product_name") or "",
+                "production_order_no": it.get("production_order_no") or "",
+                "requested_date": x.created_at.isoformat() if x.created_at else None,
+                "matches_supplier": bool(supplier_term and vendor.lower() == supplier_term),
+            })
+    if supplier_term:
+        out.sort(key=lambda r: not r["matches_supplier"])
+    return out
 
 
 @router.post("/{doc_type}")
@@ -107,6 +260,8 @@ def save_doc(
         linked_reference=(p.linked_reference or "").strip() or None,
     )
     db.add(x)
+    if d == "PO":
+        _apply_linked_pr_refs(db, p.doc_no, p.data, u)
     db.commit()
     db.refresh(x)
     return _serialize(x)
@@ -166,6 +321,8 @@ def update_doc(
     x.payload_json = json.dumps(p.data, ensure_ascii=False, default=str)
     if p.linked_reference is not None:
         x.linked_reference = p.linked_reference.strip() or None
+    if x.doc_type == "PO":
+        _apply_linked_pr_refs(db, x.doc_no, p.data, u)
     db.commit()
     db.refresh(x)
     return _serialize(x)

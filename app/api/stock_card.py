@@ -35,6 +35,8 @@ class StockCardTxPayload(BaseModel):
     unit: str = "kg"  # kg | g
     note: Optional[str] = None
     tx_date: Optional[date] = None
+    ref_pr_no: Optional[str] = None
+    ref_po_no: Optional[str] = None
 
 
 def _lot_balances(db: Session, lot_ids: list[int]) -> dict[int, dict]:
@@ -258,6 +260,7 @@ def list_transactions(
     return [{
         "id": t.id, "tx_type": t.tx_type, "quantity_kg": float(t.quantity_kg),
         "tx_date": t.tx_date.isoformat() if t.tx_date else None, "note": t.note or "",
+        "ref_pr_no": t.ref_pr_no or "", "ref_po_no": t.ref_po_no or "",
     } for t in rows]
 
 
@@ -289,6 +292,8 @@ def create_transaction(
     tx = StockCardTransaction(
         lot_id=lot_id, tx_type=tx_type, quantity_kg=qty_kg,
         tx_date=p.tx_date or date.today(), note=p.note, created_by=user.id,
+        ref_pr_no=(p.ref_pr_no or "").strip() or None,
+        ref_po_no=(p.ref_po_no or "").strip() or None,
     )
     db.add(tx); db.commit(); db.refresh(tx)
     totals = _lot_balances(db, [lot_id]).get(lot_id, {"in": 0, "out": 0, "return": 0})

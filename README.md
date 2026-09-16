@@ -1,3 +1,74 @@
+## v31.60 — Supplier history autofill + PR→PO pending-materials linking
+
+Second and last part of the multi-part request v31.59 shipped 5/7 of (the
+Package Database / exact-form / AI draft fixes) -- this ships the
+supplier tax-ID autofill bug and the full PR/PO procurement-queue
+workflow described.
+
+- **Supplier tax ID / address / contact now auto-fill from history.**
+  Root cause: `linkPurchaseDocSupplier` only ran off the รหัสผู้จำหน่าย
+  (code) field and only ever filled ผู้จำหน่าย (name); nothing was wired
+  to the name field itself, and none of it touched tax ID/address at all
+  -- the plain `Supplier` master table doesn't even have those columns.
+  New `GET /api/purchase-docs/supplier-lookup?name=` mines past PO
+  documents (the payload_json is the only place this data has ever
+  actually lived) for the most recent exact name match and returns
+  code/address/tax ID/contact person/phone; wired to ผู้จำหน่าย's
+  `onchange` (and still to the code field too). Never overwrites a field
+  that already has a value, same rule as every other auto-fill here.
+- **PR → PO pending-materials queue**, matching the described workflow
+  end to end:
+  - `GET /api/purchase-docs/pending-materials?supplier=` -- every PR line
+    item with a material/description but no `po_no` yet (PR rows already
+    had a po_no cell, manually typed, before this feature -- reused
+    rather than adding a parallel status field). When a supplier name is
+    given, matches (via `FDAMaterial.supplier_company`) sort first but
+    nothing is ever hidden on an imperfect match.
+  - PO form gained a "เลือกจาก PR ที่ค้างอยู่" button: opens a checkbox
+    picker of pending PR items (pre-sorted by the supplier name already
+    typed into the form), and on confirm drops each checked item into the
+    first empty row of the PO's item table (description/quantity/unit)
+    while tagging it with `{pr_doc_no, pr_row_index}` in a new
+    `linked_pr_refs` array on the PO's payload.
+  - On save, `_apply_linked_pr_refs()` writes this PO's doc_no onto each
+    referenced PR line's `po_no` (version-snapshotting the PR first, and
+    never overwriting a po_no another PO already claimed) -- so "which
+    PRs are still waiting on a PO" is live, not something anyone has to
+    ask around about.
+  - PR list gained a "สถานะ PO" column (รอเปิด PO / เปิด PO บางส่วน (x/y)
+    / เปิด PO ครบแล้ว), computed from each PR's own items -- visible to
+    everyone who opens ใบขอซื้อ (PR) list, not just the person who wrote
+    it.
+  - Stock Card วัตถุดิบ's "ตัดสตอค" modal gained optional อ้างอิง PR /
+    อ้างอิง PO fields (new `StockCardTransaction.ref_pr_no`/`ref_po_no`
+    columns, shown in ประวัติรายการ) so a รับเข้า transaction can point
+    back at the PR/PO it fulfilled, closing "เขาก็จะอ้างอิง Pr Po พอเข้า
+    รับเข้าสาร" end to end.
+- **Deliberately not built**: the ">30 days, archived by month" Dashboard
+  aging report mentioned in the same message. It's the least concretely
+  specified piece of an already very large request, and computing it
+  correctly needs a clear answer to "30 days from what event exactly" that
+  the pending-materials work above didn't settle either way -- flagged to
+  the user rather than guessed at.
+- New `PurchaseDocument`/`StockCardTransaction` columns needed a schema
+  migration for already-deployed databases -- same
+  `ensure_*_column()` pattern as every earlier one this session
+  (`ensure_stock_card_tx_ref_columns()` in main.py; `linked_pr_refs` and
+  `po_no` live inside the existing flexible `payload_json`, so no new
+  column was needed there).
+
+Verified via curl (created a PR with two pending items, linked one via a
+PO's `linked_pr_refs`, confirmed it disappeared from `pending-materials`
+and the PR's own `po_no` was set, confirmed a version snapshot was taken,
+confirmed supplier-lookup returns full history, confirmed a Stock Card IN
+transaction carries its PR/PO refs) and a real-browser Playwright pass
+(supplier name autofill, the pending-PR picker modal showing exactly the
+one remaining unlinked item, picking it and watching it land in the PO's
+item table, saving, and the PR list flipping to "เปิด PO ครบแล้ว") --
+zero console/page errors throughout.
+
+Cache-busting version bumped to 31.60.
+
 ## v31.59 — Exact-form fit-to-screen, Package Database รหัส/ต้นทุน/หมวด, AI Formula draft persistence
 
 Bundle of 5 screenshot-driven fixes from one multi-part request (2 more
