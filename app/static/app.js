@@ -646,6 +646,12 @@ async function openPurchaseDocForm(docType,existingId=null){
   }
   const d=existing?.data||{};
   const items=Array.isArray(d.items)?d.items:[];
+  // Tracks which PR line items this PO pulled in via "เลือกจาก PR ที่ค้างอยู่"
+  // ({pr_doc_no, pr_row_index} pairs) -- read back from an existing PO's
+  // saved data if re-opening one, otherwise starts empty. Sent alongside
+  // the visible item rows on save so the backend can mark those PR lines
+  // as ordered; not itself rendered as a grid column.
+  window.poLinkedPrRefs=Array.isArray(d.linked_pr_refs)?[...d.linked_pr_refs]:[];
 
   const supplierOptions=(window.supplierListCache||[]).map(s=>`<option value="${esc(s.supplier_code||"")}">${esc(s.name)}</option>`).join("");
   const materialOptions=(window.supplementCodeData||[]).map(m=>`<option value="${esc(m.code)}">${esc(m.name)}</option>`).join("");
@@ -689,12 +695,16 @@ async function openPurchaseDocForm(docType,existingId=null){
           <div><label>ผู้ติดต่อ</label><input id="po_contact_person" value="${esc(d.contact_person||"")}"></div>
           <div><label>รหัสผู้จำหน่าย</label><input id="po_supplier_code" list="poSupplierList" value="${esc(d.supplier_code||"")}" oninput="linkPurchaseDocSupplier(this)"></div>
           <div><label>เบอร์โทร</label><input id="po_contact_phone" value="${esc(d.contact_phone||"")}"></div>
-          <div class="wide"><label>ผู้จำหน่าย</label><input id="po_supplier_name" value="${esc(d.supplier_name||"")}"></div>
+          <div class="wide"><label>ผู้จำหน่าย</label><input id="po_supplier_name" value="${esc(d.supplier_name||"")}" onchange="lookupPurchaseDocSupplierHistory(this.value)"></div>
           <div class="wide"><label>ที่อยู่ผู้จำหน่าย</label><input id="po_supplier_address" value="${esc(d.supplier_address||"")}"></div>
           <div><label>เลขประจำตัวผู้เสียภาษี</label><input id="po_supplier_tax_id" value="${esc(d.supplier_tax_id||"")}"></div>
         </div>
         <datalist id="poSupplierList">${supplierOptions}</datalist>
 
+        <div class="po-pending-pr-bar">
+          <button type="button" onclick="openPendingPrPicker()">เลือกจาก PR ที่ค้างอยู่</button>
+          <small class="muted">ดึงรายการวัตถุดิบที่คลังขอซื้อไว้ (PR) แต่ยังไม่มี PO มาใส่ในตารางด้านล่างอัตโนมัติ</small>
+        </div>
         <div class="table-wrap">
           <table class="purchase-doc-table">
             <colgroup><col style="width:5%"><col style="width:42%"><col style="width:10%"><col style="width:10%"><col style="width:16%"><col style="width:17%"></colgroup>
@@ -794,7 +804,97 @@ function linkPurchaseDocSupplier(inp){
   const s=(window.supplierListCache||[]).find(x=>String(x.supplier_code||"").toUpperCase()===code.toUpperCase());
   if(!s)return;
   const nameEl=$("po_supplier_name");
-  if(nameEl && !nameEl.value)nameEl.value=s.name||"";
+  if(nameEl && !nameEl.value){
+    nameEl.value=s.name||"";
+    lookupPurchaseDocSupplierHistory(nameEl.value);
+  }
+}
+
+// Typing/picking a supplier name that's been used before on a past PO
+// should bring its code/address/tax ID/contact back automatically instead
+// of everything but the name needing to be retyped every time -- mines
+// PurchaseDocument (PO) history via /api/purchase-docs/supplier-lookup
+// since the plain Supplier master table has no tax ID/address at all.
+// Only fills fields that are still empty, same "never clobber what's
+// already typed" rule as every other auto-fill in this app.
+async function lookupPurchaseDocSupplierHistory(name){
+  const term=(name||"").trim();
+  if(!term)return;
+  try{
+    const s=await api(`/api/purchase-docs/supplier-lookup?name=${encodeURIComponent(term)}`);
+    const fill=(id,val)=>{const el=$(id);if(el && !el.value && val)el.value=val;};
+    fill("po_supplier_code",s.supplier_code);
+    fill("po_supplier_address",s.supplier_address);
+    fill("po_supplier_tax_id",s.supplier_tax_id);
+    fill("po_contact_person",s.contact_person);
+    fill("po_contact_phone",s.contact_phone);
+  }catch(e){/* no history for this supplier yet -- fine, leave for manual entry */}
+}
+
+// "เลือกจาก PR ที่ค้างอยู่" -- pending PR-items checkbox picker for the PO
+// form. Loaded/sorted by whatever's currently typed in ผู้จำหน่าย (best-
+// effort relevance only; nothing is ever hidden due to an imperfect
+// supplier match, so a PR item never silently disappears from view).
+async function openPendingPrPicker(){
+  const supplier=($("po_supplier_name")?.value||"").trim();
+  openModal("เลือกจาก PR ที่ค้างอยู่",'<div id="pendingPrPickerBody">กำลังโหลด...</div>');
+  const box=document.getElementById("pendingPrPickerBody");
+  try{
+    const rows=await api(`/api/purchase-docs/pending-materials?supplier=${encodeURIComponent(supplier)}`);
+    if(!rows.length){
+      box.innerHTML=`<div class="empty">ไม่มีรายการ PR ที่ยังค้างเปิด PO</div>`;
+      return;
+    }
+    const alreadyLinked=new Set((window.poLinkedPrRefs||[]).map(r=>`${r.pr_doc_no}#${r.pr_row_index}`));
+    const trs=rows.map((r,i)=>{
+      const key=`${r.pr_doc_no}#${r.pr_row_index}`;
+      const already=alreadyLinked.has(key);
+      return `<tr class="${r.matches_supplier?"pending-pr-match":""}">
+        <td><input type="checkbox" data-pending-pr-row="${i}" ${already?"checked disabled":""}></td>
+        <td>${esc(r.pr_doc_no)}</td>
+        <td>${esc(r.material_code)}</td>
+        <td>${esc(r.description)}</td>
+        <td>${r.quantity??""}</td>
+        <td>${esc(r.unit)}</td>
+        <td>${esc(r.product_name)}</td>
+      </tr>`;
+    }).join("");
+    box.innerHTML=`
+      <div class="table-wrap"><table><thead><tr><th></th><th>เลขที่ PR</th><th>รหัสสินค้า</th><th>รายละเอียด</th><th>จำนวน</th><th>หน่วย</th><th>ผลิตภัณฑ์/แผนก</th></tr></thead><tbody>${trs}</tbody></table></div>
+      <div class="actions"><button class="primary" onclick="applyPendingPrSelection()">เพิ่มรายการที่เลือกลง PO</button></div>`;
+    window._pendingPrPickerRows=rows;
+  }catch(e){
+    box.innerHTML=`<div class="error">โหลดไม่สำเร็จ: ${esc(e?.message||e)}</div>`;
+  }
+}
+
+function applyPendingPrSelection(){
+  const rows=window._pendingPrPickerRows||[];
+  const checked=[...document.querySelectorAll('[data-pending-pr-row]:checked:not(:disabled)')]
+    .map(el=>rows[Number(el.dataset.pendingPrRow)]).filter(Boolean);
+  if(!checked.length){toast("ยังไม่ได้เลือกรายการ");return;}
+  window.poLinkedPrRefs=window.poLinkedPrRefs||[];
+  let added=0;
+  for(const r of checked){
+    // Find the first still-empty description cell in the PO's item table.
+    const emptyRow=[...document.querySelectorAll('.purchase-doc-table [data-sub="description"]')]
+      .find(el=>!String(el.value||"").trim());
+    if(!emptyRow){
+      toast(`ตารางเต็มแล้ว -- เพิ่มได้ ${added} จาก ${checked.length} รายการ`);
+      break;
+    }
+    const rowIdx=emptyRow.dataset.row;
+    emptyRow.value=[r.material_code,r.description].filter(Boolean).join(" - ");
+    const qtyEl=document.querySelector(`.purchase-doc-table [data-row="${rowIdx}"][data-sub="quantity"]`);
+    const unitEl=document.querySelector(`.purchase-doc-table [data-row="${rowIdx}"][data-sub="unit"]`);
+    if(qtyEl && r.quantity!=null)qtyEl.value=r.quantity;
+    if(unitEl && r.unit)unitEl.value=r.unit;
+    window.poLinkedPrRefs.push({pr_doc_no:r.pr_doc_no,pr_row_index:r.pr_row_index});
+    added++;
+  }
+  recalcPurchaseDocTotals();
+  closeModal();
+  if(added)toast(`เพิ่ม ${added} รายการจาก PR ลงในใบสั่งซื้อแล้ว`);
 }
 
 function linkPurchaseDocMaterial(inp){
@@ -912,7 +1012,8 @@ async function savePurchaseDoc(docType){
         supplier_address:$("po_supplier_address")?.value||"", supplier_tax_id:$("po_supplier_tax_id")?.value||"",
         buyer_sign:$("po_buyer_sign")?.value||"", buyer_sign_date:$("po_buyer_sign_date")?.value||"",
         approver_sign:$("po_approver_sign")?.value||"", approver_sign_date:$("po_approver_sign_date")?.value||"",
-        items:collectPurchaseDocItems(["description","quantity","unit","unit_price","amount"])
+        items:collectPurchaseDocItems(["description","quantity","unit","unit_price","amount"]),
+        linked_pr_refs:window.poLinkedPrRefs||[]
       };
     }else{
       doc_no=($("pr_no")?.value||"").trim()||`PR-${Date.now()}`;
@@ -965,6 +1066,19 @@ async function savePurchaseDoc(docType){
   }
 }
 
+// PR items each already carry a po_no cell (manually typed before the
+// pending-PR picker existed, now also auto-filled by it) -- derive a
+// per-document PO status from those instead of a separate stored field,
+// so "what's still waiting on a PO" is visible to everyone from the PR
+// list itself (STOCK/PURCHASE both open this same list).
+function prPoStatus(items){
+  const meaningful=(items||[]).filter(x=>String(x.material_code||"").trim()||String(x.description||"").trim());
+  if(!meaningful.length)return {label:"-",cls:""};
+  const withPo=meaningful.filter(x=>String(x.po_no||"").trim());
+  if(withPo.length===0)return {label:"รอเปิด PO",cls:"warn"};
+  if(withPo.length<meaningful.length)return {label:`เปิด PO บางส่วน (${withPo.length}/${meaningful.length})`,cls:"warn"};
+  return {label:"เปิด PO ครบแล้ว",cls:"ok"};
+}
 async function listPurchaseDocs(docType){
   currentPage=`purchaseDoc:${docType}`;
   $("pageTitle").textContent=docType==="PO"?"รายการใบสั่งซื้อ":"รายการใบขอซื้อ";
@@ -972,9 +1086,13 @@ async function listPurchaseDocs(docType){
   const rows=await api(`/api/purchase-docs/${docType}`);
   const tr=rows.map(x=>{
     const search=esc(`${x.doc_no||""} ${x.created_by_name||""} ${x.linked_reference||""}`.toLowerCase());
-    return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.doc_no)}</td><td>${statusBadge(x.status)}</td><td>${esc(x.created_by_name||"")}</td><td>${esc(x.linked_reference||"-")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="openPurchaseDocForm('${docType}',${x.id})">แก้ไข</button><button onclick="exportPurchaseDocExcel(${x.id})">Excel</button><button onclick="showRecordVersions('purchase_doc',${x.id})">ประวัติ</button></td></tr>`;
+    const poStatusCell=docType==="PR"?(()=>{const s=prPoStatus(x.data?.items);return `<td><span class="badge ${s.cls}">${esc(s.label)}</span></td>`;})():"";
+    return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.doc_no)}</td><td>${statusBadge(x.status)}</td>${poStatusCell}<td>${esc(x.created_by_name||"")}</td><td>${esc(x.linked_reference||"-")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="openPurchaseDocForm('${docType}',${x.id})">แก้ไข</button><button onclick="exportPurchaseDocExcel(${x.id})">Excel</button><button onclick="showRecordVersions('purchase_doc',${x.id})">ประวัติ</button></td></tr>`;
   });
-  $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่/อ้างอิง..." oninput="filterRecordRows(this)"><button class="primary" onclick="openPurchaseDocForm('${docType}')">+ ${docType==="PO"?"ใบสั่งซื้อใหม่":"ใบขอซื้อใหม่"}</button></div>${table(["ID","เลขที่",docType==="PO"?"สถานะ":"สถานะ","ผู้สร้าง","อ้างอิง","บันทึกเมื่อ","จัดการ"],tr)}</div>`;
+  const headers=["ID","เลขที่","สถานะ"];
+  if(docType==="PR")headers.push("สถานะ PO");
+  headers.push("ผู้สร้าง","อ้างอิง","บันทึกเมื่อ","จัดการ");
+  $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่/อ้างอิง..." oninput="filterRecordRows(this)"><button class="primary" onclick="openPurchaseDocForm('${docType}')">+ ${docType==="PO"?"ใบสั่งซื้อใหม่":"ใบขอซื้อใหม่"}</button></div>${table(headers,tr)}</div>`;
 }
 
 const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","ACCOUNTING","CEO"];
@@ -1196,14 +1314,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.59",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.60",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.59",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.60",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -2720,6 +2838,8 @@ function openStockCardTxModal(lotId){
           <select id="sctx_unit" style="max-width:90px"><option value="kg">kg</option><option value="g">g</option></select>
         </div>
       </div>
+      <div><label>อ้างอิง PR (ถ้ามี)</label><input id="sctx_ref_pr" placeholder="เช่น PR-IC6908-222"></div>
+      <div><label>อ้างอิง PO (ถ้ามี)</label><input id="sctx_ref_po" placeholder="เช่น PO2026080111"></div>
       <div class="wide"><label>หมายเหตุ</label><input id="sctx_note" placeholder="เช่น เบิกให้ Lot ผลิต P-C6802"></div>
       <div class="wide"><button class="primary" onclick="submitStockCardTx(${lotId})">บันทึกรายการ</button></div>
     </div>`);
@@ -2733,6 +2853,8 @@ async function submitStockCardTx(lotId){
     unit:document.getElementById("sctx_unit")?.value||"kg",
     tx_date:document.getElementById("sctx_date")?.value||currentDateISO(),
     note:document.getElementById("sctx_note")?.value||null,
+    ref_pr_no:document.getElementById("sctx_ref_pr")?.value||null,
+    ref_po_no:document.getElementById("sctx_ref_po")?.value||null,
   };
   try{
     await api(`/api/stock-card/lots/${lotId}/transactions`,{method:"POST",body:payload});
@@ -2748,9 +2870,9 @@ async function openStockCardHistoryModal(lotId){
     const rows=await api(`/api/stock-card/lots/${lotId}/transactions`);
     const canManage=["ADMIN","STOCK"].includes(me?.role);
     const typeLabel={IN:"รับเข้า",OUT:"เบิกออก",RETURN:"คืน"};
-    const trs=rows.map(t=>`<tr><td>${esc(t.tx_date)}</td><td>${esc(typeLabel[t.tx_type]||t.tx_type)}</td><td>${t.quantity_kg} kg</td><td>${esc(t.note)}</td><td class="mini-actions">${canManage?`<button onclick="deleteStockCardTx(${lotId},${t.id})">ลบ</button>`:""}</td></tr>`);
+    const trs=rows.map(t=>`<tr><td>${esc(t.tx_date)}</td><td>${esc(typeLabel[t.tx_type]||t.tx_type)}</td><td>${t.quantity_kg} kg</td><td>${[t.ref_pr_no,t.ref_po_no].filter(Boolean).map(esc).join(" / ")||"-"}</td><td>${esc(t.note)}</td><td class="mini-actions">${canManage?`<button onclick="deleteStockCardTx(${lotId},${t.id})">ลบ</button>`:""}</td></tr>`);
     const box=document.getElementById("scHistBody");
-    if(box)box.innerHTML=table(["วันที่","ประเภท","จำนวน","หมายเหตุ","จัดการ"],trs);
+    if(box)box.innerHTML=table(["วันที่","ประเภท","จำนวน","อ้างอิง PR/PO","หมายเหตุ","จัดการ"],trs);
   }catch(e){
     const box=document.getElementById("scHistBody");
     if(box)box.innerHTML=`<div class="error">โหลดไม่สำเร็จ: ${esc(e?.message||e)}</div>`;

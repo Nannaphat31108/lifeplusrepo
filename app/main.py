@@ -152,6 +152,34 @@ def ensure_packaging_item_code_column():
 ensure_packaging_item_code_column()
 
 
+def ensure_stock_card_tx_ref_columns():
+    """Add stock_card_transactions.ref_pr_no/ref_po_no for existing
+    databases created before PR/PO receipt references were supported."""
+    from sqlalchemy import text
+    from app.db.session import engine
+
+    try:
+        with engine.begin() as conn:
+            dialect = conn.dialect.name
+            if dialect == "postgresql":
+                conn.execute(text("ALTER TABLE stock_card_transactions ADD COLUMN IF NOT EXISTS ref_pr_no VARCHAR(100)"))
+                conn.execute(text("ALTER TABLE stock_card_transactions ADD COLUMN IF NOT EXISTS ref_po_no VARCHAR(100)"))
+                print("[STOCK CARD SCHEMA] PostgreSQL ref_pr_no/ref_po_no columns ensured")
+            elif dialect == "sqlite":
+                cols = {r[1] for r in conn.execute(text("PRAGMA table_info(stock_card_transactions)")).fetchall()}
+                if "ref_pr_no" not in cols:
+                    conn.execute(text("ALTER TABLE stock_card_transactions ADD COLUMN ref_pr_no VARCHAR(100)"))
+                if "ref_po_no" not in cols:
+                    conn.execute(text("ALTER TABLE stock_card_transactions ADD COLUMN ref_po_no VARCHAR(100)"))
+                print("[STOCK CARD SCHEMA] SQLite ref_pr_no/ref_po_no columns ensured")
+            else:
+                print(f"[STOCK CARD SCHEMA] No migration needed for {dialect}")
+    except Exception as e:
+        print(f"[STOCK CARD SCHEMA] Warning: {type(e).__name__}: {e}")
+
+ensure_stock_card_tx_ref_columns()
+
+
 def ensure_user_department_column():
     """Add users.department for existing databases created before real
     per-employee accounts carried their department directly (previously

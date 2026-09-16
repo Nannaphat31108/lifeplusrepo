@@ -628,6 +628,11 @@ class StockCardTransaction(Base, TimestampMixin):
     quantity_kg: Mapped[Decimal] = mapped_column(Numeric(16, 4))
     tx_date: Mapped[date] = mapped_column(Date, default=date.today, index=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Optional PR/PO reference -- so a รับเข้า (IN) transaction can point
+    # back at the ใบขอซื้อ/ใบสั่งซื้อ it fulfilled ("เขาก็จะอ้างอิง Pr Po
+    # พอเข้ารับเข้าสาร"), closing the loop from PR -> PO -> actual receipt.
+    ref_pr_no: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    ref_po_no: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
 
