@@ -1,3 +1,41 @@
+## v31.61 — ADMIN-QP: fix broken "BAHTTEXT is not implemented" placeholder
+
+User request: "จัดหน้าให้เป็นแบบนี้" (format the page like this), with a
+reference screenshot of ADMIN-QP (ใบเสนอราคา/ใบสั่งซื้อ). Compared the
+live rendering against the reference side by side (Playwright screenshot
+of the actual in-app form vs. the reference image) rather than guessing
+from the image alone.
+
+- Found the one clear, unambiguous defect: the large centered box below
+  the item table -- where the reference shows a real Thai
+  amount-in-words phrase -- was instead showing the literal text
+  **"BAHTTEXT is not implemented. numberParam=0"** baked into
+  `exact_forms.json` cell B53. The original Excel had `=BAHTTEXT(...)`
+  there; whatever process generated `exact_forms.json` from the source
+  workbook couldn't evaluate that function and stored its own error
+  message as if it were the cell's static value, instead of a real
+  amount, and it had sat there ever since.
+- Fixed by blanking that stale cell text and wiring a genuinely
+  computed value in its place: new `text_auto` field type (read-only,
+  like the existing `number_auto` but for text), a new
+  `grand_total_baht_text` field at B53, filled in by
+  `recalculateAdminQP()` on every recalc using the same `thaiBahtText()`
+  function already used for PO/PR's baht-text line -- so it now always
+  matches the live grand total instead of ever going stale.
+- Rest of the layout (header/customer fields, split active/inactive
+  ingredient tables, job-code/description/quantity/amount table) was
+  already structurally faithful to the reference -- this was the one
+  real gap between "what's on screen" and "what the reference shows".
+
+Verified via a real-browser Playwright pass: confirmed the broken
+placeholder string is gone, typed a quantity/price into the item table
+and confirmed the new field live-updates to the correct Thai phrase
+(qty 10 × price 100 + 7% VAT → "(หนึ่งพันเจ็ดสิบบาทถ้วน)" for a grand
+total of 1,070), and a cropped screenshot confirming the box now renders
+in the same position/style as the reference -- zero console/page errors.
+
+Cache-busting version bumped to 31.61.
+
 ## v31.60 — Supplier history autofill + PR→PO pending-materials linking
 
 Second and last part of the multi-part request v31.59 shipped 5/7 of (the

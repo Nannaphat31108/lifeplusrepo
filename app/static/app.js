@@ -1314,14 +1314,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.60",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.61",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.60",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.61",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -1425,6 +1425,10 @@ function exactInput(field,addr,cellValue){
  if(field.type==="package") return `<input ${common} type="text" list="exactPackageList" placeholder="พิมพ์ค้นหา Package" oninput="applyPackageSelection(this)">`;
  if(field.type==="textarea") return `<textarea ${common} placeholder="${esc(placeholder)}">${esc(cellValue||"")}</textarea>`;
  if(field.type==="number_auto") return `<input ${common} class="excel-input" type="number" step="0.000000001" placeholder="คำนวณอัตโนมัติ" readonly tabindex="-1">`;
+ // Same idea as number_auto but for a computed piece of TEXT (e.g. the
+ // grand total written out in Thai words) -- read-only, filled in by JS,
+ // never something the user types.
+ if(field.type==="text_auto") return `<input ${common} class="excel-input" type="text" style="text-align:center;font-weight:600" placeholder="คำนวณอัตโนมัติ" readonly tabindex="-1">`;
  if(field.type==="number") return `<input ${common} type="number" step="0.000001" placeholder="${esc(placeholder)}" oninput="${numberFieldRecalcCall()}" onchange="${numberFieldRecalcCall()}">`;
  if(field.type==="supplier") return `<input ${common} type="text" placeholder="ลิงก์อัตโนมัติ / แก้เองได้">`;
  if(field.type==="supplement_code") return `<input ${common} list="exactSupplementCodeList" placeholder="ค้นหารหัสสาร" oninput="${field.group==='inactive_ingredients'?'autoLinkInactiveIngredient(this)':'autoLinkIngredient(this)'};recalculateFormulaBoth()">`;
@@ -5454,6 +5458,13 @@ recalculateAdminQP=function(){
   const vat=after*0.07,grand=after+vat;
   force("subtotal",subtotal,2);force("after_discount",after,2);force("vat7",vat,2);force("grand_total",grand,2);
   force("installment_1",grand*0.5,2);force("installment_2",grand*0.5,2);
+  // The original Excel had =BAHTTEXT(...) here, which the conversion that
+  // produced exact_forms.json couldn't evaluate and left as a literal
+  // "BAHTTEXT is not implemented" placeholder baked into the cell text --
+  // compute the real Thai amount-in-words live instead, same function
+  // already used for PO/PR's baht-text line.
+  const bahtEl=get("grand_total_baht_text");
+  if(bahtEl){delete bahtEl.dataset.manualOverride;bahtEl.value=`(${thaiBahtText(grand)})`;}
 };
 
 // ADMIN-JOB (Job Description / JL): active/inactive ingredient percentage

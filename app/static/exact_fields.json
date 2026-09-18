@@ -4560,6 +4560,11 @@
       "type": "number_auto"
     },
     {
+      "cell": "B53",
+      "key": "grand_total_baht_text",
+      "type": "text_auto"
+    },
+    {
       "cell": "AP12",
       "key": "installment_1",
       "type": "number_auto"
