@@ -1314,14 +1314,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.61",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.62",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.61",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.62",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -1407,6 +1407,69 @@ function applyWideFieldSpans(code,form,fmap,mergeTL,skip){
     mergeTL[addr]={r1:r,c1:c,r2:r,c2:c2};
     for(let cc=c+1;cc<=c2;cc++)skip.add(xlAddr(r,cc));
   }
+}
+
+// The opposite problem from WIDE_FIELD_SPANS above: some column ranges
+// in the original Excel are far wider than anything that's ever put in
+// them, which on paper is invisible (nobody notices a blank margin next
+// to a printed number) but on screen reads as a big dead patch of white
+// -- exactly what was flagged across several forms. Two kinds, handled
+// differently:
+//  - COLLAPSED_COLUMN_RANGES: the range has NO content anywhere in the
+//    whole form (verified against every row, not just a sample) --
+//    squashed to a sliver. Always safe: there's nothing there to clip.
+//  - COMPRESSED_COLUMN_RANGES: the range DOES hold real fields (e.g. a
+//    ปริมาณ/quantity box merged 6 columns wide for a value that's
+//    rarely more than a few digits), just proportioned far wider than
+//    the content needs -- scaled down instead of removed.
+// Both verified per form the same way as WIDE_FIELD_SPANS: reading the
+// actual exact_forms.json cell/merge/field data for that column range
+// end to end, then confirming the rendered result by screenshot.
+const COLLAPSED_COLUMN_RANGES={
+  // F-RD-002: cols 44-47 are the real Import/รหัสสาร/Halal columns and
+  // col 69 is a real per-row FDA No. field -- only the dead band between
+  // them (48-68) collapses. Cols 48's own text (a few lines of the
+  // author's internal working notes -- a Google Sheets link and TODOs,
+  // never meant for the data-entry screen) was blanked in exact_forms.json.
+  "F-RD-002":[[48,68]],
+  // F-RD-002.1: same shape -- ingredient table's real columns end at 43
+  // (ราคา/mg.), a per-row FDA No. field lives alone at col 64, and
+  // 44-63 in between is empty on every single row.
+  "F-RD-002.1":[[44,63]],
+};
+const COMPRESSED_COLUMN_RANGES={
+  // ADMIN-QP: the active/inactive ปริมาณ (Quantity mg.) boxes are each
+  // merged 6 columns wide (T:Y and AR:AW) for what's almost always a
+  // 1-4 digit number -- same columns are reused down through the
+  // subtotal/discount/VAT/grand-total boxes and the signature line,
+  // all equally short values, so compressing is safe end to end.
+  "ADMIN-QP":[[20,25,0.45],[44,49,0.45]],
+};
+function columnWidthScale(code,col){
+  for(const [c1,c2] of COLLAPSED_COLUMN_RANGES[code]||[]){
+    if(col>=c1 && col<=c2)return 0;
+  }
+  for(const [c1,c2,scale] of COMPRESSED_COLUMN_RANGES[code]||[]){
+    if(col>=c1 && col<=c2)return scale;
+  }
+  return 1;
+}
+// Same idea as the two column configs above, but for ROW height instead
+// of column width -- e.g. F-RD-001's "รูปแบบผลิตภัณฑ์/ปริมาณ" rows 11-16,
+// which used to hold 5 static labels (แคปซูล/ตอกเม็ด/ชงดื่ม/กรอกปาก/
+// เม็ดฟู่) as pick-one-by-hand paper-form options -- now redundant since
+// H9's product_category field (see WIDE_FIELD_SPANS-adjacent text_select
+// change) already covers the same choice as an actual input, so those
+// cells were blanked and the rows compressed rather than left as a tall
+// stretch of near-empty label text.
+const COMPRESSED_ROW_RANGES={
+  "F-RD-001":[[11,16,0.12]],
+};
+function rowHeightScale(code,row){
+  for(const [r1,r2,scale] of COMPRESSED_ROW_RANGES[code]||[]){
+    if(row>=r1 && row<=r2)return scale;
+  }
+  return 1;
 }
 function exactInput(field,addr,cellValue){
  const common=`class="excel-input" data-addr="${addr}" ${field.key?`data-key="${field.key}"`:""} ${field.group?`data-group="${field.group}" data-index="${field.index}" data-sub="${field.sub}"`:""}`;
@@ -3437,8 +3500,18 @@ async function openPrivateExactForm(code){
   // real Excel masters have plenty of columns narrower than that, which
   // read fine on paper (long text/values overflow visually into blank
   // neighboring cells) but clip badly once every column becomes a boxed
-  // <input> that can't overflow its own cell.
-  let cols=`<colgroup>${widthList.map(w=>`<col style="width:${Math.max(8,Number(w))*7.2}px">`).join("")}</colgroup>`;
+  // <input> that can't overflow its own cell. columnWidthScale() (see
+  // COLLAPSED_COLUMN_RANGES/COMPRESSED_COLUMN_RANGES above) overrides
+  // that per-column for the few ranges verified to be dead space or
+  // needlessly wide relative to what's actually in them -- a collapsed
+  // column (scale 0) skips the floor entirely (there's nothing in it to
+  // protect from clipping), a compressed one keeps a smaller floor of
+  // its own so a short value like "0.00" still has room to be typed in.
+  let cols=`<colgroup>${widthList.map((w,i)=>{
+    const scale=columnWidthScale(code,i+1);
+    const px=scale===0 ? 2 : Math.max(Math.max(8,Number(w))*scale,3)*7.2;
+    return `<col style="width:${px}px">`;
+  }).join("")}</colgroup>`;
   let rows="";
 
   for(let r=1;r<=form.maxRow;r++){
@@ -3456,7 +3529,7 @@ async function openPrivateExactForm(code){
       continue;
     }
 
-    rows += `<tr style="height:${Number(form.heights?.[r]||15)*1.33}px">`;
+    rows += `<tr style="height:${Number(form.heights?.[r]||15)*1.33*rowHeightScale(code,r)}px">`;
     for(let c=1;c<=form.maxCol;c++){
       const a=xlAddr(r,c);
       if(skip.has(a)) continue;
