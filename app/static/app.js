@@ -841,31 +841,53 @@ async function openPendingPrPicker(){
   const box=document.getElementById("pendingPrPickerBody");
   try{
     const rows=await api(`/api/purchase-docs/pending-materials?supplier=${encodeURIComponent(supplier)}`);
+    window._pendingPrPickerRows=rows;
     if(!rows.length){
       box.innerHTML=`<div class="empty">ไม่มีรายการ PR ที่ยังค้างเปิด PO</div>`;
       return;
     }
-    const alreadyLinked=new Set((window.poLinkedPrRefs||[]).map(r=>`${r.pr_doc_no}#${r.pr_row_index}`));
-    const trs=rows.map((r,i)=>{
-      const key=`${r.pr_doc_no}#${r.pr_row_index}`;
-      const already=alreadyLinked.has(key);
-      return `<tr class="${r.matches_supplier?"pending-pr-match":""}">
-        <td><input type="checkbox" data-pending-pr-row="${i}" ${already?"checked disabled":""}></td>
-        <td>${esc(r.pr_doc_no)}</td>
-        <td>${esc(r.material_code)}</td>
-        <td>${esc(r.description)}</td>
-        <td>${r.quantity??""}</td>
-        <td>${esc(r.unit)}</td>
-        <td>${esc(r.product_name)}</td>
-      </tr>`;
-    }).join("");
     box.innerHTML=`
-      <div class="table-wrap"><table><thead><tr><th></th><th>เลขที่ PR</th><th>รหัสสินค้า</th><th>รายละเอียด</th><th>จำนวน</th><th>หน่วย</th><th>ผลิตภัณฑ์/แผนก</th></tr></thead><tbody>${trs}</tbody></table></div>
+      <input id="pendingPrSupplierSearch" class="search" placeholder="ค้นหาชื่อ Supplier..." value="${esc(supplier)}" oninput="renderPendingPrPickerRows()">
+      <div id="pendingPrPickerTable"></div>
       <div class="actions"><button class="primary" onclick="applyPendingPrSelection()">เพิ่มรายการที่เลือกลง PO</button></div>`;
-    window._pendingPrPickerRows=rows;
+    renderPendingPrPickerRows();
   }catch(e){
     box.innerHTML=`<div class="error">โหลดไม่สำเร็จ: ${esc(e?.message||e)}</div>`;
   }
+}
+
+// Filters the already-fetched pending-materials list by Supplier client
+// side (re-typing doesn't refetch) -- checked rows survive a re-filter
+// since checkbox state is keyed by the row's own index into
+// window._pendingPrPickerRows, not by its position in the filtered list.
+function renderPendingPrPickerRows(){
+  const table=document.getElementById("pendingPrPickerTable");
+  if(!table)return;
+  const term=(document.getElementById("pendingPrSupplierSearch")?.value||"").trim().toLowerCase();
+  const rows=window._pendingPrPickerRows||[];
+  const alreadyLinked=new Set((window.poLinkedPrRefs||[]).map(r=>`${r.pr_doc_no}#${r.pr_row_index}`));
+  const checkedIdx=new Set([...document.querySelectorAll('[data-pending-pr-row]:checked:not(:disabled)')].map(el=>el.dataset.pendingPrRow));
+  const visible=rows.map((r,i)=>({r,i})).filter(({r})=>!term||String(r.supplier||"").toLowerCase().includes(term));
+  if(!visible.length){
+    table.innerHTML=`<div class="empty">ไม่พบ Supplier ที่ตรงกับคำค้นหา</div>`;
+    return;
+  }
+  const trs=visible.map(({r,i})=>{
+    const key=`${r.pr_doc_no}#${r.pr_row_index}`;
+    const already=alreadyLinked.has(key);
+    return `<tr class="${r.matches_supplier?"pending-pr-match":""}">
+      <td><input type="checkbox" data-pending-pr-row="${i}" ${already?"checked disabled":(checkedIdx.has(String(i))?"checked":"")}></td>
+      <td>${esc(r.pr_doc_no)}</td>
+      <td>${esc(r.material_code)}</td>
+      <td>${esc(r.description)}</td>
+      <td>${r.quantity??""}</td>
+      <td>${esc(r.unit)}</td>
+      <td>${esc(r.supplier)}</td>
+      <td>${r.price_per_kg?money(r.price_per_kg):"-"}</td>
+      <td>${esc(r.product_name)}</td>
+    </tr>`;
+  }).join("");
+  table.innerHTML=`<div class="table-wrap"><table><thead><tr><th></th><th>เลขที่ PR</th><th>รหัสสินค้า</th><th>รายละเอียด</th><th>จำนวน</th><th>หน่วย</th><th>Supplier</th><th>ราคา/กก.</th><th>ผลิตภัณฑ์/แผนก</th></tr></thead><tbody>${trs}</tbody></table></div>`;
 }
 
 function applyPendingPrSelection(){
@@ -887,8 +909,15 @@ function applyPendingPrSelection(){
     emptyRow.value=[r.material_code,r.description].filter(Boolean).join(" - ");
     const qtyEl=document.querySelector(`.purchase-doc-table [data-row="${rowIdx}"][data-sub="quantity"]`);
     const unitEl=document.querySelector(`.purchase-doc-table [data-row="${rowIdx}"][data-sub="unit"]`);
+    const priceEl=document.querySelector(`.purchase-doc-table [data-row="${rowIdx}"][data-sub="unit_price"]`);
     if(qtyEl && r.quantity!=null)qtyEl.value=r.quantity;
     if(unitEl && r.unit)unitEl.value=r.unit;
+    // ราคาต่อหน่วย ← ราคา/กก. from the FDA/รหัสสาร database (same source
+    // as the FDA Database page's ราคา/กก. column) -- only fills an empty
+    // box, never overwrites a price already typed, and is still fully
+    // editable afterward since it isn't a different price per unit if
+    // the row's unit isn't actually kg.
+    if(priceEl && !String(priceEl.value||"").trim() && r.price_per_kg)priceEl.value=r.price_per_kg;
     window.poLinkedPrRefs.push({pr_doc_no:r.pr_doc_no,pr_row_index:r.pr_row_index});
     added++;
   }
@@ -1314,14 +1343,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.62",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.63",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.62",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.63",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}

@@ -1,3 +1,35 @@
+## v31.63 — PR→PO picker: supplier search + auto-fill ราคาต่อหน่วยจากราคา/กก.
+
+Two follow-ups on the v31.60 "เลือกจาก PR ที่ค้างอยู่" picker, from 3
+screenshots:
+
+- **Supplier search box** in the picker modal -- previously the table had
+  no way to filter by supplier at all (not even a column showing it).
+  `GET /api/purchase-docs/pending-materials` now always returns each
+  item's `supplier` and `price_per_kg` (pulled from FDAMaterial by
+  material_code) instead of only computing them internally for sort
+  order when a `supplier` query param was passed -- so the picker can
+  show a Supplier and a ราคา/กก. column and filter by supplier on every
+  keystroke without refetching (`renderPendingPrPickerRows()`, client-
+  side filter over the already-fetched list; checkbox state survives a
+  re-filter since it's keyed by the row's index into the fetched array,
+  not its position in the filtered view).
+- **ราคาต่อหน่วย auto-fills from ราคา/กก.** when a picked row lands in
+  the PO's item table -- same FDA/รหัสสาร Database ราคา/กก. column
+  shown in the picker now carries straight into the PO row's unit_price
+  cell (only if that cell is still empty, same never-clobber rule as
+  every other auto-fill in this app; still fully editable afterward
+  since a non-kg row's real unit price may differ).
+
+Verified via curl (`pending-materials` now returns supplier/price_per_kg
+unconditionally, confirmed against a real FDAMaterial row -- ราคา/กก.
+4250 for Alpha Lipoic Acid 99%) and a real-browser Playwright pass:
+picker shows the new Supplier/ราคา/กก. columns, typing a supplier name
+filters to just the matching row, and applying it fills the PO's
+unit_price with the same 4250 -- zero console/page errors.
+
+Cache-busting version bumped to 31.63.
+
 ## v31.62 — Remove excess white space across exact forms
 
 User request (5 screenshots, red X marks on the dead areas): "แก้ตรงช่องว่างขาวๆ
