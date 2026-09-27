@@ -1,3 +1,77 @@
+## v31.62 — Remove excess white space across exact forms
+
+User request (5 screenshots, red X marks on the dead areas): "แก้ตรงช่องว่างขาวๆ
+ที่มันเป็นส่วนเกินให้แก้ออกทั้งหมด ในทุกฟอร์มและทุกจุด" (fix the excess white
+space everywhere, every form, not just what's in the screenshots).
+
+Investigated by comparing `exact_forms.json`'s actual cell/merge/field data
+against every form's rendered columns and rows (not guessed from the
+screenshots alone) -- found two distinct causes:
+
+1. **Genuinely dead column/row ranges** -- spans with zero static text,
+   zero merges, zero fields anywhere in them, verified end to end before
+   touching anything:
+   - F-RD-002: cols 48-68 (21 columns) between the real Import/รหัสสาร/
+     Halal columns and a lone per-row FDA No. field at col 69 were
+     completely empty except for 4 cells of the *original author's own
+     internal notes* (a Google Sheets link, a TODO about attaching FDA
+     spec docs) -- never meant for the data-entry screen, so blanked
+     rather than kept. Also trailing rows 69-87 (maxRow was 87, real
+     content ends at 68) -- pure dead space past the signature area.
+   - F-RD-002.1: cols 44-63 (20 columns) between the ingredient table's
+     real last column (43, ราคา/mg.) and its own lone FDA No. field at
+     col 64 -- empty on every single row. Also trailing rows 52-73
+     (maxRow was 73, real content ends at 51).
+   - Fixed via `maxRow` trims (safe: doesn't renumber anything) and a new
+     `COLLAPSED_COLUMN_RANGES` config read by the colgroup width
+     calculation (collapses to 2px instead of the usual 8-unit floor --
+     doesn't touch cell addressing/merges at all, so nothing in the
+     ranges being collapsed needed to exist for this to be safe).
+2. **Real fields merged far wider than anything ever put in them** --
+   ADMIN-QP's active/inactive ปริมาณ (Quantity Mg.) boxes are each
+   merged 6 columns wide for what's almost always a 1-4 digit number;
+   the same two column ranges (T:Y and AR:AW) are reused down through
+   the subtotal/discount/VAT/grand-total boxes and the signature line,
+   all equally short values -- so compressing was safe end to end, not
+   just for the ingredient rows. New `COMPRESSED_COLUMN_RANGES` config
+   (same colgroup hook, scales to 45% instead of collapsing to zero,
+   since these columns do hold real content).
+   F-RD-001's "รูปแบบผลิตภัณฑ์/ปริมาณ" section (rows 11-16) turned out to
+   be the *same* choice as the H9 product_category field two rows above
+   (already made freely-typable in v31.59) -- แคปซูล/ตอกเม็ด/ชงดื่ม/
+   กรอกปาก/เม็ดฟู่ as 5 scattered static labels with nothing to click,
+   redundant with the working dropdown right above them. Blanked those
+   labels and compressed the rows to 12% height via a matching
+   `COMPRESSED_ROW_RANGES` config (same idea, for row height instead of
+   column width).
+- **Deliberately left alone**: ADMIN-JOB has similarly wide merges in
+  the same column range, but that range is reused for a completely
+  different mix of content per row (a header info block, a static lot-
+  code reference table, AND a quantity field, all sharing the same
+  columns) -- compressing it the same way risks clipping the reference
+  table and header fields, so it needs its own careful pass rather than
+  reusing this config blind. F-RD-003/F-RD-004/ADMIN-JOB showed no dead
+  column or row ranges in the analysis either, so nothing else needed
+  the collapse treatment this round.
+
+All three configs (`COLLAPSED_COLUMN_RANGES`, `COMPRESSED_COLUMN_RANGES`,
+`COMPRESSED_ROW_RANGES`) sit next to the existing `WIDE_FIELD_SPANS`
+config (opposite problem, same file) as a per-form, per-range override on
+top of the pixel-exact Excel replica -- verified per form by reading the
+underlying `exact_forms.json` data directly, not guessed from a
+screenshot.
+
+Verified via a real-browser Playwright pass on all 4 forms: F-RD-002 and
+F-RD-002.1 now render with zero excess trailing space (screenshots
+confirm the huge white void from the original report is gone, and
+`.excel-sheet-scroll.scrollWidth === clientWidth`), ADMIN-QP's quantity
+boxes render visibly narrower while still accepting and persisting typed
+values, F-RD-001's old checkbox-style labels are gone and the
+product_category dropdown still saves/restores correctly -- zero
+console/page errors throughout.
+
+Cache-busting version bumped to 31.62.
+
 ## v31.61 — ADMIN-QP: fix broken "BAHTTEXT is not implemented" placeholder
 
 User request: "จัดหน้าให้เป็นแบบนี้" (format the page like this), with a
