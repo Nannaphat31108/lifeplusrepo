@@ -190,15 +190,23 @@ def pending_materials(
     picker -- when a supplier name is given, matching items (by the
     material's FDAMaterial.supplier_company) sort first, but nothing is
     ever hidden just because the match isn't exact, so a PR item never
-    silently disappears from view."""
+    silently disappears from view. Each row also carries the material's
+    supplier name and ราคา/กก. (price_per_kg) from the FDA/รหัสสาร
+    database unconditionally -- not just when filtering by supplier --
+    so the picker can show a Supplier column and the PO form can
+    auto-fill ราคาต่อหน่วย from it once a row is picked."""
     from app.models.entities import FDAMaterial
 
     supplier_term = (supplier or "").strip().lower()
-    material_supplier: dict[str, str] = {}
-    if supplier_term:
-        for code, vendor in db.query(FDAMaterial.material_code, FDAMaterial.supplier_company).all():
-            if code:
-                material_supplier[code.strip().upper()] = (vendor or "").strip()
+    material_info: dict[str, dict] = {}
+    for code, vendor, price in db.query(
+        FDAMaterial.material_code, FDAMaterial.supplier_company, FDAMaterial.price_per_kg
+    ).all():
+        if code:
+            material_info[code.strip().upper()] = {
+                "supplier": (vendor or "").strip(),
+                "price_per_kg": (price or "").strip(),
+            }
 
     rows = db.scalars(
         select(PurchaseDocument)
@@ -219,7 +227,8 @@ def pending_materials(
                 continue
             if str(it.get("po_no") or "").strip():
                 continue  # already has a PO -- not pending
-            vendor = material_supplier.get(material_code.upper(), "")
+            info = material_info.get(material_code.upper(), {})
+            vendor = info.get("supplier", "")
             out.append({
                 "pr_id": x.id,
                 "pr_doc_no": x.doc_no,
@@ -231,6 +240,8 @@ def pending_materials(
                 "product_name": it.get("product_name") or "",
                 "production_order_no": it.get("production_order_no") or "",
                 "requested_date": x.created_at.isoformat() if x.created_at else None,
+                "supplier": vendor,
+                "price_per_kg": info.get("price_per_kg", ""),
                 "matches_supplier": bool(supplier_term and vendor.lower() == supplier_term),
             })
     if supplier_term:
