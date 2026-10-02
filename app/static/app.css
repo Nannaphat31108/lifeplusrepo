@@ -74,6 +74,24 @@ tr:last-child td{border-bottom:0}
    deliberately separate from .purchase-doc-table/.excel-input so nothing
    here can cross-contaminate the PO/PR grid or the old exact-form system.
    Same plain in-cell input look as .purchase-doc-table's inputs. */
+/* F-RD-002/F-RD-002.1 readable free-form view -- reuses .excel-input (the
+   same cell-generator functions the old pixel-exact grid uses) but that
+   class is normally position:absolute (built to anchor inside the grid's
+   position:relative <td>s). This override restores normal in-cell layout,
+   same fix as .purchase-doc-table's, and bumps the font size up from the
+   grid's tiny-to-fit-69-columns size -- the whole point of this view is
+   fixing "ตัวอักษรมันค่อนข้างเล็ก คนทำงาน แอบทำงานยาก". */
+.rd-formula-table{width:100%;border-collapse:collapse}
+.rd-formula-table th,.rd-formula-table td{border:1px solid #e5e7eb;padding:6px}
+.rd-formula-table th{background:#f8fafc;font-size:13px;white-space:nowrap}
+.rd-formula-table td.col-no{text-align:center;background:#f8fafc;font-size:14px;color:#667085}
+.rd-formula-table .excel-input{position:static;inset:auto;width:100%;height:auto;min-width:110px;border:none;padding:6px;font-size:15px;box-sizing:border-box}
+.rd-formula-table .excel-input:focus{outline:2px solid var(--primary,#2563eb);outline-offset:-2px}
+.rd-ingredient-name-cell{display:flex;gap:4px;align-items:center}
+.rd-ingredient-name-cell .excel-input{min-width:160px}
+.rd-expand-btn{flex:none;font-size:11px;padding:4px 7px;white-space:nowrap;border-radius:6px;border:1px solid #d0d5dd;background:#f8fafc;cursor:pointer}
+.rd-expand-btn:hover{background:#eff6ff;border-color:#2563eb}
+.purchase-doc-grid .form-grid .excel-input{position:static;inset:auto;width:100%;height:auto;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:15px;box-sizing:border-box}
 .qp-table{width:100%;border-collapse:collapse}
 .qp-table th,.qp-table td{border:1px solid #e5e7eb;padding:4px}
 .qp-table th{background:#f8fafc;font-size:12px}
@@ -284,6 +302,8 @@ pre.json{white-space:pre-wrap;background:#0b1220;color:#d1fae5;padding:14px;bord
 .fda-tier-section{margin-top:14px;padding-top:12px;border-top:1px dashed #d0d5dd}
 .fda-tier-row{display:flex;gap:8px;align-items:center;margin-bottom:6px}
 .fda-tier-row input{padding:8px;border:1px solid #d0d5dd;border-radius:6px;width:220px}
+.fda-component-total{font-weight:600;font-size:13px;color:#027a48;margin-left:8px}
+.fda-component-total.warn{color:#b42318}
 
 /* ADMIN-QP master: keep original Excel cell while showing only linked name + origin. */
 .qp-ingredient-master-cell{display:flex;flex-direction:column;gap:2px;width:100%;height:100%}

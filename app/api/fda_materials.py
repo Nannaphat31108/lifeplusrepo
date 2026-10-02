@@ -74,6 +74,11 @@ class PriceTierPayload(BaseModel):
     price_per_kg: float
 
 
+class ComponentPayload(BaseModel):
+    name: str
+    ratio_percent: float
+
+
 class FDAMaterialPayload(BaseModel):
     material_code: str
     supplier_category: Optional[str] = None
@@ -93,6 +98,10 @@ class FDAMaterialPayload(BaseModel):
     note: Optional[str] = None
     image_url: Optional[str] = None
     price_tiers: list[PriceTierPayload] = []
+    # Sub-ingredients this material expands into, with their proportional
+    # share -- only set for composite/blend registrations. See
+    # FDAMaterial.components_json.
+    components: list[ComponentPayload] = []
 
 
 def _parse_price_tiers(raw: Optional[str]) -> list[dict]:
@@ -107,6 +116,24 @@ def _parse_price_tiers(raw: Optional[str]) -> list[dict]:
         except (TypeError, ValueError):
             continue
     return sorted(out, key=lambda t: t["min_qty_kg"])
+
+
+def _parse_components(raw: Optional[str]) -> list[dict]:
+    try:
+        items = json.loads(raw) if raw else []
+    except Exception:
+        return []
+    out = []
+    for c in items or []:
+        name = str(c.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            ratio = float(c.get("ratio_percent"))
+        except (TypeError, ValueError):
+            continue
+        out.append({"name": name, "ratio_percent": ratio})
+    return out
 
 
 def resolve_tiered_price(x: FDAMaterial, qty_kg) -> Optional[float]:
@@ -150,6 +177,7 @@ def serialize(x: FDAMaterial):
         "note":x.note or "",
         "image_url":x.image_url or "",
         "price_tiers":_parse_price_tiers(x.price_tiers_json),
+        "components":_parse_components(x.components_json),
         # Uploaded อย. spec document (PDF/image) — distinct from image_url,
         # which is just a free-text external link field.
         "spec_url":f"/api/fda-materials/{x.id}/spec" if x.spec_data else "",
@@ -255,6 +283,11 @@ def unified_material_catalog(
         # resolve the right price_per_kg client-side as quantity changes,
         # without a round trip per keystroke.
         "price_tiers":_parse_price_tiers(x.price_tiers_json),
+        # Composite/blend expansion data -- see FDAMaterial.components_json.
+        # Carried here (not just on the single-record GET) so every formula
+        # row's name/code datalist already has it without an extra request
+        # per row.
+        "components":_parse_components(x.components_json),
         # อย. spec document attached in PURCHASE's FDA database — surfaced
         # here so R&D sees/opens it right from the formula form the moment
         # a material code is linked (the original request: "แนบ Spec อย.
@@ -318,9 +351,14 @@ def get_fda_material(item_id:int,db:Session=Depends(get_db),u=Depends(get_curren
 
 
 def _apply_payload(x: FDAMaterial, p: FDAMaterialPayload, exclude: set[str]):
-    for k, v in p.model_dump(exclude=exclude | {"price_tiers"}).items():
+    for k, v in p.model_dump(exclude=exclude | {"price_tiers", "components"}).items():
         setattr(x, k, v)
     x.price_tiers_json = json.dumps([t.model_dump() for t in p.price_tiers], ensure_ascii=False) if p.price_tiers else None
+    # Not required to sum to exactly 100 -- expandCompositeIngredientRow()
+    # (app.js) normalizes against the actual sum of whatever ratios are
+    # saved here, so a draft/rounded set of ratios still expands correctly
+    # proportioned; only entries with a name are kept.
+    x.components_json = json.dumps([c.model_dump() for c in p.components], ensure_ascii=False) if p.components else None
 
 
 @router.post("")

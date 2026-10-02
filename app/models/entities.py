@@ -294,6 +294,13 @@ class FDAMaterial(Base, TimestampMixin):
     # {"min_qty_kg": <number>, "price_per_kg": <number>}; price_per_kg above
     # remains the flat/base price used below the smallest tier threshold.
     price_tiers_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Composite/blend materials: some supplier FDA registrations are actually
+    # one code covering several distinct sub-ingredients in a fixed ratio
+    # (e.g. a probiotic blend). JSON list of {"name": <sub-ingredient name>,
+    # "ratio_percent": <number>} -- expanded proportionally against a row's
+    # total quantity by expandCompositeIngredientRow() in the F-RD-002/
+    # F-RD-002.1 formula forms. Empty/absent means "not a composite".
+    components_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ratio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     percentage: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

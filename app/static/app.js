@@ -1704,14 +1704,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.64",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.65",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.64",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.65",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -3848,12 +3848,418 @@ function exactFormDisplayName(code,form){
   return form?.display_name || form?.title || form?.name || form?.description || "แบบฟอร์ม";
 }
 
+// ===== F-RD-002 / F-RD-002.1 readable free-form view =====
+// The pixel-exact .excel-sheet grid (openPrivateExactForm below) forces
+// 69 narrow columns across ~90 rows onto one screen, which is why the
+// text has to be tiny to fit -- "ตัวอักษรมันค่อนข้างเล็ก คนทำงาน แอบทำงานยาก".
+// This is a second renderer for the SAME two form codes, laid out like
+// PO/PR/QP (normal flowing sections, big readable inputs) instead of a
+// literal grid replica -- but it reuses every field/calc/manual input
+// generator the grid uses (exactInput/formulaAutoInputForCell/
+// manualInputForCell) so saving, loading, recalculation (recalculateFormulaBoth),
+// FDA auto-link, and the unlimited-ingredient-count feature all keep
+// working completely unchanged; only the HTML arrangement is different.
+// A "มุมมองตาราง Excel (เดิม)" button can still flip back to the original
+// grid for either form, per window.rdFormulaGridView[code].
+window.rdFormulaGridView = window.rdFormulaGridView || {};
+
+const RD_FORMULA_LABELS = {
+  customer_name:"นามผู้ซื้อ", formula_no:"เลขที่สูตร", product_type:"ประเภทของผลิตภัณฑ์",
+  date:"วันที่", product_name_fda:"ชื่อผลิตภัณฑ์ / เลข อย.", salesperson:"พนักงานขาย",
+  order_quantity:"จำนวนที่สั่งผลิต", order_unit:"หน่วย",
+  signature_name:"ลงชื่อ (จนท. R&D)"
+};
+
+// Keyed by the field's own literal cell address from exact_fields.json --
+// deliberately NOT exactFieldMap()'s map (which keys by each merge
+// range's top-left address instead, for the pixel-grid's one-<td>-per-
+// merge rendering). A field like formula_no can sit on a cell that is
+// itself merged into a wider range for display, so its exact_fields.json
+// .cell and the merge's top-left can differ; exactInput() only ever reads
+// field.key/.group/.type/.options (the addr argument is purely a cosmetic
+// data-addr attribute, never queried by anything), so looking it up by its
+// own literal cell -- not the merge's -- is both correct and simpler.
+function rdFormulaRawFieldMap(code){
+  const map={};
+  for(const f of (exactFieldsCache[code]||[])){
+    if(f.sub==="variant_code" || f.type==="hidden_variant")continue;
+    map[f.cell]=f;
+  }
+  return map;
+}
+// Mirrors the grid render loop's own precedence for a fixed-address cell
+// (field > auto-calculated > manually editable) -- see openPrivateExactForm
+// below -- so a summary/rate/note cell behaves identically here even
+// though exact_fields.json or MANUAL_EDIT_CELLS sometimes lists the same
+// address in more than one place (the first match in that order wins,
+// same as the grid).
+function rdFormulaFieldOrCell(code,rawMap,addr){
+  const field=rawMap[addr];
+  if(field)return exactInput(field,addr,"");
+  return formulaAutoInputForCell(code,addr,"") || manualInputForCell(code,addr,"") || "";
+}
+function rdFormulaHeaderField(code,rawMap,key){
+  const field=Object.values(rawMap).find(f=>f.key===key);
+  if(!field)return "";
+  return `<div><label>${esc(RD_FORMULA_LABELS[key]||key)}</label>${exactInput(field,field.cell,"")}</div>`;
+}
+
+// "แตกสาร" button next to a row's ชื่อสาร cell -- see
+// expandCompositeIngredientRow() for what it does. Shown on every row
+// (not conditionally, since whether the currently-typed name/code is
+// actually a composite can only be known after the user has picked one);
+// clicking it on a non-composite ingredient just says so.
+function rdExpandBtn(group,i){
+  return `<button type="button" class="rd-expand-btn" data-group="${group}" data-index="${i}" onclick="expandCompositeIngredientRow(this)" title="แตกสารประกอบตามสัดส่วน (ถ้าสารนี้ตั้งค่าไว้)">แตกสาร</button>`;
+}
+function rdFormulaIngredientRowHtml(code,group,i){
+  const mk=(sub,type,options)=>exactInput({group,index:i,sub,type,options},`${group}${i}${sub}`,"");
+  if(group==="ingredients"){
+    if(code==="F-RD-002"){
+      return `<tr>
+        <td class="col-no">${i+1}</td>
+        <td><div class="rd-ingredient-name-cell">${mk("name","supplement")}${rdExpandBtn(group,i)}</div></td>
+        <td>${mk("material_code","supplement_code")}</td>
+        <td>${mk("supplier","supplier")}</td>
+        <td>${mk("fda_no","text")}</td>
+        <td>${mk("import_country","text")}</td>
+        <td>${mk("halal","select",["YES","NO"])}</td>
+        <td>${mk("quantity_mg","number")}</td>
+        <td>${mk("production_kg","number_auto")}</td>
+        <td>${mk("percent","number_auto")}</td>
+        <td>${mk("price_kg","number")}</td>
+        <td>${mk("row_cost","number_auto")}</td>
+      </tr>`;
+    }
+    return `<tr>
+      <td class="col-no">${i+1}</td>
+      <td><div class="rd-ingredient-name-cell">${mk("name","supplement")}${rdExpandBtn(group,i)}</div></td>
+      <td>${mk("material_code","supplement_code")}</td>
+      <td>${mk("supplier","supplier")}</td>
+      <td>${mk("fda_no","text")}</td>
+      <td>${mk("quantity_mg","number")}</td>
+      <td>${mk("production_kg","number_auto")}</td>
+      <td>${mk("percent","number_auto")}</td>
+      <td>${mk("price_kg","number")}</td>
+      <td>${mk("row_cost","number_auto")}</td>
+      <td>${mk("price_pack","number")}</td>
+      <td>${mk("pack_mg","number_auto")}</td>
+      <td>${mk("quantity_g","number_auto")}</td>
+      <td>${mk("pack_price_mg","number_auto")}</td>
+    </tr>`;
+  }
+  // inactive_ingredients -- F-RD-002 only. Rows 0-2 are the original
+  // master's real D39:AT41 cells; row_cost (AI column) for those three
+  // is a fixed-address auto cell, not a group/index/sub field (see
+  // FORMULA_AUTO_CELLS/recalculateFormulaBoth's own i<=2 special case) --
+  // any row added past the original 3 (index 3+) has no such address, so
+  // it falls back to the same group/index/sub field every other computed
+  // cell here uses.
+  const rowCostCell = i<=2 ? (formulaAutoInputForCell(code,`AI${39+i}`,"")||"") : mk("row_cost","number_auto");
+  return `<tr>
+    <td class="col-no">${i+1}</td>
+    <td><div class="rd-ingredient-name-cell">${mk("name","supplement")}${rdExpandBtn(group,i)}</div></td>
+    <td>${mk("material_code","supplement_code")}</td>
+    <td>${mk("supplier","supplier")}</td>
+    <td>${mk("fda_no","text")}</td>
+    <td>${mk("import_country","text")}</td>
+    <td>${mk("halal","text")}</td>
+    <td>${mk("quantity_mg","number")}</td>
+    <td>${mk("production_kg","number_auto")}</td>
+    <td>${mk("percent","number_auto")}</td>
+    <td>${mk("price_kg","number")}</td>
+    <td>${rowCostCell}</td>
+  </tr>`;
+}
+
+function addRdFormulaIngredientRow(code){
+  window.formulaIngredientCount ??= {};
+  const idxs=formulaGroupIndexes("ingredients");
+  const next=idxs.length?Math.max(...idxs)+1:0;
+  window.formulaIngredientCount[code]=next+1;
+  const tbody=document.querySelector('.rd-formula-table[data-rd-group="ingredients"] tbody');
+  if(!tbody)return;
+  tbody.insertAdjacentHTML("beforeend",rdFormulaIngredientRowHtml(code,"ingredients",next));
+  setTimeout(recalculateFormulaBoth,0);
+}
+function addRdFormulaInactiveRow(code){
+  if(code!=="F-RD-002")return;
+  window.formulaInactiveIngredientCount ??= {};
+  const idxs=formulaGroupIndexes("inactive_ingredients");
+  const next=idxs.length?Math.max(...idxs)+1:0;
+  window.formulaInactiveIngredientCount[code]=next+1;
+  const tbody=document.querySelector('.rd-formula-table[data-rd-group="inactive_ingredients"] tbody');
+  if(!tbody)return;
+  tbody.insertAdjacentHTML("beforeend",rdFormulaIngredientRowHtml(code,"inactive_ingredients",next));
+  setTimeout(recalculateFormulaBoth,0);
+}
+
+// "พี่คุยกับซัพ สารบางตัว มันขึ้นทะเบียนแจกแจงหลายตัว ... ถ้าพี่กดสารตัวนี้
+// ทั้งก้อน แล้วมันขึ้นสารแจกแจงได้หมดเลยมั้ย แต่พี่จะใส่ปริมาณเอง ซึ่งมันต้อง
+// คำนวณตามสัดส่วน" -- a composite/blend material (set up in the FDA /
+// รหัสสาร Database's "ส่วนประกอบ" section, see openFDAMaterialEditor) is
+// one registration that's really several named sub-ingredients in a fixed
+// ratio. The row's own ปริมาณ (มก.) is treated as the TOTAL for the whole
+// blend; this replaces that row with one row per sub-ingredient, each
+// carrying its proportional share (ratio_percent normalized against the
+// sum of every sub-ingredient's own ratio_percent, so rounding in how the
+// ratios were entered doesn't throw the split off). The row the button
+// was on becomes the first sub-ingredient; every other one is appended via
+// the same addRdFormulaIngredientRow/addRdFormulaInactiveRow used by
+// "+ เพิ่มแถว", so unlimited extra rows work exactly as they already do.
+function expandCompositeIngredientRow(btn){
+  const group=btn.dataset.group;
+  const i=Number(btn.dataset.index);
+  const code=currentExactForm;
+  const nameEl=formulaField(group,i,"name");
+  const codeEl=formulaField(group,i,"material_code");
+  const qtyEl=formulaField(group,i,"quantity_mg");
+  const item=findSupplementByCode(codeEl?.value)||findSupplementByName(nameEl?.value);
+  const components=(item?.components||[]).filter(c=>String(c.name||"").trim());
+  if(!components.length){
+    toast('สารนี้ไม่ได้ตั้งค่าส่วนประกอบไว้ — ไปตั้งค่าได้ที่ PURCHASE > FDA + รหัสสาร Database > แก้ไขสาร > "ส่วนประกอบ"');
+    return;
+  }
+  const totalQty=readNumber(qtyEl);
+  if(!totalQty){
+    toast("กรุณาใส่ปริมาณรวม (ปริมาณ มก.) ของสารนี้ก่อนกด \"แตกสาร\"");
+    qtyEl?.focus();
+    return;
+  }
+  const ratioSum=components.reduce((s,c)=>s+(Number(c.ratio_percent)||0),0)||1;
+
+  components.forEach((c,ci)=>{
+    const qty=totalQty*(Number(c.ratio_percent)||0)/ratioSum;
+    let targetIndex=i;
+    if(ci>0){
+      if(group==="ingredients")addRdFormulaIngredientRow(code);
+      else addRdFormulaInactiveRow(code);
+      targetIndex=Math.max(...formulaGroupIndexes(group));
+    }
+    const n=formulaField(group,targetIndex,"name");
+    const q=formulaField(group,targetIndex,"quantity_mg");
+    if(n)n.value=c.name||"";
+    if(q)q.value=fmtCalc(qty,6);
+    if(ci===0){
+      // The original composite's own code/supplier describe the WHOLE
+      // blend, not any one sub-ingredient -- clear them on the row that
+      // gets reused so they aren't left pointing at the wrong material.
+      if(codeEl)codeEl.value="";
+      const supplierEl=formulaField(group,i,"supplier");
+      if(supplierEl)supplierEl.value="";
+    }
+  });
+  setTimeout(recalculateFormulaBoth,0);
+  toast(`แตกสารประกอบเป็น ${components.length} รายการตามสัดส่วนที่ตั้งไว้ (รวม ${fmtCalc(totalQty,3)} มก.)`);
+}
+
+// Swaps between this readable view and the original pixel-grid view
+// (openPrivateExactForm's .excel-sheet branch) without losing whatever
+// has been typed -- collects the current payload first (same function
+// saveExactForm uses) and re-populates it into the other view's inputs
+// after it re-renders (populateExactForm is itself purely data-attribute
+// driven, so it works identically regardless of which view wrote the DOM).
+function toggleRdFormulaView(code){
+  const data=collectExactPayload();
+  const recordNo=document.getElementById("exactRecordNo")?.value||"";
+  window.rdFormulaGridView[code]=!window.rdFormulaGridView[code];
+  openPrivateExactForm(code).then(()=>{
+    const recEl=document.getElementById("exactRecordNo");
+    if(recEl)recEl.value=recordNo;
+    populateExactForm(data);
+  });
+}
+
+function rdFormulaDatalistsHtml(){
+  const supplements=(window.supplementCodeData||[]);
+  const supNames=[...new Set(supplements.map(x=>x.vendor).filter(Boolean))];
+  return `
+    <datalist id="exactSupplementCodeList">
+      ${supplements.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join("")}
+    </datalist>
+    <datalist id="exactSupplementNameList">
+      ${supplements.map(x=>`<option value="${esc(x.name)}">${esc(x.code)} — ${esc(x.vendor||"")}</option>`).join("")}
+    </datalist>
+    <datalist id="exactSupplierList">
+      ${supNames.map(x=>`<option value="${esc(x)}">`).join("")}
+    </datalist>
+    <datalist id="exactEmployeeList">
+      ${(window.employeeListCache||[]).map(x=>`<option value="${esc(x.full_name)}">${esc(x.department||"")}</option>`).join("")}
+    </datalist>
+  `;
+}
+
+function renderFormulaFreeForm(code){
+  const fmap=rdFormulaRawFieldMap(code);
+  const isRd002=code==="F-RD-002";
+
+  $("pageTitle").textContent=`${code} — ${isRd002?"สูตร":"สูตรผลิต"}`;
+  $("pageSubtitle").textContent=`${window.formWorkspace.display_name} • ข้อมูลส่วนตัว แยกจากคนอื่น • แบบฟอร์มอ่านง่าย`;
+
+  const ingCount=selectedFormulaIngredientCount(code);
+  const inactiveCount=isRd002?selectedInactiveIngredientCount(code):0;
+
+  let activeRows="";
+  for(let i=0;i<ingCount;i++)activeRows+=rdFormulaIngredientRowHtml(code,"ingredients",i);
+  let inactiveRows="";
+  for(let i=0;i<inactiveCount;i++)inactiveRows+=rdFormulaIngredientRowHtml(code,"inactive_ingredients",i);
+
+  const activeHeadCols=isRd002
+    ? ["No.","ชื่อสาร (Active Ingredient)","รหัสสาร","Supplier","FDA เลขที่","Import","Halal","ปริมาณ (มก.)","ผลิต (ก.ก.)","ร้อยละ (%)","ราคา/กก.","ราคา/มก."]
+    : ["No.","ชื่อสาร (Active Ingredient)","รหัสสาร","Supplier","FDA เลขที่","ปริมาณ (มก.)","ผลิต (ก.ก.)","ร้อยละ (%)","ราคา/กก.","ราคา/มก.","ราคา/แพ็ค","ปริมาณ (มก./Tester)","ปริมาณ (ก./Tester)","ราคา/mg (Tester)"];
+
+  $("pageContent").innerHTML=`
+    <div class="exact-form-toolbar">
+      <div>
+        <b>${window.formWorkspace.display_name} • FORM ${code}</b>
+        <small>บันทึกของคนนี้ คนอื่นเปิดดูไม่ได้ • แบบฟอร์มอ่านง่าย</small>
+      </div>
+      <div class="actions">
+        <input id="exactRecordNo" placeholder="เลขที่รายการ เช่น ${code}-001">
+        ${isRd002?`<input id="exactFiledMonth" type="month" value="${currentYearMonth()}" title="เก็บไว้ในเดือนไหน">`:""}
+        ${!isRd002?`<input id="exactFiledPerson" list="exactEmployeeList" placeholder="เก็บไว้ในชื่อของใคร" title="เก็บไว้ในชื่อของใคร">`:""}
+        <button onclick="showSourceRecords('${code}')">ฟอร์มของฉัน</button>
+        <button class="ai-formula-btn" onclick="openAIFormulaAssistant('${code}')">AI คิดสูตร</button>
+        <button onclick="toggleRdFormulaView('${code}')">มุมมองตาราง Excel (เดิม)</button>
+        <button class="primary" onclick="saveExactForm('${code}')">บันทึก</button>
+      </div>
+    </div>
+
+    <div class="doc-logo-header"><img src="/static/logo.png" alt="Life Plus Pharmaceutical"></div>
+
+    <div class="card purchase-doc-grid">
+      <div class="form-grid">
+        ${rdFormulaHeaderField(code,fmap,"customer_name")}
+        ${rdFormulaHeaderField(code,fmap,"formula_no")}
+        ${rdFormulaHeaderField(code,fmap,"product_type")}
+        ${rdFormulaHeaderField(code,fmap,"date")}
+        ${rdFormulaHeaderField(code,fmap,"product_name_fda")}
+        ${rdFormulaHeaderField(code,fmap,"salesperson")}
+        ${rdFormulaHeaderField(code,fmap,"order_quantity")}
+        ${rdFormulaHeaderField(code,fmap,"order_unit")}
+      </div>
+
+      <h3>Active Ingredient (ส่วนประกอบที่สำคัญ)</h3>
+      <div class="table-wrap rd-formula-table-wrap">
+        <table class="rd-formula-table" data-rd-group="ingredients">
+          <thead><tr>${activeHeadCols.map(h=>`<th>${esc(h)}</th>`).join("")}</tr></thead>
+          <tbody>${activeRows}</tbody>
+        </table>
+      </div>
+      <button type="button" onclick="addRdFormulaIngredientRow('${code}')">+ เพิ่มแถวสารสกัด</button>
+
+      ${isRd002?`
+      <h3>Inactive Ingredient (ส่วนประกอบที่ไม่สำคัญ)</h3>
+      <div class="table-wrap rd-formula-table-wrap">
+        <table class="rd-formula-table" data-rd-group="inactive_ingredients">
+          <thead><tr><th>No.</th><th>ชื่อสาร</th><th>รหัสสาร</th><th>Supplier</th><th>FDA เลขที่</th><th>Import</th><th>Halal</th><th>ปริมาณ (มก.)</th><th>ผลิต (ก.ก.)</th><th>ร้อยละ (%)</th><th>ราคา/กก.</th><th>ราคา/มก.</th></tr></thead>
+          <tbody>${inactiveRows}</tbody>
+        </table>
+      </div>
+      <button type="button" onclick="addRdFormulaInactiveRow('${code}')">+ เพิ่มแถวสารไม่สำคัญ</button>
+      `:""}
+
+      ${isRd002?rdFormula002SummaryHtml(code,fmap):rdFormula0021SummaryHtml(code,fmap)}
+
+      <h3>เรทราคา</h3>
+      <div class="form-grid">${rdFormulaRateRowsHtml(code,fmap)}</div>
+
+      <h3>หมายเหตุ / ลงชื่อ</h3>
+      <div class="form-grid">
+        ${rdFormulaNoteRowsHtml(code,fmap)}
+        ${rdFormulaHeaderField(code,fmap,"signature_name")}
+      </div>
+
+      ${isRd002?`
+      <h3>การตักโปรตีน / คอลลาเจน และต้นทุนสารสกัดส่งตรวจ</h3>
+      <div class="form-grid">
+        <div><label>ตักวันละ (ช้อน)</label>${manualInputForCell(code,"AA57","")}</div>
+        <div><label>ระบุสีแคปซูลที่เหมาะสม</label>${manualInputForCell(code,"AI57","")}</div>
+        <div><label>ต้นทุนสารสกัดส่งตรวจ</label>${manualInputForCell(code,"S60","")}</div>
+        <div><label>การรับประทาน/วัน (แคปซูล/ตอกเม็ด/ซอง/ช้อนตวง)</label>${manualInputForCell(code,"AI60","")}</div>
+      </div>`:""}
+    </div>
+
+    ${rdFormulaDatalistsHtml()}
+  `;
+
+  setTimeout(recalculateFormulaBoth,0);
+  setTimeout(()=>linkFDAForExactFormula(false),20);
+  setTimeout(()=>linkFDAForExactFormula(false),200);
+  setTimeout(()=>linkFDAForExactFormula(false),600);
+}
+
+function rdFormula002SummaryHtml(code,fmap){
+  return `
+    <h3>ปริมาณ / ต้นทุน / กำไร</h3>
+    <div class="form-grid">
+      <div><label>ปริมาณส่วนผสม / หน่วย (มก.)</label>${formulaAutoInputForCell(code,"K44","")}</div>
+      <div><label>ปริมาณที่ใช้ในการผลิต (ก.ก.)</label>${formulaAutoInputForCell(code,"K45","")}</div>
+      <div><label>ราคาต้นทุนส่วนผสม / หน่วย (บาท)</label>${formulaAutoInputForCell(code,"K47","")}</div>
+      <div><label>รวมราคาต้นทุนส่วนผสม</label>${formulaAutoInputForCell(code,"AO47","")}</div>
+      <div><label>ราคาขาย / หน่วย (บาท)</label>${manualInputForCell(code,"K48","")}</div>
+      <div><label>รวมราคาขาย</label>${formulaAutoInputForCell(code,"AO48","")}</div>
+      <div><label>กำไร / หน่วย (บาท)</label>${formulaAutoInputForCell(code,"K49","")}</div>
+      <div><label>รวมกำไร</label>${formulaAutoInputForCell(code,"AO49","")}</div>
+    </div>
+  `;
+}
+function rdFormula0021SummaryHtml(code,fmap){
+  return `
+    <h3>บรรจุภัณฑ์ / Tester</h3>
+    <div class="form-grid">
+      <div><label>บรรจุภัณฑ์ที่ใช้คิดต้นทุน (เช่น แคปซูล #00 DRCap)</label>${manualInputForCell(code,"B31","")}</div>
+      <div><label>ราคาบรรจุภัณฑ์ / แคปซูล (บาท)</label>${manualInputForCell(code,"AE31","")}</div>
+      <div><label>จำนวน Tester</label>${manualInputForCell(code,"AP31","")}</div>
+      <div><label>หน่วยของจำนวน Tester</label>${manualInputForCell(code,"AQ31","")}</div>
+    </div>
+    <h3>ปริมาณ / ต้นทุน / กำไร</h3>
+    <div class="form-grid">
+      <div><label>ปริมาณส่วนผสม / หน่วย (มก.)</label>${formulaAutoInputForCell(code,"P28","")}</div>
+      <div><label>ปริมาณที่ใช้ในการผลิต (ก.ก.)</label>${formulaAutoInputForCell(code,"V28","")}</div>
+      <div><label>รวมราคา/แพ็ค</label>${formulaAutoInputForCell(code,"AN28","")}</div>
+      <div><label>ต้นทุนบรรจุภัณฑ์ (ราคา × จำนวน Tester)</label>${formulaAutoInputForCell(code,"AO28","")}</div>
+      <div><label>ราคาต้นทุนส่วนผสม / หน่วย (บาท)</label>${formulaAutoInputForCell(code,"K33","")}</div>
+      <div><label>ไม่รวมบรรจุภัณฑ์</label>${formulaAutoInputForCell(code,"O33","")}</div>
+      <div><label>รวมราคาต้นทุนส่วนผสม</label>${formulaAutoInputForCell(code,"AO33","")}</div>
+      <div><label>ราคาขาย / หน่วย (บาท)</label>${manualInputForCell(code,"K34","")}</div>
+      <div><label>ไม่รวมบรรจุภัณฑ์ (ขาย)</label>${formulaAutoInputForCell(code,"O34","")}</div>
+      <div><label>รวมราคาขาย</label>${formulaAutoInputForCell(code,"AO34","")}</div>
+      <div><label>กำไร / หน่วย (บาท)</label>${formulaAutoInputForCell(code,"K35","")}</div>
+      <div><label>กำไร % (ไม่รวมบรรจุภัณฑ์)</label>${formulaAutoInputForCell(code,"Z35","")}</div>
+      <div><label>รวมกำไร</label>${formulaAutoInputForCell(code,"AO35","")}</div>
+      <div><label>ราคาต้นทุน Tester</label>${formulaAutoInputForCell(code,"K36","")}</div>
+      <div><label>รวมกำไรสุทธิ</label>${formulaAutoInputForCell(code,"AO36","")}</div>
+    </div>
+  `;
+}
+// เรทราคา table -- 6 free-text rows the original master leaves blank for
+// whatever quantity/price tiers apply to this formula. Row 1's left cell
+// is the one named single field "rate_text" (exact_fields.json); every
+// other cell in the table (including row 1's right cell) is a plain
+// manual cell -- see rdFormulaFieldOrCell's field-wins-over-manual note.
+function rdFormulaRateRowsHtml(code,fmap){
+  const rows=code==="F-RD-002"
+    ? [["B52","I52"],["B53","I53"],["B54","I54"],["B55","I55"],["B56","I56"],["B57","I57"]]
+    : [["B39"],["B40"],["B41"],["B42"],["B43"],["B44"]];
+  return rows.map(pair=>pair.map(addr=>`<div>${rdFormulaFieldOrCell(code,fmap,addr)}</div>`).join("")).join("");
+}
+// หมายเหตุ box -- same "row 1 is the named field" quirk as the rate table.
+function rdFormulaNoteRowsHtml(code,fmap){
+  const addrs=code==="F-RD-002" ? ["S52","S53","S54"] : ["B47","B48","B49","B50","B51"];
+  return addrs.map(addr=>`<div>${rdFormulaFieldOrCell(code,fmap,addr)}</div>`).join("");
+}
+
 async function openPrivateExactForm(code){
   await loadExactAssets();
   currentExactForm = code;
 
   document.querySelectorAll(".nav").forEach(x=>x.classList.remove("active"));
   document.querySelector(`.exact-form-nav[data-form="${code}"]`)?.classList.add("active");
+
+  if((code==="F-RD-002"||code==="F-RD-002.1") && !window.rdFormulaGridView[code]){
+    return renderFormulaFreeForm(code);
+  }
 
   const titles={
     "F-RD-001":"รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า",
@@ -3973,7 +4379,7 @@ async function openPrivateExactForm(code){
         ${code==="F-RD-002.1"?`<input id="exactFiledPerson" list="exactEmployeeList" placeholder="เก็บไว้ในชื่อของใคร" title="เก็บไว้ในชื่อของใคร">`:""}
         <button onclick="showSourceRecords('${code}')">ฟอร์มของฉัน</button>
         ${isQPLikeForm(code)?`<div class="qp-exact-link"><input id="qpExactFormulaNo" placeholder="คีย์รหัสสูตร เช่น F-RD-002-001"><button onclick="linkAdminQPFormula(true)">VLOOKUP จากไฟล์สูตร</button></div>`:""}
-        ${(code==="F-RD-002"||code==="F-RD-002.1")?`<button class="ai-formula-btn" onclick="openAIFormulaAssistant('${code}')">AI คิดสูตร</button>`:""}
+        ${(code==="F-RD-002"||code==="F-RD-002.1")?`<button class="ai-formula-btn" onclick="openAIFormulaAssistant('${code}')">AI คิดสูตร</button><button onclick="toggleRdFormulaView('${code}')">กลับไปฟอร์มอ่านง่าย</button>`:""}
         <button class="primary" onclick="saveExactForm('${code}')">บันทึก</button>
       </div>
     </div>
@@ -4952,11 +5358,48 @@ function removeFdaTierRow(i){
   renderFdaTierRows();
 }
 
+// Composite/blend materials: one FDA registration that's actually several
+// named sub-ingredients in a fixed ratio ("สารบางตัวขึ้นทะเบียนแจกแจงหลาย
+// ตัว"). Ratios don't need to sum to exactly 100 to save -- whatever's
+// here gets normalized against its own sum at expansion time (see
+// expandCompositeIngredientRow in the F-RD-002/F-RD-002.1 formula forms) --
+// but the running total is shown so a typo (e.g. 10 instead of 100) is
+// obvious before it's relied on.
+let fdaDbComponentRows=[];
+function renderFdaComponentRows(){
+  const box=document.getElementById("fdaComponentRows");
+  if(!box)return;
+  box.innerHTML=fdaDbComponentRows.map((c,i)=>`
+    <div class="fda-tier-row">
+      <input value="${esc(c.name??"")}" placeholder="ชื่อสารย่อย" oninput="fdaDbComponentRows[${i}].name=this.value">
+      <input type="number" step="0.01" min="0" value="${esc(c.ratio_percent??"")}" placeholder="สัดส่วน %" oninput="fdaDbComponentRows[${i}].ratio_percent=this.value;renderFdaComponentRowsTotal()">
+      <button onclick="removeFdaComponentRow(${i})">ลบ</button>
+    </div>`).join("")
+    || '<div class="muted">ยังไม่ได้ตั้งค่า — สารนี้จะไม่ขึ้นปุ่ม "แตกสาร" ในฟอร์มสูตร</div>';
+  renderFdaComponentRowsTotal();
+}
+function renderFdaComponentRowsTotal(){
+  const el=document.getElementById("fdaComponentRowsTotal");
+  if(!el)return;
+  const total=fdaDbComponentRows.reduce((s,c)=>s+(Number(c.ratio_percent)||0),0);
+  el.textContent=fdaDbComponentRows.length?`รวมสัดส่วน ${fmtCalc(total,2)}%${Math.abs(total-100)<0.5?" ✓":" (ควรรวมได้ 100%)"}`:"";
+  el.className="fda-component-total"+(fdaDbComponentRows.length && Math.abs(total-100)>=0.5?" warn":"");
+}
+function addFdaComponentRow(){
+  fdaDbComponentRows.push({name:"",ratio_percent:""});
+  renderFdaComponentRows();
+}
+function removeFdaComponentRow(i){
+  fdaDbComponentRows.splice(i,1);
+  renderFdaComponentRows();
+}
+
 async function openFDAMaterialEditor(id=null){
   fdaDbEditingId=id;
   let d={};
   if(id)d=await api(`/api/fda-materials/${id}`);
   fdaDbTierRows=(d.price_tiers||[]).map(t=>({...t}));
+  fdaDbComponentRows=(d.components||[]).map(c=>({...c}));
   let suppliers=[];
   try{suppliers=await api("/api/suppliers");}catch{}
   const fields=fdaDbFields().map(([key,label])=>`
@@ -4977,6 +5420,11 @@ async function openFDAMaterialEditor(id=null){
         <button onclick="addFdaTierRow()">+ เพิ่มระดับราคา</button>
       </div>
       <div class="fda-tier-section">
+        <div class="fda-editor-title">ส่วนประกอบ (สำหรับ "แตกสาร" ตามสัดส่วนในฟอร์มสูตร RD) <span id="fdaComponentRowsTotal" class="fda-component-total"></span></div>
+        <div id="fdaComponentRows"></div>
+        <button onclick="addFdaComponentRow()">+ เพิ่มสารย่อย</button>
+      </div>
+      <div class="fda-tier-section">
         <div class="fda-editor-title">แนบ Spec อย. (PDF / รูปภาพ จาก Supplier)</div>
         <input id="fda_spec_file" type="file" accept="application/pdf,image/*">
         ${d.spec_url?`<div style="margin-top:6px"><button onclick="downloadFDASpec(${id})">ดาวน์โหลดไฟล์ปัจจุบัน: ${esc(d.spec_filename||"spec")}</button> <button onclick="removeFDASpec(${id})">ลบไฟล์</button></div>`:'<div class="muted" style="margin-top:6px">ยังไม่มีไฟล์แนบ</div>'}
@@ -4988,6 +5436,7 @@ async function openFDAMaterialEditor(id=null){
       </div>
     </div>`;
   renderFdaTierRows();
+  renderFdaComponentRows();
   document.getElementById("fda_material_code")?.focus();
   // Only while adding a brand-new record: as the code is typed, check if it
   // already exists and auto-link the existing data in instead of making the
@@ -5021,6 +5470,8 @@ async function fdaDbTryAutoLink(){
     }
     fdaDbTierRows=(found.price_tiers||[]).map(t=>({...t}));
     renderFdaTierRows();
+    fdaDbComponentRows=(found.components||[]).map(c=>({...c}));
+    renderFdaComponentRows();
     fdaDbEditingId=found.id;
     if(titleEl)titleEl.textContent=`แก้ไข FDA / รหัสสาร (พบรหัส ${esc(found.material_code)} อยู่แล้ว — ลิงก์ข้อมูลเดิมมาให้)`;
     toast(`พบรหัส ${found.material_code} อยู่แล้ว ลิงก์ข้อมูลเดิมมาให้แล้ว ไม่ต้องกรอกใหม่`);
@@ -5030,6 +5481,8 @@ async function fdaDbTryAutoLink(){
     fdaDbEditingId=null;
     fdaDbTierRows=[];
     renderFdaTierRows();
+    fdaDbComponentRows=[];
+    renderFdaComponentRows();
     if(titleEl)titleEl.textContent="เพิ่ม FDA / รหัสสารใหม่";
   }
 }
@@ -5102,6 +5555,9 @@ async function saveFDAMaterial(){
     body.price_tiers=fdaDbTierRows
       .filter(t=>String(t.min_qty_kg||"").trim()!=="" && String(t.price_per_kg||"").trim()!=="")
       .map(t=>({min_qty_kg:Number(t.min_qty_kg)||0,price_per_kg:Number(t.price_per_kg)}));
+    body.components=fdaDbComponentRows
+      .filter(c=>String(c.name||"").trim()!=="" && String(c.ratio_percent||"").trim()!=="")
+      .map(c=>({name:String(c.name).trim(),ratio_percent:Number(c.ratio_percent)}));
     let saved;
     if(fdaDbEditingId){
       saved=await api(`/api/fda-materials/${fdaDbEditingId}`,{method:"PUT",body});
