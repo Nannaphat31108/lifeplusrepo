@@ -1,3 +1,80 @@
+## v31.64 — PO/PR: unlimited rows; new free-form QP (Quotation) document
+
+From a long multi-part request (3 screenshots: PR item table, an FDA-search
+result list, the FDA Database's หมวด column):
+
+- **PO/PR item tables no longer cap out at 12 rows.** `collectPurchaseDocItems`
+  now walks every row actually present in the DOM (`while(true)`, stops at
+  the first missing `data-row`) instead of a fixed range, so there's no real
+  upper bound on how many rows a PO/PR can carry. A shared
+  `purchaseDocRowHtml(docType,r,it)` renders one row's HTML for both the
+  initial render and a new "+ เพิ่มแถว" button (`addPurchaseDocRow()`) that
+  appends another empty row on click. The "เลือกจาก PR ที่ค้างอยู่" picker
+  now calls `addPurchaseDocRow()` instead of silently refusing to add a line
+  once the table was full.
+- **New QP (ใบเสนอราคา / Quotation) document**, laid out like PO/PR instead
+  of the old pixel-exact ADMIN-QP Excel-grid replica -- "ฟอร์ม QP ที่แอดมิน
+  ทำฟอร์มแบบ PO/PO ช่องมันสวยกว่า". Reuses the existing shared
+  `PurchaseDocument` model with a third `doc_type="QP"` (no new table), so
+  it gets the same generic CRUD/versioning/Excel-export machinery PO/PR
+  already have. Keeps every section the original ADMIN-QP had: header
+  (customer/address/phone-fax-email/product name/formula no./installments),
+  active + inactive ingredient tables, a job-code/บรรจุภัณฑ์/quantity/price
+  table, discount/VAT 7%/grand-total + Thai baht-text line, and both
+  signature lines -- but with no 9/7/13-row cap, each table growing via its
+  own "+ เพิ่มแถว..." button (`addQPIngredientRow(group)` /
+  `addQPJobRow()`).
+  - **VLOOKUP เลขที่สูตร** button pulls the active/inactive ingredient lists
+    straight from an F-RD-002/F-RD-002.1 formula record
+    (`GET /api/source-forms/formula-link/{formula_no}`, the same endpoint
+    the old exact-form ADMIN-QP's VLOOKUP uses) -- "สามารถเลือกเลขสูตร ที่
+    RD ที่แล้วขึ้นจำนวนสารสกัดได้เลย". That endpoint's per-list truncation
+    was raised from 9/7 to 100/100 so a formula with more ingredients than
+    the old exact-form's fixed capacity isn't silently cut down anymore
+    (the old exact-form still only ever reads its own first 9/7 off the
+    same response, so this is backward-safe).
+  - Package Database auto-fill (`applyQPPackageSelection`) on the job
+    table's รายละเอียด cell, same pattern as the old exact-form's
+    `applyPackageSelection` but against this form's own `.qp-input`
+    addressing convention -- kept deliberately separate from both
+    `.excel-input` (old exact-form grid) and the PO/PR grid's own classes
+    so none of the three systems can cross-contaminate each other.
+  - Downloads as Excel with the LifePlus logo in the header (`_add_logo_if_present`,
+    same mechanism PO/PR already use), via the same
+    `GET /api/purchase-docs/record/{id}/excel` endpoint.
+  - New nav card "QP แบบใหม่ (รูปแบบ PO/PR)" added under ADMIN's workspace,
+    alongside the original "QP / Quotation" exact-form entry which is left
+    untouched and still reachable -- this is an additional way to issue a
+    quotation, not a replacement.
+- **Investigated, no bug found: "หมวด A" in an FDA search result.** The
+  screenshot showing every row's หมวด repeated as "หมวด A" is the correct,
+  expected result of an active category="A" filter on
+  `GET /api/fda-materials` (exact `.ilike(category)` match, by design) --
+  not a failure to pull real data. Likely the "เลือกหมวดหมู่" filter panel
+  was left set to A from an earlier search.
+- **Verified every form's Excel export already stamps the LifePlus logo.**
+  Checked all three logo code paths: `_add_logo_if_missing` (F-RD-001,
+  ADMIN-JOB -- masters with no embedded media), `_admin_qp_export_preserve_master`
+  (ADMIN-QP/ADMIN-INVOICE -- preserves the master's own embedded
+  logo/drawings byte-for-byte), and `_add_logo_if_present` (PO/PR/QP/Production
+  Work Order -- built from scratch, no master template). F-RD-002,
+  F-RD-002.1, F-RD-003, F-RD-004 already carry the logo as embedded media
+  in their own master files. No gap found.
+
+Verified via curl (create/list/export-Excel a QP record end-to-end; Excel
+opened with openpyxl shows every header field, both ingredient tables, the
+job line, correctly computed subtotal/discount/VAT/grand-total, the Thai
+baht-text line, and the embedded logo image) and a real-browser Playwright
+pass logged in as ADMIN: opened the new QP form, filled the header + one
+ingredient row + one job line, clicked both "+ เพิ่มแถว..." buttons and
+confirmed the row count grew, confirmed totals recalculated live (1,000 qty
+× 10 price → 1,070.00 after 7% VAT), saved, reopened the saved record and
+confirmed the data round-tripped, then re-verified the PO form's own
+"+ เพิ่มแถว" still adds a 13th row past the old 12-row cap -- zero
+console/page errors throughout.
+
+Cache-busting version bumped to 31.64.
+
 ## v31.63 — PR→PO picker: supplier search + auto-fill ราคาต่อหน่วยจากราคา/กก.
 
 Two follow-ups on the v31.60 "เลือกจาก PR ที่ค้างอยู่" picker, from 3

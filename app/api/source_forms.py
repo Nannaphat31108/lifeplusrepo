@@ -252,8 +252,14 @@ def formula_link_for_qp(
             "formula_no": data.get("formula_no") or formula_no,
             "customer_name": data.get("customer_name") or "",
             "product_name": data.get("product_name") or data.get("formula_name") or "",
-            "ingredients": slim(data.get("ingredients"), 9),
-            "inactive_ingredients": slim(data.get("inactive_ingredients"), 7),
+            # 100, not the old exact-form ADMIN-QP's fixed 9/7 capacity --
+            # the new free-form QP document (see purchase_docs.py doc_type
+            # "QP") has no row cap, so this no longer needs to pre-truncate
+            # for it. The exact-form ADMIN-QP still only ever reads its own
+            # first 9/7 off this same list client-side, so raising the
+            # limit here doesn't change its behavior.
+            "ingredients": slim(data.get("ingredients"), 100),
+            "inactive_ingredients": slim(data.get("inactive_ingredients"), 100),
         }
 
     raise HTTPException(404, "ไม่พบรหัสสูตรนี้ในไฟล์สูตร F-RD-002 / F-RD-002.1")

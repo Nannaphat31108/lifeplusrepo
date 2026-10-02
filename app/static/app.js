@@ -636,6 +636,45 @@ function purchaseDocCell(row,col,attrs,value=""){
   return `<input class="excel-input" data-row="${row}" data-col="${col}" ${attrs||""} value="${esc(value)}" onkeydown="purchaseDocKeyNav(event)">`;
 }
 
+// One <tr>'s HTML for a PO or PR item row -- shared by the initial render
+// and addPurchaseDocRow() (clicking "+ เพิ่มแถว"), so there's exactly one
+// place that defines what a row looks like for each doc type.
+function purchaseDocRowHtml(docType,r,it){
+  it=it||{};
+  if(docType==="PO"){
+    return `<tr>
+      <td class="col-no">${r+1}</td>
+      <td>${purchaseDocCell(r,0,'data-sub="description" placeholder="รายละเอียดสินค้า"',it.description)}</td>
+      <td>${purchaseDocCell(r,1,'data-sub="quantity" type="number" step="any" oninput="recalcPurchaseDocTotals()"',it.quantity)}</td>
+      <td>${purchaseDocCell(r,2,'data-sub="unit" placeholder="หน่วย เช่น Kg."',it.unit)}</td>
+      <td>${purchaseDocCell(r,3,'data-sub="unit_price" type="number" step="any" oninput="recalcPurchaseDocTotals()"',it.unit_price)}</td>
+      <td><input class="excel-input po-row-amount" data-row="${r}" data-col="4" data-sub="amount" readonly tabindex="-1" value="${esc(it.amount||"")}"></td>
+    </tr>`;
+  }
+  return `<tr>
+    <td class="col-no">${r+1}</td>
+    <td>${purchaseDocCell(r,0,`data-sub="material_code" list="prMaterialList" placeholder="ค้นหารหัสสินค้า" oninput="linkPurchaseDocMaterial(this)"`,it.material_code)}</td>
+    <td>${purchaseDocCell(r,1,'data-sub="description" placeholder="รายละเอียด"',it.description)}</td>
+    <td>${purchaseDocCell(r,2,'data-sub="quantity" type="number" step="any"',it.quantity)}</td>
+    <td>${purchaseDocCell(r,3,'data-sub="unit" placeholder="Kg"',it.unit)}</td>
+    <td>${purchaseDocCell(r,4,'data-sub="production_order_no" list="prProductionOrderList" placeholder="เลขที่ใบสั่งผลิต" onchange="linkPurchaseDocRowReference(this)"',it.production_order_no)}</td>
+    <td>${purchaseDocCell(r,5,'data-sub="product_name" placeholder="ชื่อผลิตภัณฑ์/แผนก"',it.product_name)}</td>
+    <td>${purchaseDocCell(r,6,'data-sub="po_no" placeholder="เลขที่ PO"',it.po_no)}</td>
+    <td>${purchaseDocCell(r,7,'data-sub="note" placeholder="หมายเหตุ"',it.note)}</td>
+    <td>${purchaseDocCell(r,8,'data-sub="received_date" type="date"',it.received_date)}</td>
+  </tr>`;
+}
+// Appends one more empty row to the currently-open PO/PR's item table --
+// no fixed cap, unlike the original PURCHASE_DOC_ROW_COUNT=12 starting
+// point (still used only to decide how many rows to pre-render empty on
+// a brand new document).
+function addPurchaseDocRow(){
+  const tbody=document.querySelector(".purchase-doc-table tbody");
+  if(!tbody)return;
+  const nextRow=tbody.querySelectorAll("tr").length;
+  tbody.insertAdjacentHTML("beforeend",purchaseDocRowHtml(window.currentPurchaseDoc,nextRow,{}));
+}
+
 async function openPurchaseDocForm(docType,existingId=null){
   await loadPurchaseDocAssets();
   window.currentPurchaseDoc=docType;
@@ -665,15 +704,7 @@ async function openPurchaseDocForm(docType,existingId=null){
 
   if(docType==="PO"){
     for(let r=0;r<rowCount;r++){
-      const it=items[r]||{};
-      rows+=`<tr>
-        <td class="col-no">${r+1}</td>
-        <td>${purchaseDocCell(r,0,'data-sub="description" placeholder="รายละเอียดสินค้า"',it.description)}</td>
-        <td>${purchaseDocCell(r,1,'data-sub="quantity" type="number" step="any" oninput="recalcPurchaseDocTotals()"',it.quantity)}</td>
-        <td>${purchaseDocCell(r,2,'data-sub="unit" placeholder="หน่วย เช่น Kg."',it.unit)}</td>
-        <td>${purchaseDocCell(r,3,'data-sub="unit_price" type="number" step="any" oninput="recalcPurchaseDocTotals()"',it.unit_price)}</td>
-        <td><input class="excel-input po-row-amount" data-row="${r}" data-col="4" data-sub="amount" readonly tabindex="-1" value="${esc(it.amount||"")}"></td>
-      </tr>`;
+      rows+=purchaseDocRowHtml("PO",r,items[r]);
     }
     $("pageContent").innerHTML=`
       <div class="exact-form-toolbar">
@@ -712,6 +743,7 @@ async function openPurchaseDocForm(docType,existingId=null){
             <tbody>${rows}</tbody>
           </table>
         </div>
+        <button type="button" onclick="addPurchaseDocRow()">+ เพิ่มแถว</button>
 
         <div class="purchase-doc-totals">
           <div>รวมเป็นเงิน <b id="po_subtotal">0.00</b> บาท</div>
@@ -734,19 +766,7 @@ async function openPurchaseDocForm(docType,existingId=null){
 
   // PR (ใบขอซื้อ)
   for(let r=0;r<rowCount;r++){
-    const it=items[r]||{};
-    rows+=`<tr>
-      <td class="col-no">${r+1}</td>
-      <td>${purchaseDocCell(r,0,`data-sub="material_code" list="prMaterialList" placeholder="ค้นหารหัสสินค้า" oninput="linkPurchaseDocMaterial(this)"`,it.material_code)}</td>
-      <td>${purchaseDocCell(r,1,'data-sub="description" placeholder="รายละเอียด"',it.description)}</td>
-      <td>${purchaseDocCell(r,2,'data-sub="quantity" type="number" step="any"',it.quantity)}</td>
-      <td>${purchaseDocCell(r,3,'data-sub="unit" placeholder="Kg"',it.unit)}</td>
-      <td>${purchaseDocCell(r,4,'data-sub="production_order_no" list="prProductionOrderList" placeholder="เลขที่ใบสั่งผลิต" onchange="linkPurchaseDocRowReference(this)"',it.production_order_no)}</td>
-      <td>${purchaseDocCell(r,5,'data-sub="product_name" placeholder="ชื่อผลิตภัณฑ์/แผนก"',it.product_name)}</td>
-      <td>${purchaseDocCell(r,6,'data-sub="po_no" placeholder="เลขที่ PO"',it.po_no)}</td>
-      <td>${purchaseDocCell(r,7,'data-sub="note" placeholder="หมายเหตุ"',it.note)}</td>
-      <td>${purchaseDocCell(r,8,'data-sub="received_date" type="date"',it.received_date)}</td>
-    </tr>`;
+    rows+=purchaseDocRowHtml("PR",r,items[r]);
   }
   $("pageContent").innerHTML=`
     <div class="exact-form-toolbar">
@@ -786,6 +806,7 @@ async function openPurchaseDocForm(docType,existingId=null){
           <tbody>${rows}</tbody>
         </table>
       </div>
+      <button type="button" onclick="addPurchaseDocRow()">+ เพิ่มแถว</button>
 
       <div class="purchase-doc-signatures">
         ${["requester:ผู้ขอซื้อ","warehouse_officer:จนท.คลังสินค้า","purchasing_officer:เจ้าหน้าที่จัดซื้อ","reviewer:ผู้ตรวจสอบ (ผจก.แผนก)","warehouse_manager:ผจก.คลังสินค้า"].map(spec=>{
@@ -898,13 +919,18 @@ function applyPendingPrSelection(){
   window.poLinkedPrRefs=window.poLinkedPrRefs||[];
   let added=0;
   for(const r of checked){
-    // Find the first still-empty description cell in the PO's item table.
-    const emptyRow=[...document.querySelectorAll('.purchase-doc-table [data-sub="description"]')]
+    // Find the first still-empty description cell in the PO's item table,
+    // adding a fresh row if every existing one is already filled in --
+    // the table has no fixed row cap, so a PR with many pending items
+    // never gets silently truncated.
+    let emptyRow=[...document.querySelectorAll('.purchase-doc-table [data-sub="description"]')]
       .find(el=>!String(el.value||"").trim());
     if(!emptyRow){
-      toast(`ตารางเต็มแล้ว -- เพิ่มได้ ${added} จาก ${checked.length} รายการ`);
-      break;
+      addPurchaseDocRow();
+      emptyRow=[...document.querySelectorAll('.purchase-doc-table [data-sub="description"]')]
+        .find(el=>!String(el.value||"").trim());
     }
+    if(!emptyRow)break; // shouldn't happen, but never loop forever
     const rowIdx=emptyRow.dataset.row;
     emptyRow.value=[r.material_code,r.description].filter(Boolean).join(" - ");
     const qtyEl=document.querySelector(`.purchase-doc-table [data-row="${rowIdx}"][data-sub="quantity"]`);
@@ -1010,8 +1036,13 @@ function recalcPurchaseDocTotals(){
 }
 
 function collectPurchaseDocItems(subs){
+  // Dynamic: walks every row actually present in the DOM (however many
+  // "+ เพิ่มแถว" clicks added past the initial PURCHASE_DOC_ROW_COUNT),
+  // rather than a fixed range -- so the item table has no real upper
+  // limit on how many rows a PO/PR can carry.
   const items=[];
-  for(let r=0;r<PURCHASE_DOC_ROW_COUNT+50;r++){
+  let r=0;
+  while(true){
     const first=document.querySelector(`.purchase-doc-grid [data-row="${r}"][data-col="0"]`);
     if(!first)break;
     const item={};
@@ -1023,6 +1054,7 @@ function collectPurchaseDocItems(subs){
       if(v)hasValue=true;
     }
     if(hasValue)items.push(item);
+    r++;
   }
   return items;
 }
@@ -1110,18 +1142,347 @@ function prPoStatus(items){
 }
 async function listPurchaseDocs(docType){
   currentPage=`purchaseDoc:${docType}`;
-  $("pageTitle").textContent=docType==="PO"?"รายการใบสั่งซื้อ":"รายการใบขอซื้อ";
-  $("pageSubtitle").textContent=docType==="PO"?"เอกสารที่ส่งให้ผู้จำหน่ายภายนอก":"เอกสารที่คลังส่งมาให้จัดซื้อ";
+  const titles={PO:"รายการใบสั่งซื้อ",PR:"รายการใบขอซื้อ",QP:"รายการใบเสนอราคา"};
+  const subtitles={PO:"เอกสารที่ส่งให้ผู้จำหน่ายภายนอก",PR:"เอกสารที่คลังส่งมาให้จัดซื้อ",QP:"เสนอราคาให้ลูกค้า อ้างอิงเลขที่สูตรจาก RD ได้"};
+  $("pageTitle").textContent=titles[docType]||docType;
+  $("pageSubtitle").textContent=subtitles[docType]||"";
   const rows=await api(`/api/purchase-docs/${docType}`);
+  const openForm=docType==="QP"?"openQPDocForm":"openPurchaseDocForm";
   const tr=rows.map(x=>{
     const search=esc(`${x.doc_no||""} ${x.created_by_name||""} ${x.linked_reference||""}`.toLowerCase());
     const poStatusCell=docType==="PR"?(()=>{const s=prPoStatus(x.data?.items);return `<td><span class="badge ${s.cls}">${esc(s.label)}</span></td>`;})():"";
-    return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.doc_no)}</td><td>${statusBadge(x.status)}</td>${poStatusCell}<td>${esc(x.created_by_name||"")}</td><td>${esc(x.linked_reference||"-")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="openPurchaseDocForm('${docType}',${x.id})">แก้ไข</button><button onclick="exportPurchaseDocExcel(${x.id})">Excel</button><button onclick="showRecordVersions('purchase_doc',${x.id})">ประวัติ</button></td></tr>`;
+    return `<tr data-search="${search}"><td>${x.id}</td><td>${esc(x.doc_no)}</td><td>${statusBadge(x.status)}</td>${poStatusCell}<td>${esc(x.created_by_name||"")}</td><td>${esc(x.linked_reference||"-")}</td><td>${new Date(x.created_at).toLocaleString()}</td><td class="mini-actions"><button onclick="${openForm}(${docType==="QP"?"":`'${docType}',`}${x.id})">แก้ไข</button><button onclick="exportPurchaseDocExcel(${x.id})">Excel</button><button onclick="showRecordVersions('purchase_doc',${x.id})">ประวัติ</button></td></tr>`;
   });
   const headers=["ID","เลขที่","สถานะ"];
   if(docType==="PR")headers.push("สถานะ PO");
   headers.push("ผู้สร้าง","อ้างอิง","บันทึกเมื่อ","จัดการ");
-  $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่/อ้างอิง..." oninput="filterRecordRows(this)"><button class="primary" onclick="openPurchaseDocForm('${docType}')">+ ${docType==="PO"?"ใบสั่งซื้อใหม่":"ใบขอซื้อใหม่"}</button></div>${table(headers,tr)}</div>`;
+  const newLabel={PO:"ใบสั่งซื้อใหม่",PR:"ใบขอซื้อใหม่",QP:"ใบเสนอราคาใหม่"}[docType]||"รายการใหม่";
+  const newOnclick=docType==="QP"?"openQPDocForm()":`openPurchaseDocForm('${docType}')`;
+  $("pageContent").innerHTML=`<div class="card"><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่/อ้างอิง..." oninput="filterRecordRows(this)"><button class="primary" onclick="${newOnclick}">+ ${newLabel}</button></div>${table(headers,tr)}</div>`;
+}
+
+// ===== QP (ใบเสนอราคา / Quotation) -- same free-HTML-form shape as PO/PR
+// (doc_type="QP" on the shared PurchaseDocument model, see purchase_docs.py)
+// rather than the old pixel-exact ADMIN-QP Excel-grid replica. Keeps every
+// section the original had (header, active/inactive ingredient tables, the
+// job-code/บรรจุภัณฑ์/quantity/price table, totals, both signature lines)
+// but with no fixed row cap and a VLOOKUP button that pulls ingredients in
+// straight from an F-RD-002/F-RD-002.1 formula record. The old exact-form
+// ADMIN-QP page is untouched and still reachable from ADMIN's workspace --
+// this is an additional, newer way to issue a quotation, not a replacement.
+
+function qpCell(group,i,sub,attrs,value=""){
+  return `<input class="qp-input" data-group="${group}" data-index="${i}" data-sub="${sub}" ${attrs||""} value="${esc(value)}">`;
+}
+
+// Looking up an ingredient name against the FDA/รหัสสาร master (same
+// datalist-driven auto-fill pattern as the old exact-form ADMIN-QP) --
+// only fills ประเทศที่มา when it's still empty, never clobbers a value
+// the user already typed or one VLOOKUP already brought in.
+function linkQPIngredient(inp){
+  const group=inp.dataset.group, i=inp.dataset.index;
+  const item=findSupplementByName(inp.value)||findSupplementByCode(inp.value);
+  if(!item)return;
+  const origin=document.querySelector(`.qp-input[data-group="${group}"][data-index="${i}"][data-sub="origin"]`);
+  if(origin && !origin.value)origin.value=item.origin||"";
+}
+
+function qpIngredientRowHtml(group,i,it){
+  it=it||{};
+  return `<tr>
+    <td class="col-no">${i+1}</td>
+    <td>${qpCell(group,i,"ingredient_name",'list="qpSupplementNameList" placeholder="ชื่อสาร" oninput="linkQPIngredient(this)"',it.ingredient_name)}</td>
+    <td>${qpCell(group,i,"origin",'placeholder="ประเทศที่มา"',it.origin)}</td>
+    <td>${qpCell(group,i,"quantity_mg",'type="number" step="any" oninput="recalcQPTotals()"',it.quantity_mg)}</td>
+  </tr>`;
+}
+function qpJobRowHtml(i,it){
+  it=it||{};
+  return `<tr>
+    <td class="col-no">${i+1}</td>
+    <td>${qpCell("job_lines",i,"job_code",'placeholder="รหัสงาน"',it.job_code)}</td>
+    <td>${qpCell("job_lines",i,"description",'list="qpPackageList" placeholder="รายละเอียด / บรรจุภัณฑ์" onchange="applyQPPackageSelection(this)"',it.description)}</td>
+    <td>${qpCell("job_lines",i,"pack_qty",'type="number" step="any"',it.pack_qty)}</td>
+    <td>${qpCell("job_lines",i,"pack_unit_text",'placeholder="หน่วยแพ็ค"',it.pack_unit_text)}</td>
+    <td>${qpCell("job_lines",i,"quantity",'type="number" step="any" oninput="recalcQPTotals()"',it.quantity)}</td>
+    <td>${qpCell("job_lines",i,"unit",'placeholder="หน่วย"',it.unit)}</td>
+    <td>${qpCell("job_lines",i,"unit_price",'type="number" step="any" oninput="recalcQPTotals()"',it.unit_price)}</td>
+    <td><input class="qp-input qp-row-amount" data-group="job_lines" data-index="${i}" data-sub="amount" readonly tabindex="-1" value="${esc(it.amount||"")}"></td>
+  </tr>`;
+}
+function addQPIngredientRow(group){
+  const tbody=document.querySelector(`table.qp-table[data-qp-group="${group}"] tbody`);
+  if(!tbody)return;
+  const next=tbody.querySelectorAll("tr").length;
+  tbody.insertAdjacentHTML("beforeend",qpIngredientRowHtml(group,next,{}));
+}
+function addQPJobRow(){
+  const tbody=document.querySelector('table.qp-table[data-qp-group="job_lines"] tbody');
+  if(!tbody)return;
+  const next=tbody.querySelectorAll("tr").length;
+  tbody.insertAdjacentHTML("beforeend",qpJobRowHtml(next,{}));
+}
+
+async function openQPDocForm(existingId=null){
+  await loadPurchaseDocAssets();
+  // loadPurchaseDocAssets() doesn't load the Package Database (only the
+  // old exact-form side's loadExactAssets() does) -- the QP job-lines
+  // table needs it for applyQPPackageSelection's auto-fill.
+  if(!window.packageCatalogData) try{window.packageCatalogData=await api("/api/packaging")}catch{window.packageCatalogData=[]}
+  window.editingQPDocId=existingId;
+  let existing=null;
+  if(existingId){
+    try{existing=await api(`/api/purchase-docs/record/${existingId}`);}catch(e){toast("โหลดข้อมูลไม่สำเร็จ: "+(e?.message||e));}
+  }
+  const d=existing?.data||{};
+  const ingredients=Array.isArray(d.ingredients)?d.ingredients:[];
+  const inactiveIngredients=Array.isArray(d.inactive_ingredients)?d.inactive_ingredients:[];
+  const jobLines=Array.isArray(d.job_lines)?d.job_lines:[];
+  const ingRowCount=Math.max(9,ingredients.length);
+  const inactiveRowCount=Math.max(7,inactiveIngredients.length);
+  const jobRowCount=Math.max(13,jobLines.length);
+
+  let ingRows="",inactiveRows="",jobRows="";
+  for(let i=0;i<ingRowCount;i++)ingRows+=qpIngredientRowHtml("ingredients",i,ingredients[i]);
+  for(let i=0;i<inactiveRowCount;i++)inactiveRows+=qpIngredientRowHtml("inactive_ingredients",i,inactiveIngredients[i]);
+  for(let i=0;i<jobRowCount;i++)jobRows+=qpJobRowHtml(i,jobLines[i]);
+
+  $("pageTitle").textContent="ใบเสนอราคา (Quotation)";
+  $("pageSubtitle").textContent="ADMIN → ลูกค้า • เลือกเลขที่สูตรจาก RD เพื่อดึงรายการสารอัตโนมัติ";
+  $("pageContent").innerHTML=`
+    <div class="exact-form-toolbar">
+      <div><b>ใบเสนอราคา ${existing?`#${esc(existing.doc_no)}`:"(ฉบับใหม่)"}</b><small>รูปแบบเดียวกับ PO/PR • ไม่จำกัดจำนวนแถวสาร/รายการงาน</small></div>
+      <div class="actions">
+        <button onclick="listPurchaseDocs('QP')">รายการใบเสนอราคาทั้งหมด</button>
+        ${existing?`<button onclick="exportPurchaseDocExcel(${existing.id})">Excel</button><button onclick="showRecordVersions('purchase_doc',${existing.id})">ประวัติ</button>`:""}
+        <button class="primary" onclick="saveQPDoc()">บันทึก</button>
+      </div>
+    </div>
+    <div class="doc-logo-header"><img src="/static/logo.png" alt="Life Plus Pharmaceutical"></div>
+    <div class="card purchase-doc-grid">
+      <div class="form-grid">
+        <div><label>เลขที่</label><input id="qp_no" value="${esc(existing?.doc_no||"")}" placeholder="QP2026080111"></div>
+        <div><label>วันที่</label><input id="qp_date" type="date" value="${esc(d.date||currentDateISO())}"></div>
+        <div class="wide"><label>ชื่อผู้ซื้อ</label><input id="qp_customer_name" value="${esc(d.customer_name||"")}"></div>
+        <div class="wide"><label>ที่อยู่</label><input id="qp_address" value="${esc(d.address||"")}"></div>
+        <div class="wide"><label>โทรศัพท์ / แฟกซ์ / E-mail</label><input id="qp_phone_fax" value="${esc(d.phone_fax||"")}"></div>
+        <div class="wide"><label>ชื่อสินค้า</label><input id="qp_product_name" value="${esc(d.product_name||"")}"></div>
+        <div>
+          <label>เลขที่สูตร</label>
+          <div class="qp-exact-link">
+            <input id="qp_formula_no" value="${esc(d.formula_no||"")}" placeholder="F-RD-002-001">
+            <button type="button" onclick="linkQPFormulaNew()">VLOOKUP จากไฟล์สูตร</button>
+          </div>
+        </div>
+        <div><label>งวดที่ 1</label><input id="qp_installment_1" value="${esc(d.installment_1||"")}"></div>
+        <div><label>งวดที่ 2</label><input id="qp_installment_2" value="${esc(d.installment_2||"")}"></div>
+      </div>
+      <datalist id="qpSupplementNameList">${(window.supplementCodeData||[]).map(m=>`<option value="${esc(m.name)}">`).join("")}</datalist>
+      <datalist id="qpPackageList">${(window.packageCatalogData||[]).map(x=>`<option value="${esc(x.spec||"")}">`).join("")}</datalist>
+
+      <h3>สารสกัด (Active Ingredient)</h3>
+      <div class="table-wrap">
+        <table class="qp-table" data-qp-group="ingredients">
+          <colgroup><col style="width:6%"><col style="width:44%"><col style="width:25%"><col style="width:25%"></colgroup>
+          <thead><tr><th>ลำดับ</th><th>รายการสารสกัด</th><th>ประเทศที่มา</th><th>ปริมาณ (มก.)</th></tr></thead>
+          <tbody>${ingRows}</tbody>
+        </table>
+      </div>
+      <button type="button" onclick="addQPIngredientRow('ingredients')">+ เพิ่มแถวสารสกัด</button>
+
+      <h3>สารไม่สำคัญ (Inactive Ingredient)</h3>
+      <div class="table-wrap">
+        <table class="qp-table" data-qp-group="inactive_ingredients">
+          <colgroup><col style="width:6%"><col style="width:44%"><col style="width:25%"><col style="width:25%"></colgroup>
+          <thead><tr><th>ลำดับ</th><th>รายการสาร</th><th>ประเทศที่มา</th><th>ปริมาณ (มก.)</th></tr></thead>
+          <tbody>${inactiveRows}</tbody>
+        </table>
+      </div>
+      <button type="button" onclick="addQPIngredientRow('inactive_ingredients')">+ เพิ่มแถวสารไม่สำคัญ</button>
+      <div class="purchase-doc-totals"><div>น้ำหนักรวมสาร <b id="qp_ingredient_total_mg">0</b> มก.</div></div>
+
+      <h3>รายการงาน / บรรจุภัณฑ์</h3>
+      <div class="table-wrap">
+        <table class="qp-table" data-qp-group="job_lines">
+          <colgroup><col style="width:4%"><col style="width:9%"><col style="width:22%"><col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:6%"><col style="width:12%"><col style="width:12%"></colgroup>
+          <thead><tr><th>ลำดับ</th><th>รหัสงาน</th><th>รายละเอียด (บรรจุภัณฑ์)</th><th>จำนวน/แพ็ค</th><th>หน่วยแพ็ค</th><th>จำนวน</th><th>หน่วย</th><th>ราคาต่อหน่วย</th><th>จำนวนเงิน</th></tr></thead>
+          <tbody>${jobRows}</tbody>
+        </table>
+      </div>
+      <button type="button" onclick="addQPJobRow()">+ เพิ่มแถวรายการงาน</button>
+
+      <div class="form-grid">
+        <div><label>ส่วนลด</label><input id="qp_discount" type="number" step="any" value="${esc(d.discount||"")}" oninput="recalcQPTotals()"></div>
+      </div>
+      <div class="purchase-doc-totals">
+        <div>มูลค่ารวม <b id="qp_subtotal">0.00</b> บาท</div>
+        <div>หลังหักส่วนลด <b id="qp_after_discount">0.00</b> บาท</div>
+        <div>ภาษีมูลค่าเพิ่ม 7% <b id="qp_vat">0.00</b> บาท</div>
+        <div>ยอดรวมสุทธิ <b id="qp_grand_total">0.00</b> บาท</div>
+        <div class="baht-text" id="qp_baht_text">(ศูนย์บาทถ้วน)</div>
+      </div>
+
+      <div class="form-grid">
+        <div class="wide"><label>หมายเหตุ</label><input id="qp_notes" value="${esc(d.notes||"")}"></div>
+      </div>
+
+      <div class="form-grid">
+        <div><label>ผู้เสนอราคา (Sales Executive)</label><input id="qp_sales_executive" value="${esc(d.sales_executive||"")}"></div>
+        <div><label>วันที่ (ผู้เสนอราคา)</label><input id="qp_sales_signature_date" type="date" value="${esc(d.sales_signature_date||"")}"></div>
+        <div><label>ผู้จัดทำใบเสนอราคา (Admin)</label><input id="qp_admin_officer" value="${esc(d.admin_officer||"")}"></div>
+        <div><label>วันที่ (Admin)</label><input id="qp_admin_signature_date" type="date" value="${esc(d.admin_signature_date||"")}"></div>
+      </div>
+    </div>
+  `;
+  setTimeout(recalcQPTotals,0);
+}
+
+function recalcQPTotals(){
+  let ingredientTotal=0;
+  document.querySelectorAll('.qp-input[data-sub="quantity_mg"]').forEach(el=>{ingredientTotal+=Number(el.value)||0;});
+  if($("qp_ingredient_total_mg"))$("qp_ingredient_total_mg").textContent=fmtCalc(ingredientTotal,3);
+
+  let subtotal=0;
+  document.querySelectorAll('.qp-input[data-group="job_lines"][data-sub="quantity"]').forEach(qtyEl=>{
+    const i=qtyEl.dataset.index;
+    const priceEl=document.querySelector(`.qp-input[data-group="job_lines"][data-index="${i}"][data-sub="unit_price"]`);
+    const amountEl=document.querySelector(`.qp-input[data-group="job_lines"][data-index="${i}"][data-sub="amount"]`);
+    const qty=Number(qtyEl.value)||0, price=Number(priceEl?.value)||0;
+    const amount=qty*price;
+    if(amountEl)amountEl.value=amount?fmtCalc(amount,2):"";
+    subtotal+=amount;
+  });
+  const discount=Number($("qp_discount")?.value)||0;
+  const afterDiscount=Math.max(0,subtotal-discount);
+  const vat=afterDiscount*0.07;
+  const grandTotal=afterDiscount+vat;
+  const fmt2=n=>n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  if($("qp_subtotal"))$("qp_subtotal").textContent=fmt2(subtotal);
+  if($("qp_after_discount"))$("qp_after_discount").textContent=fmt2(afterDiscount);
+  if($("qp_vat"))$("qp_vat").textContent=fmt2(vat);
+  if($("qp_grand_total"))$("qp_grand_total").textContent=fmt2(grandTotal);
+  if($("qp_baht_text"))$("qp_baht_text").textContent=`(${thaiBahtText(grandTotal)})`;
+}
+
+// VLOOKUP เลขที่สูตร -- pulls the active/inactive ingredient lists straight
+// from an F-RD-002/F-RD-002.1 formula record (same endpoint the old
+// exact-form ADMIN-QP's VLOOKUP button uses), replacing the ingredient
+// tables wholesale since that's what "ขึ้นจำนวนสารสกัดได้เลย" asked for --
+// always overwrites on an explicit button press, same as the exact-form's
+// force=true path.
+async function linkQPFormulaNew(){
+  const formulaNo=($("qp_formula_no")?.value||"").trim();
+  if(!formulaNo){toast("กรอกเลขที่สูตรก่อน");return;}
+  try{
+    const linked=await api(`/api/source-forms/formula-link/${encodeURIComponent(formulaNo)}`);
+    if($("qp_formula_no"))$("qp_formula_no").value=linked.formula_no||formulaNo;
+    if($("qp_customer_name") && !$("qp_customer_name").value.trim())$("qp_customer_name").value=linked.customer_name||"";
+    if($("qp_product_name") && !$("qp_product_name").value.trim())$("qp_product_name").value=linked.product_name||"";
+    fillQPIngredientTable("ingredients",linked.ingredients||[]);
+    fillQPIngredientTable("inactive_ingredients",linked.inactive_ingredients||[]);
+    recalcQPTotals();
+    toast(`VLOOKUP รหัสสูตร ${linked.formula_no||formulaNo} สำเร็จ • สารสำคัญ ${(linked.ingredients||[]).length} + สารไม่สำคัญ ${(linked.inactive_ingredients||[]).length} รายการ`);
+  }catch(err){
+    toast("ลิงก์เลขที่สูตรไม่ได้: "+(err?.message||err));
+  }
+}
+function fillQPIngredientTable(group,items){
+  const tbody=document.querySelector(`table.qp-table[data-qp-group="${group}"] tbody`);
+  if(!tbody)return;
+  let rows="";
+  for(let i=0;i<Math.max(items.length,9);i++){
+    const it=items[i]||{};
+    rows+=qpIngredientRowHtml(group,i,{ingredient_name:it.name,origin:it.origin,quantity_mg:it.quantity_mg});
+  }
+  tbody.innerHTML=rows;
+}
+
+// Package Database auto-fill for a job-line's รายละเอียด (บรรจุภัณฑ์) cell
+// -- same lookup as the old exact-form's applyPackageSelection, reused
+// here against the .qp-input convention instead of .excel-input since
+// this form uses its own addressing to stay isolated from the exact-form
+// grid system.
+function applyQPPackageSelection(inp){
+  if(!inp)return;
+  const q=String(inp.value||"").trim().toLowerCase();
+  const item=(window.packageCatalogData||[]).find(x=>String(x.spec||"").trim().toLowerCase()===q);
+  if(!item)return;
+  const i=inp.dataset.index;
+  const price=document.querySelector(`.qp-input[data-group="job_lines"][data-index="${i}"][data-sub="unit_price"]`);
+  const packText=document.querySelector(`.qp-input[data-group="job_lines"][data-index="${i}"][data-sub="pack_unit_text"]`);
+  const job=document.querySelector(`.qp-input[data-group="job_lines"][data-index="${i}"][data-sub="job_code"]`);
+  if(price && !String(price.value||"").trim())price.value=item.price??"";
+  if(packText && !String(packText.value||"").trim())packText.value=item.packing||"";
+  if(job && !String(job.value||"").trim())job.value=item.category||"";
+  recalcQPTotals();
+}
+
+function collectQPRows(group,subs){
+  // Same dynamic DOM-walk as collectPurchaseDocItems -- no fixed row cap.
+  const items=[];
+  let r=0;
+  while(true){
+    const first=document.querySelector(`.qp-input[data-group="${group}"][data-index="${r}"][data-sub="${subs[0]}"]`);
+    if(!first)break;
+    const item={};
+    let hasValue=false;
+    for(const sub of subs){
+      const el=document.querySelector(`.qp-input[data-group="${group}"][data-index="${r}"][data-sub="${sub}"]`);
+      const v=el?.value||"";
+      item[sub]=v;
+      if(v)hasValue=true;
+    }
+    if(hasValue)items.push(item);
+    r++;
+  }
+  return items;
+}
+
+async function saveQPDoc(){
+  try{
+    const doc_no=($("qp_no")?.value||"").trim()||`QP-${Date.now()}`;
+    const data={
+      date:$("qp_date")?.value||"",
+      customer_name:$("qp_customer_name")?.value||"",
+      address:$("qp_address")?.value||"",
+      phone_fax:$("qp_phone_fax")?.value||"",
+      product_name:$("qp_product_name")?.value||"",
+      formula_no:$("qp_formula_no")?.value||"",
+      installment_1:$("qp_installment_1")?.value||"",
+      installment_2:$("qp_installment_2")?.value||"",
+      discount:$("qp_discount")?.value||"",
+      notes:$("qp_notes")?.value||"",
+      sales_executive:$("qp_sales_executive")?.value||"",
+      sales_signature_date:$("qp_sales_signature_date")?.value||"",
+      admin_officer:$("qp_admin_officer")?.value||"",
+      admin_signature_date:$("qp_admin_signature_date")?.value||"",
+      ingredients:collectQPRows("ingredients",["ingredient_name","origin","quantity_mg"]),
+      inactive_ingredients:collectQPRows("inactive_ingredients",["ingredient_name","origin","quantity_mg"]),
+      job_lines:collectQPRows("job_lines",["job_code","description","pack_qty","pack_unit_text","quantity","unit","unit_price","amount"])
+    };
+    if(!data.customer_name.trim()){
+      toast("กรุณาใส่ชื่อผู้ซื้อก่อนบันทึก");
+      $("qp_customer_name")?.focus();
+      return;
+    }
+    const hasIngredient=data.ingredients.some(x=>String(x.ingredient_name||"").trim());
+    const hasJobLine=data.job_lines.some(x=>String(x.description||"").trim());
+    if(!hasIngredient && !hasJobLine){
+      toast("กรุณาใส่รายการสารสกัดหรือรายการงานอย่างน้อย 1 รายการ ก่อนบันทึก");
+      return;
+    }
+    const body={doc_no,status:"DRAFT",data,linked_reference:data.formula_no||null};
+    let result;
+    if(window.editingQPDocId){
+      result=await api(`/api/purchase-docs/record/${window.editingQPDocId}`,{method:"PUT",body});
+    }else{
+      result=await api("/api/purchase-docs/QP",{method:"POST",body});
+      window.editingQPDocId=result.id;
+    }
+    toast(`บันทึก ${result.doc_no} สำเร็จ`);
+  }catch(e){
+    toast("บันทึกไม่สำเร็จ: "+(e?.message||e));
+  }
 }
 
 const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","ACCOUNTING","CEO"];
@@ -1343,14 +1704,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.63",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.64",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.63",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.64",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -4843,7 +5204,7 @@ async function openDepartmentWorkspace(code){
  const configs={
  RD:{title:"R&D",text:"จัดการสูตร สูตรผลิต Tester และ Rate",cards:[["F-RD-002 สูตร","แบบฟอร์มสูตร R&D","openExactForm('F-RD-002')"],["F-RD-002.1 สูตรผลิต","สูตรสำหรับผลิตจริง","openExactForm('F-RD-002.1')"],["F-RD-003 Tester","ขอทำสินค้าทดลอง","openExactForm('F-RD-003')"],["F-RD-004 Rate","ขอเรทราคา","openExactForm('F-RD-004')"]]},
  SALE:{title:"SALE",text:"รับความต้องการลูกค้าและส่งต่อ R&D",cards:[["F-RD-001 Customer Requirement","รายละเอียดผลิตภัณฑ์ตามความต้องการของลูกค้า","openExactForm('F-RD-001')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"],["Product Development","ติดตามโครงการลูกค้า","openPage('projects')"]]},
- ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Job Description","ฟอร์ม JL ต้นฉบับ • สูตร บรรจุภัณฑ์ ผู้รับผิดชอบออกแบบ/อย.","openExactForm('ADMIN-JOB')"],["ต้นทุน/ราคาขาย อุปกรณ์เสริม","ชริ้งค์ฟิล์ม/ฝาฟอยล์/PVC ฯลฯ • ต้นทุนตามสเปค + ราคาขายตามช่วงจำนวน","openAdminPricingPage()"],["ค่าแรง (Rate Card)","ประเภท/จำนวนการบรรจุ x ช่วงจำนวน • แก้ไขได้ พร้อมค้นหาเรท","openAdminLaborRatesPage()"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
+ ADMIN:{title:"ADMIN",text:"บริหารผู้ใช้ เอกสาร และข้อมูลกลาง",cards:[["QP / Quotation","ฟอร์ม QP ต้นฉบับ • ลิงก์สูตร / คำนวณอัตโนมัติ","openExactForm('ADMIN-QP')"],["QP แบบใหม่ (รูปแบบ PO/PR)","ช่องสวย ใช้งานง่าย • ไม่จำกัดแถวสาร • VLOOKUP เลขที่สูตรจาก RD","listPurchaseDocs('QP')"],["Invoice / ใบแจ้งหนี้","Layout เดียวกับ QP • ใช้ออกใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],["Job Description","ฟอร์ม JL ต้นฉบับ • สูตร บรรจุภัณฑ์ ผู้รับผิดชอบออกแบบ/อย.","openExactForm('ADMIN-JOB')"],["ต้นทุน/ราคาขาย อุปกรณ์เสริม","ชริ้งค์ฟิล์ม/ฝาฟอยล์/PVC ฯลฯ • ต้นทุนตามสเปค + ราคาขายตามช่วงจำนวน","openAdminPricingPage()"],["ค่าแรง (Rate Card)","ประเภท/จำนวนการบรรจุ x ช่วงจำนวน • แก้ไขได้ พร้อมค้นหาเรท","openAdminLaborRatesPage()"],["Users / Audit","จัดการผู้ใช้และประวัติระบบ","openPage('admin')"],["Original Forms","เอกสารต้นฉบับ","openPage('originalForms')"],["Customers","ฐานข้อมูลลูกค้า","openPage('customers')"]]},
  PLANNING:{title:"PLANNING",text:"วางแผนการผลิตและตรวจ MRP",cards:[["ใบสั่งผลิต (ผลิตจริง)","สร้าง/แก้ไขใบสั่งผลิต พร้อมขั้นตอนงานและผู้ลงนาม","listProductionWorkOrders()"],["Production / MRP","แผนผลิตและวัตถุดิบที่ต้องใช้","openPage('production')"]]},
  STOCK:{title:"STOCK",text:"จัดการ Stock และวัตถุดิบ",cards:[["Stock Card วัตถุดิบ","ต่อ Lot ตามรหัสวัตถุดิบ • ตัดสตอครับเข้า/เบิกออก/คืน","openStockCardPage()"],["Stock Card สำเร็จรูป","ต่อ Lot ตามเลขที่สั่งผลิต • ตัดสตอครับเข้าจากผลิต/เบิกออกให้จัดส่ง","openFinishedGoodsStockPage()"],["Inventory","Stock / Reserved / Available","openPage('inventory')"],["Raw Materials","ฐานวัตถุดิบ","openPage('materials')"],["ใบขอซื้อ (PR)","ขอซื้อวัตถุดิบจากจัดซื้อ","listPurchaseDocs('PR')"]]},
  PURCHASE:{title:"PURCHASE",text:"Supplier การจัดซื้อ และฐานข้อมูลวัตถุดิบกลาง",cards:[["FDA + รหัสสาร Database","ฐานเดียวสำหรับ FDA / รหัสสาร / ชื่อขึ้นทะเบียน / Supplier / ประเทศ / ราคา","openFDADatabase()"],["Package Database","ฐาน Package กลาง • ราคาจริง = ต้นทุน+20%","openPackageDatabase()"],["เตรียมระบบ (บรรจุภัณฑ์ต่องาน)","รหัสงาน / ชื่องาน / บรรจุภัณฑ์ / จำนวน / หน่วย / ราคา / ราคาขาย","openPackagingPrepPage()"],["บรรจุภัณฑ์ตามประเภท","สติ๊กเกอร์ / ซองอลูมิเนียม / ม้วนอลูมิเนียม / กล่อง • เลือกใช้งานส่งเข้าเตรียมระบบได้","openPackagingOptionsPage()"],["Suppliers","ฐาน Supplier","openPage('suppliers')"],["Stock Requirement","ตรวจความต้องการวัตถุดิบ","openPage('inventory')"],["ใบสั่งซื้อ (PO)","ส่งให้ผู้จำหน่ายภายนอก","listPurchaseDocs('PO')"],["ใบขอซื้อ (PR)","ที่คลังส่งเข้ามา","listPurchaseDocs('PR')"]]},

@@ -21,7 +21,7 @@ from app.models.entities import PurchaseDocument, RecordVersion
 
 router = APIRouter(prefix="/api/purchase-docs", tags=["Purchase Documents"])
 
-DOC_TYPES = {"PO", "PR"}
+DOC_TYPES = {"PO", "PR", "QP"}
 LOGO_PATH = Path(__file__).resolve().parents[1] / "static" / "logo.png"
 
 
@@ -44,7 +44,7 @@ def _add_logo_if_present(ws, anchor: str, width: int = 170, height: int = 73) ->
 def _check_doc_type(doc_type: str) -> str:
     d = (doc_type or "").strip().upper()
     if d not in DOC_TYPES:
-        raise HTTPException(404, "Unsupported document type (expected PO or PR)")
+        raise HTTPException(404, "Unsupported document type (expected PO, PR or QP)")
     return d
 
 
@@ -59,6 +59,15 @@ def _validate_doc_data(doc_type: str, data: dict):
             raise HTTPException(400, "กรุณาใส่ผู้จำหน่าย (ชื่อ หรือ รหัสผู้จำหน่าย) ก่อนบันทึก")
         if not any(str(x.get("description") or "").strip() for x in items):
             raise HTTPException(400, "กรุณาใส่รายการสินค้าอย่างน้อย 1 รายการ ก่อนบันทึก")
+    elif doc_type == "QP":
+        if not str(data.get("customer_name") or "").strip():
+            raise HTTPException(400, "กรุณาใส่ชื่อผู้ซื้อก่อนบันทึก")
+        ingredients = data.get("ingredients") or []
+        job_lines = data.get("job_lines") or []
+        has_ingredient = any(str(x.get("ingredient_name") or "").strip() for x in ingredients)
+        has_job_line = any(str(x.get("description") or "").strip() for x in job_lines)
+        if not has_ingredient and not has_job_line:
+            raise HTTPException(400, "กรุณาใส่รายการสารสกัดหรือรายการงานอย่างน้อย 1 รายการ ก่อนบันทึก")
     else:
         if not any(str(x.get("material_code") or "").strip() or str(x.get("description") or "").strip() for x in items):
             raise HTTPException(400, "กรุณาใส่รายการวัตถุดิบอย่างน้อย 1 รายการ (รหัสสินค้าหรือรายละเอียด) ก่อนบันทึก")
@@ -603,6 +612,115 @@ def _build_pr_workbook(doc_no: str, data: dict) -> Workbook:
     return wb
 
 
+def _build_qp_workbook(doc_no: str, data: dict) -> Workbook:
+    """ใบเสนอราคา (QP) -- same free-HTML-form shape as PO/PR rather than
+    the old pixel-exact ADMIN-QP master template, but every section the
+    old exact-form had: header, active/inactive ingredient tables (no
+    longer capped at 9/7 rows), the job-code/บรรจุภัณฑ์/quantity/price
+    table, totals, and both signature lines."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "QP"
+    for col, width in zip("ABCDEFG", [4, 10, 34, 12, 12, 14, 14]):
+        ws.column_dimensions[col].width = width
+
+    ws.merge_cells("A1:G1")
+    ws["A1"] = "ใบเสนอราคา (Quotation)"
+    ws["A1"].font = _TITLE_FONT
+    ws.row_dimensions[1].height = 56
+    _add_logo_if_present(ws, "H1")
+
+    r = 3
+    _label_value(ws, r, 1, "เลขที่", doc_no); r += 1
+    _label_value(ws, r, 1, "วันที่", data.get("date")); r += 1
+    _label_value(ws, r, 1, "ชื่อผู้ซื้อ", data.get("customer_name")); r += 1
+    _label_value(ws, r, 1, "ที่อยู่", data.get("address")); r += 1
+    _label_value(ws, r, 1, "โทรศัพท์ / แฟกซ์ / E-mail", data.get("phone_fax")); r += 1
+    _label_value(ws, r, 1, "ชื่อสินค้า", data.get("product_name")); r += 1
+    _label_value(ws, r, 1, "เลขที่สูตร", data.get("formula_no")); r += 1
+    if data.get("installment_1"):
+        _label_value(ws, r, 1, "งวดที่ 1", data.get("installment_1")); r += 1
+    if data.get("installment_2"):
+        _label_value(ws, r, 1, "งวดที่ 2", data.get("installment_2")); r += 1
+
+    def _write_ingredient_table(title, rows):
+        nonlocal r
+        rows = [x for x in rows if str(x.get("ingredient_name") or "").strip()]
+        if not rows:
+            return
+        r += 1
+        ws.merge_cells(f"A{r}:G{r}")
+        ws[f"A{r}"] = title
+        ws[f"A{r}"].font = _HEAD_FONT
+        r += 1
+        headers = ["ลำดับ", "รายการสารสกัด", "ประเทศที่มา", "ปริมาณ (มก.)"]
+        for i, h in enumerate(headers, start=1):
+            c = ws.cell(row=r, column=i, value=h)
+            c.font = _HEAD_FONT
+            c.border = _BORDER
+        r += 1
+        for i, x in enumerate(rows, start=1):
+            vals = [i, x.get("ingredient_name") or "", x.get("origin") or "", x.get("quantity_mg") or ""]
+            for col, v in enumerate(vals, start=1):
+                c = ws.cell(row=r, column=col, value=v)
+                c.border = _BORDER
+            r += 1
+
+    _write_ingredient_table("สารสกัด (Active Ingredient)", data.get("ingredients") or [])
+    _write_ingredient_table("สารไม่สำคัญ (Inactive Ingredient)", data.get("inactive_ingredients") or [])
+
+    job_lines = data.get("job_lines") or []
+    job_lines = [x for x in job_lines if str(x.get("description") or "").strip() or str(x.get("job_code") or "").strip()]
+    subtotal = 0.0
+    if job_lines:
+        r += 1
+        headers = ["ลำดับ", "รหัสงาน", "รายละเอียด (บรรจุภัณฑ์)", "จำนวน/แพ็ค", "จำนวน", "หน่วย", "ราคาต่อหน่วย", "จำนวนเงิน"]
+        for i, h in enumerate(headers, start=1):
+            c = ws.cell(row=r, column=i, value=h)
+            c.font = _HEAD_FONT
+            c.border = _BORDER
+        r += 1
+        for i, x in enumerate(job_lines, start=1):
+            qty = float(x.get("quantity") or 0) if str(x.get("quantity") or "").strip() else 0
+            price = float(x.get("unit_price") or 0) if str(x.get("unit_price") or "").strip() else 0
+            amount = qty * price
+            subtotal += amount
+            pack = f"{x.get('pack_qty') or ''} {x.get('pack_unit_text') or ''}".strip()
+            vals = [i, x.get("job_code") or "", x.get("description") or "", pack,
+                    x.get("quantity") or "", x.get("unit") or "", x.get("unit_price") or "",
+                    round(amount, 2) if amount else ""]
+            for col, v in enumerate(vals, start=1):
+                c = ws.cell(row=r, column=col, value=v)
+                c.border = _BORDER
+                if col == 3:
+                    c.alignment = _WRAP
+            r += 1
+
+    discount = float(data.get("discount") or 0) if str(data.get("discount") or "").strip() else 0
+    after_discount = max(0.0, subtotal - discount)
+    vat = after_discount * 0.07
+    grand_total = after_discount + vat
+    r += 1
+    _label_value(ws, r, 5, "มูลค่ารวม", round(subtotal, 2), value_col=6); r += 1
+    if discount:
+        _label_value(ws, r, 5, "ส่วนลด", round(discount, 2), value_col=6); r += 1
+    _label_value(ws, r, 5, "ภาษีมูลค่าเพิ่ม 7%", round(vat, 2), value_col=6); r += 1
+    _label_value(ws, r, 5, "ยอดรวมสุทธิ", round(grand_total, 2), value_col=6); r += 1
+    ws.merge_cells(f"A{r}:G{r}")
+    ws[f"A{r}"] = f"({thai_baht_text(grand_total)})"
+    r += 1
+    if str(data.get("notes") or "").strip():
+        _label_value(ws, r, 1, "หมายเหตุ", data.get("notes")); r += 1
+    r += 1
+
+    _label_value(ws, r, 1, "ผู้เสนอราคา (Sales Executive)", data.get("sales_executive"))
+    _label_value(ws, r, 5, "วันที่", data.get("sales_signature_date"), value_col=6); r += 1
+    _label_value(ws, r, 1, "ผู้จัดทำใบเสนอราคา (Admin)", data.get("admin_officer"))
+    _label_value(ws, r, 5, "วันที่", data.get("admin_signature_date"), value_col=6); r += 1
+
+    return wb
+
+
 @router.get("/record/{record_id}/excel")
 def export_doc_excel(
     record_id: int,
@@ -615,7 +733,12 @@ def export_doc_excel(
     data = json.loads(x.payload_json or "{}")
 
     try:
-        wb = _build_po_workbook(x.doc_no, data) if x.doc_type == "PO" else _build_pr_workbook(x.doc_no, data)
+        if x.doc_type == "PO":
+            wb = _build_po_workbook(x.doc_no, data)
+        elif x.doc_type == "QP":
+            wb = _build_qp_workbook(x.doc_no, data)
+        else:
+            wb = _build_pr_workbook(x.doc_no, data)
         output = BytesIO()
         wb.save(output)
         output.seek(0)
