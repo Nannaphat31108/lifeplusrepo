@@ -729,6 +729,12 @@ def fill_formula(ws,d,production=False):
     expand_formula_ingredient_rows(ws,production,count)
 
     if production:
+        # สารสำคัญ (active-content) calculator columns -- not part of the
+        # original master, so they get fresh blank columns past its own
+        # last used one (BK) rather than colliding with anything real.
+        put(ws,"BM14","% สารสำคัญ");put(ws,"BN14","สารสำคัญ (มก.)")
+        put(ws,"BO14","% ส่วนที่เหลือ");put(ws,"BP14","ส่วนที่เหลือ (มก.)")
+
         # Actual F-RD-002.1 ingredient template is rows 16-27 (12 rows).
         capacity=12
         extra=max(0,count-capacity)
@@ -752,6 +758,10 @@ def fill_formula(ws,d,production=False):
             put(ws,f"AN{row}",x.get("price_pack"))
             put(ws,f"AO{row}",x.get("pack_mg"))
             put(ws,f"AP{row}",x.get("quantity_g"))
+            put(ws,f"BM{row}",x.get("active_percent"))
+            put(ws,f"BN{row}",x.get("active_mg"))
+            put(ws,f"BO{row}",x.get("remainder_percent"))
+            put(ws,f"BP{row}",x.get("remainder_mg"))
 
             # Calculation Master ingredient rules.
             put(ws,f"V{row}",f"=SUM(P{row}*$I$12/1000000)")
@@ -780,6 +790,13 @@ def fill_formula(ws,d,production=False):
         put(ws,f"AI{40+extra}",d.get("signature_name"))
 
     else:
+        # สารสำคัญ (active-content) calculator columns -- not part of the
+        # original master, so they get fresh blank columns past its own
+        # last used one (BQ, where fda_no already sits) rather than
+        # colliding with anything real.
+        put(ws,"BR14","% สารสำคัญ");put(ws,"BS14","สารสำคัญ (มก.)")
+        put(ws,"BT14","% ส่วนที่เหลือ");put(ws,"BU14","ส่วนที่เหลือ (มก.)")
+
         # F-RD-002 current layout: 20 active rows, then fixed 3 inactive rows.
         capacity=20
         extra=max(0,count-capacity)
@@ -818,6 +835,10 @@ def fill_formula(ws,d,production=False):
             put(ws,f"AR{row}",x.get("import_country"))
             put(ws,f"AS{row}",x.get("material_code"))
             put(ws,f"AT{row}",x.get("halal"))
+            put(ws,f"BR{row}",x.get("active_percent"))
+            put(ws,f"BS{row}",x.get("active_mg"))
+            put(ws,f"BT{row}",x.get("remainder_percent"))
+            put(ws,f"BU{row}",x.get("remainder_mg"))
 
             # Exact master formulas.
             put(ws,f"Z{row}",f"=SUM(T{row}*$I$11/1000000)")
@@ -840,6 +861,10 @@ def fill_formula(ws,d,production=False):
             put(ws,f"AR{row}",x.get("import_country"))
             put(ws,f"AS{row}",x.get("material_code"))
             put(ws,f"AT{row}",x.get("halal"))
+            put(ws,f"BR{row}",x.get("active_percent"))
+            put(ws,f"BS{row}",x.get("active_mg"))
+            put(ws,f"BT{row}",x.get("remainder_percent"))
+            put(ws,f"BU{row}",x.get("remainder_mg"))
 
             put(ws,f"Z{row}",f"=SUM(T{row}*$I$11/1000000)")
             put(ws,f"AD{row}",f"=T{row}*100/$T${total_row}")
@@ -859,8 +884,14 @@ def fill_formula(ws,d,production=False):
         put(ws,f"K{qty_summary_row}",f"=SUM(T{total_row})")
         put(ws,f"K{prod_summary_row}",f"=SUM(Z{total_row})")
 
-        # Exact master costing rule includes *120.
-        put(ws,f"K{cost_row}",f"=SUM(AI16:AL{actual_inactive_last})*120")
+        # ราคาต้นทุนส่วนผสม/หน่วย = sum of every row's ราคา/มก. (already
+        # price_per_kg/1,000,000 x quantity_mg, i.e. price-per-kg converted
+        # to the row's own quantity in matching units) -- "มันจะเป็นราคาสาร
+        # ต่อกิโล คูณด้วยปริมาณที่เราใส่ แต่ต้องทำหน่วยให้ตรงกันนะ". No extra
+        # multiplier: a prior round had added *120 here believing it matched
+        # the master's own costing rule, but that doesn't match this
+        # confirmed formula, so it's removed.
+        put(ws,f"K{cost_row}",f"=SUM(AI16:AL{actual_inactive_last})")
         put(ws,f"AO{cost_row}",f"=SUM(I11*K{cost_row})")
         put(ws,f"AO{sale_row}",f"=SUM(I11*K{sale_row})")
         put(ws,f"K{profit_row}",f"=SUM(K{sale_row}-K{cost_row})")

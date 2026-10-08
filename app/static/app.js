@@ -1704,14 +1704,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.66",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.67",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.66",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.67",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -6297,13 +6297,17 @@ recalculateFormulaBoth=function(){
     forceCalcAddr("T43",totalQty,6); forceCalcAddr("Z43",totalProd,6); forceCalcAddr("AD43",activePct+inactivePct,6);
 
     // Bottom summary: K44/K45 are the grand total (active+inactive); K47 is
-    // the grand total ingredient cost with the master's *120 markup rule --
-    // matches the corrected export formulas (K44=SUM(T<total_row>),
-    // K47=SUM(AI16:AL<inactive_last>)*120, both spanning active+inactive).
+    // the grand total ingredient cost -- sum of every row's ราคา/มก. (ราคา/
+    // กก. already converted to that row's own quantity in matching units),
+    // active + inactive, matching the export's K47=SUM(AI16:AL<inactive_last>).
+    // "มันจะเป็นราคาสารต่อกิโล คูณด้วยปริมาณที่เราใส่ แต่ต้องทำหน่วยให้
+    // ตรงกันนะ" -- no extra multiplier; a prior round had added *120 here
+    // believing it matched the master's own costing rule, removed since
+    // it doesn't match this confirmed formula.
     const rowCostAll=sumAllIndexes(active,"row_cost","ingredients")+inactiveOn.reduce((s,i)=>s+inactiveRowCost(i),0);
     const k44=totalQty;
     const k45=totalProd;
-    const k47=rowCostAll*120;
+    const k47=rowCostAll;
     const k48=readNumber(document.querySelector('.manual-cell-input[data-manual-cell="K48"]'));
     forceCalcAddr("K44",k44,6); forceCalcAddr("K45",k45,6); forceCalcAddr("K47",k47,9);
     forceCalcAddr("AO47",orderQty*k47,2); forceCalcAddr("AO48",orderQty*k48,2);

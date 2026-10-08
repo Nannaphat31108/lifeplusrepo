@@ -1,3 +1,35 @@
+## v31.67 — Remove K47's ×120, add สารสำคัญ columns to the Excel export
+
+Answers to the two questions v31.66 left open:
+
+- **"ราคาต้นทุนส่วนผสม / หน่วย" (K47, F-RD-002) no longer multiplies by
+  120.** Confirmed with the user: "มันจะเป็นราคาสารต่อกิโล คูณด้วยปริมาณที่
+  เราใส่ แต่ต้องทำหน่วยให้ตรงกันนะ" -- it's just each row's ราคา/กก.
+  converted to the row's own quantity in matching units (exactly what
+  ราคา/มก. already computes per row), summed across every row. The ×120 a
+  prior round had added here (believing it matched the real master's own
+  costing rule) didn't match this confirmed formula, so it's gone from
+  both `recalculateFormulaBoth()` (live preview) and the Excel export's
+  `K47` formula string in `fill_formula()` -- previously 0.085 baht of
+  real ingredient cost displayed as 10.2; now correctly 0.085.
+- **The new "% สารสำคัญ" calculator columns now export to Excel too.**
+  They have no cell of their own in either original master, so each gets
+  four fresh blank columns past the master's own last used one (F-RD-002:
+  BR-BU, after fda_no's BQ; F-RD-002.1: BM-BP, after fda_no's BL) --
+  verified blank across the whole ingredient row range in both real
+  master files before picking them. Header labels written at row 14,
+  values written per ingredient row (both Active and Inactive tables for
+  F-RD-002; Active only for F-RD-002.1, which has none).
+
+Verified via curl (created a record with both ingredients and สารสำคัญ
+values, downloaded the Excel export, confirmed with openpyxl that K47's
+formula string has no `*120`, and that BR14-BU14/BM14-BP14 carry the new
+headers with the row's own values directly beneath) and a Playwright pass
+confirming the live K47 preview now shows 3.825 instead of 459 for the
+same inputs -- zero console/page errors.
+
+Cache-busting version bumped to 31.67.
+
 ## v31.66 — F-RD-002/002.1: column order, Tester-cost fix, สารสำคัญ calculator
 
 Real-world feedback from LINE chat screenshots after v31.65 shipped, fixed per
