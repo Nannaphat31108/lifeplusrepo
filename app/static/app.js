@@ -1704,14 +1704,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.65",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.66",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.65",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.66",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -3912,31 +3912,47 @@ function rdFormulaHeaderField(code,rawMap,key){
 function rdExpandBtn(group,i){
   return `<button type="button" class="rd-expand-btn" data-group="${group}" data-index="${i}" onclick="expandCompositeIngredientRow(this)" title="แตกสารประกอบตามสัดส่วน (ถ้าสารนี้ตั้งค่าไว้)">แตกสาร</button>`;
 }
+// สารสำคัญ (active-content) calculator columns -- "อยากเพิ่มช่องไว้คำนวณ
+// ปริมาณสารสำคัญ" request: a material's registered quantity isn't always
+// 100% the actual active substance (e.g. an extract standardized to a
+// given %), so these four extra columns, appended at the end of every
+// ingredient row ("แนบไว้ด้านหลัง"), let the row's own % be typed in and
+// split ปริมาณ (มก.) into the real active-substance amount and the
+// remainder -- see recalculateFormulaBoth's activePct/remainder block.
+// Not part of the original Excel master (no cell address of its own), so
+// it's purely data-group/index/sub like every other extra row field --
+// saved in the record's JSON but not in the pixel-cell Excel export, same
+// as any other field with no corresponding master cell.
+function rdActiveContentCells(mk){
+  return `<td>${mk("active_percent","number")}</td><td>${mk("active_mg","number_auto")}</td><td>${mk("remainder_percent","number_auto")}</td><td>${mk("remainder_mg","number_auto")}</td>`;
+}
 function rdFormulaIngredientRowHtml(code,group,i){
   const mk=(sub,type,options)=>exactInput({group,index:i,sub,type,options},`${group}${i}${sub}`,"");
+  // ชื่อสาร + core numeric columns (ปริมาณ/ผลิต/ร้อยละ/ราคา) come first so
+  // they're quick to tab through while typing a formula in; รหัสสาร/
+  // Supplier/FDA/Import/Halal (reference data, usually looked up or filled
+  // in later) move to the end -- "ย้ายไปไว้ด้านหลัง" request.
   if(group==="ingredients"){
     if(code==="F-RD-002"){
       return `<tr>
         <td class="col-no">${i+1}</td>
         <td><div class="rd-ingredient-name-cell">${mk("name","supplement")}${rdExpandBtn(group,i)}</div></td>
-        <td>${mk("material_code","supplement_code")}</td>
-        <td>${mk("supplier","supplier")}</td>
-        <td>${mk("fda_no","text")}</td>
-        <td>${mk("import_country","text")}</td>
-        <td>${mk("halal","select",["YES","NO"])}</td>
         <td>${mk("quantity_mg","number")}</td>
         <td>${mk("production_kg","number_auto")}</td>
         <td>${mk("percent","number_auto")}</td>
         <td>${mk("price_kg","number")}</td>
         <td>${mk("row_cost","number_auto")}</td>
+        <td>${mk("material_code","supplement_code")}</td>
+        <td>${mk("supplier","supplier")}</td>
+        <td>${mk("fda_no","text")}</td>
+        <td>${mk("import_country","text")}</td>
+        <td>${mk("halal","select",["YES","NO"])}</td>
+        ${rdActiveContentCells(mk)}
       </tr>`;
     }
     return `<tr>
       <td class="col-no">${i+1}</td>
       <td><div class="rd-ingredient-name-cell">${mk("name","supplement")}${rdExpandBtn(group,i)}</div></td>
-      <td>${mk("material_code","supplement_code")}</td>
-      <td>${mk("supplier","supplier")}</td>
-      <td>${mk("fda_no","text")}</td>
       <td>${mk("quantity_mg","number")}</td>
       <td>${mk("production_kg","number_auto")}</td>
       <td>${mk("percent","number_auto")}</td>
@@ -3946,6 +3962,10 @@ function rdFormulaIngredientRowHtml(code,group,i){
       <td>${mk("pack_mg","number_auto")}</td>
       <td>${mk("quantity_g","number_auto")}</td>
       <td>${mk("pack_price_mg","number_auto")}</td>
+      <td>${mk("material_code","supplement_code")}</td>
+      <td>${mk("supplier","supplier")}</td>
+      <td>${mk("fda_no","text")}</td>
+      ${rdActiveContentCells(mk)}
     </tr>`;
   }
   // inactive_ingredients -- F-RD-002 only. Rows 0-2 are the original
@@ -3959,16 +3979,17 @@ function rdFormulaIngredientRowHtml(code,group,i){
   return `<tr>
     <td class="col-no">${i+1}</td>
     <td><div class="rd-ingredient-name-cell">${mk("name","supplement")}${rdExpandBtn(group,i)}</div></td>
-    <td>${mk("material_code","supplement_code")}</td>
-    <td>${mk("supplier","supplier")}</td>
-    <td>${mk("fda_no","text")}</td>
-    <td>${mk("import_country","text")}</td>
-    <td>${mk("halal","text")}</td>
     <td>${mk("quantity_mg","number")}</td>
     <td>${mk("production_kg","number_auto")}</td>
     <td>${mk("percent","number_auto")}</td>
     <td>${mk("price_kg","number")}</td>
     <td>${rowCostCell}</td>
+    <td>${mk("material_code","supplement_code")}</td>
+    <td>${mk("supplier","supplier")}</td>
+    <td>${mk("fda_no","text")}</td>
+    <td>${mk("import_country","text")}</td>
+    <td>${mk("halal","text")}</td>
+    ${rdActiveContentCells(mk)}
   </tr>`;
 }
 
@@ -4104,9 +4125,10 @@ function renderFormulaFreeForm(code){
   let inactiveRows="";
   for(let i=0;i<inactiveCount;i++)inactiveRows+=rdFormulaIngredientRowHtml(code,"inactive_ingredients",i);
 
+  const activeContentHeadCols=["% สารสำคัญ","สารสำคัญ (มก.)","% ส่วนที่เหลือ","ส่วนที่เหลือ (มก.)"];
   const activeHeadCols=isRd002
-    ? ["No.","ชื่อสาร (Active Ingredient)","รหัสสาร","Supplier","FDA เลขที่","Import","Halal","ปริมาณ (มก.)","ผลิต (ก.ก.)","ร้อยละ (%)","ราคา/กก.","ราคา/มก."]
-    : ["No.","ชื่อสาร (Active Ingredient)","รหัสสาร","Supplier","FDA เลขที่","ปริมาณ (มก.)","ผลิต (ก.ก.)","ร้อยละ (%)","ราคา/กก.","ราคา/มก.","ราคา/แพ็ค","ปริมาณ (มก./Tester)","ปริมาณ (ก./Tester)","ราคา/mg (Tester)"];
+    ? ["No.","ชื่อสาร (Active Ingredient)","ปริมาณ (มก.)","ผลิต (ก.ก.)","ร้อยละ (%)","ราคา/กก.","ราคา/มก.","รหัสสาร","Supplier","FDA เลขที่","Import","Halal",...activeContentHeadCols]
+    : ["No.","ชื่อสาร (Active Ingredient)","ปริมาณ (มก.)","ผลิต (ก.ก.)","ร้อยละ (%)","ราคา/กก.","ราคา/มก.","ราคา/แพ็ค","ปริมาณ (มก./Tester)","ปริมาณ (ก./Tester)","ราคา/mg (Tester)","รหัสสาร","Supplier","FDA เลขที่",...activeContentHeadCols];
 
   $("pageContent").innerHTML=`
     <div class="exact-form-toolbar">
@@ -4152,7 +4174,7 @@ function renderFormulaFreeForm(code){
       <h3>Inactive Ingredient (ส่วนประกอบที่ไม่สำคัญ)</h3>
       <div class="table-wrap rd-formula-table-wrap">
         <table class="rd-formula-table" data-rd-group="inactive_ingredients">
-          <thead><tr><th>No.</th><th>ชื่อสาร</th><th>รหัสสาร</th><th>Supplier</th><th>FDA เลขที่</th><th>Import</th><th>Halal</th><th>ปริมาณ (มก.)</th><th>ผลิต (ก.ก.)</th><th>ร้อยละ (%)</th><th>ราคา/กก.</th><th>ราคา/มก.</th></tr></thead>
+          <thead><tr><th>No.</th><th>ชื่อสาร</th><th>ปริมาณ (มก.)</th><th>ผลิต (ก.ก.)</th><th>ร้อยละ (%)</th><th>ราคา/กก.</th><th>ราคา/มก.</th><th>รหัสสาร</th><th>Supplier</th><th>FDA เลขที่</th><th>Import</th><th>Halal</th><th>% สารสำคัญ</th><th>สารสำคัญ (มก.)</th><th>% ส่วนที่เหลือ</th><th>ส่วนที่เหลือ (มก.)</th></tr></thead>
           <tbody>${inactiveRows}</tbody>
         </table>
       </div>
@@ -6135,11 +6157,6 @@ function inactiveRowCost(i){
   }
   return readNumber(formulaField("inactive_ingredients",i,"row_cost"));
 }
-function sumRangeIndexes(indexes,from,to,sub,group="ingredients"){
-  let x=0;
-  for(const i of indexes){if(i>=from&&i<=to)x+=readNumber(formulaField(group,i,sub));}
-  return x;
-}
 // Same material_code/FDA number, different total quantity needed for this
 // production run -> a different price_per_kg when bulk tiers are set up for
 // it (see PURCHASE > FDA + รหัสสาร Database > ราคาตามปริมาณ).
@@ -6175,6 +6192,26 @@ function applyTieredPriceForRow(group,index,qtyKg){
   }
 }
 
+// สารสำคัญ (active-content) split for one row -- "อยากเพิ่มช่องไว้คำนวณ
+// ปริมาณสารสำคัญ" request: a material's ปริมาณ (มก.) isn't always 100%
+// the real active substance (e.g. a standardized extract), so % สารสำคัญ
+// is a plain user-typed percentage and these three cells are its
+// derivatives: ปริมาณสารสำคัญ = ปริมาณ×%/100, the remainder % and mg make
+// up the rest. Blank % leaves all three at 0, same as every other
+// quantity×price-style auto cell here when its inputs are blank.
+function applyActiveContentForRow(group,i){
+  const pctEl=formulaField(group,i,"active_percent");
+  if(!pctEl)return; // row has no สารสำคัญ columns (not every table does)
+  const hasPct=String(pctEl.value||"").trim()!=="";
+  const qty=readNumber(formulaField(group,i,"quantity_mg"));
+  const pct=readNumber(pctEl);
+  const activeMg=hasPct?qty*pct/100:0;
+  const remainderPct=hasPct?Math.max(0,100-pct):0;
+  forceCalcValue(formulaField(group,i,"active_mg"),activeMg,6);
+  forceCalcValue(formulaField(group,i,"remainder_percent"),remainderPct,6);
+  forceCalcValue(formulaField(group,i,"remainder_mg"),hasPct?qty-activeMg:0,6);
+}
+
 recalculateFormulaBoth=function(){
   if(currentExactForm!=="F-RD-002" && currentExactForm!=="F-RD-002.1")return;
   const orderQty=readNumber(document.querySelector('.excel-input[data-key="order_quantity"]'));
@@ -6197,6 +6234,7 @@ recalculateFormulaBoth=function(){
       const price=readNumber(formulaField("ingredients",i,"price_kg"));
       forceCalcValue(formulaField("ingredients",i,"production_kg"),prodKg,6);
       forceCalcValue(formulaField("ingredients",i,"row_cost"),price/1000000*qty,9);
+      applyActiveContentForRow("ingredients",i);
     }
 
     // Same per-row treatment for every inactive row that exists (the
@@ -6214,6 +6252,7 @@ recalculateFormulaBoth=function(){
       }else{
         forceCalcValue(formulaField("inactive_ingredients",i,"row_cost"),rowCost,9);
       }
+      applyActiveContentForRow("inactive_ingredients",i);
     }
 
     // Active subtotal: every active row, including row 16/index 0 (see
@@ -6272,8 +6311,15 @@ recalculateFormulaBoth=function(){
     return;
   }
 
-  // F-RD-002.1 original main table is rows 16-27 ONLY (12 ingredients).
-  const rows=active.filter(i=>i>=0&&i<=11);
+  // Every active ingredient row that exists -- NOT capped at the original
+  // master's 12-row template (index 0-11) like this used to be. That cap
+  // silently excluded any row added past #12 from every total below, and
+  // (separately) K36/AN28 only summed index 4-11 ("only rows 20-27 have
+  // ingredient tester costs in the supplied master" -- a historical
+  // example record's own data range, not a general rule), which is why a
+  // formula with its only ingredient in row 1 (index 0) showed ราคาต้นทุน
+  // Tester = 0: that row sat entirely outside the summed range.
+  const rows=active;
   let p28=0,v28=0,z28=0;
   // จำนวน Tester: originally a hardcoded "=30/0.981" in the master formula
   // (AP31). The "/0.981" did not generalize to a custom count (confirmed
@@ -6298,6 +6344,7 @@ recalculateFormulaBoth=function(){
     forceCalcValue(formulaField("ingredients",i,"pack_mg"),packMg,6);
     forceCalcValue(formulaField("ingredients",i,"quantity_g"),quantityG,6);
     forceCalcValue(formulaField("ingredients",i,"pack_price_mg"),testerCost,9);
+    applyActiveContentForRow("ingredients",i);
     p28+=qty; v28+=prod;
   }
   for(const i of rows){
@@ -6310,15 +6357,15 @@ recalculateFormulaBoth=function(){
   // AP31 is now the user-editable "จำนวน Tester" input itself — never
   // force-overwrite it here (that would undo what the user just typed).
 
-  // AN28 = SUM(AN20:AN27): price/pack rows indexes 4..11 only.
-  const an28=sumRangeIndexes(rows,4,11,"price_pack");
+  // AN28 = sum of ราคา/แพ็ค across every active row that exists.
+  const an28=sumAllIndexes(rows,"price_pack");
   const packagingCost=readNumber(document.querySelector('.manual-cell-input[data-manual-cell="AE31"]'))
     ||readNumber(document.querySelector('.generic-excel-edit[data-manual-cell="AE31"]'));
   forceCalcAddr("AN28",an28,6);
   forceCalcAddr("AO28",packagingCost*ap31,9); // exact AO28 = AE31*AP31
 
-  // K33 = SUM(AE16:AH31) => active row costs + AE31 packaging cost.
-  const ingredientRowCost=sumRangeIndexes(rows,0,11,"row_cost");
+  // K33 = active row costs (every row that exists) + AE31 packaging cost.
+  const ingredientRowCost=sumAllIndexes(rows,"row_cost");
   const k33=ingredientRowCost+packagingCost;
   const o33=k33-packagingCost;
   const k34=readNumber(document.querySelector('.manual-cell-input[data-manual-cell="K34"]'));
@@ -6334,8 +6381,8 @@ recalculateFormulaBoth=function(){
   forceCalcAddr("K35",k35,9); forceCalcAddr("O35",o35,9); forceCalcAddr("Z35",z35,6); forceCalcAddr("AO35",orderQty*k35,2);
   forceCalcAddr("Z36",z36,6);
 
-  // K36 = SUM(AQ20:AQ28): only rows 20-27 have ingredient tester costs in the supplied master.
-  const k36=sumRangeIndexes(rows,4,11,"pack_price_mg");
+  // K36 = sum of ราคา/MG (TESTER) across every active row that exists.
+  const k36=sumAllIndexes(rows,"pack_price_mg");
   forceCalcAddr("K36",k36,9);
   // IMPORTANT: master AO36 = AO35 - AN28 (not AO35 - K36).
   forceCalcAddr("AO36",orderQty*k35-an28,2);
