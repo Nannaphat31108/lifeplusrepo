@@ -1,3 +1,60 @@
+## v31.66 — F-RD-002/002.1: column order, Tester-cost fix, สารสำคัญ calculator
+
+Real-world feedback from LINE chat screenshots after v31.65 shipped, fixed per
+"เขาสั่งแก้งานมา แก้ให้ตรงตามที่เขาต้องการ":
+
+- **Column order in both ingredient tables** -- รหัสสาร/Supplier/FDA เลขที่/
+  Import/Halal (reference data, usually looked up or filled in later) now
+  sit at the END of each row instead of between ชื่อสาร and the numeric
+  columns, per the screenshots' "ย้ายไปไว้ด้านหลัง" annotation. New order:
+  ชื่อสาร → ปริมาณ/ผลิต/ร้อยละ/ราคา/ต้นทุน (the columns typed/read while
+  actually building a formula) → รหัสสาร/Supplier/FDA/Import/Halal
+  (reference columns). Purely a column-position change -- the saved data
+  shape, calculations, and Excel export are unaffected since everything is
+  still addressed by field name, never column position.
+- **Fixed F-RD-002.1's "ราคาต้นทุน Tester" (K36) showing 0.** Root cause:
+  K36 and AN28 (รวมราคา/แพ็ค) only ever summed ingredient rows index 4-11
+  ("only rows 20-27 have ingredient tester costs in the supplied master" --
+  a leftover from matching one specific historical example record, not a
+  general rule) -- so a formula with its only ingredient in row 1 fell
+  entirely outside the summed range and both totals showed 0. Also found
+  and fixed the same class of bug one level up: the whole F-RD-002.1
+  calculation loop was capped at the original master's 12-row template
+  (index 0-11), so any row added past #12 via "+ เพิ่มแถวสารสกัด" was
+  silently excluded from every cost/total field, not just K36/AN28.
+  Both now sum every active ingredient row that actually exists, matching
+  how F-RD-002's own active-row totals already worked.
+- **New "% สารสำคัญ" calculator columns**, appended at the end of every
+  ingredient row (both tables, both forms) -- "อยากเพิ่มช่องไว้คำนวณ
+  ปริมาณสารสำคัญ ... พี่จะคำนวณโปรตีน วิตามิน แนบไว้ด้านหลัง". A material's
+  ปริมาณ (มก.) isn't always 100% the real active substance (e.g. a
+  standardized extract) -- type a % สารสำคัญ and the row auto-computes
+  สารสำคัญ (มก.) = ปริมาณ×%/100, plus the remainder % and mg (verified
+  against her own worked example: 900mg at 90% → 810mg + 10%/90mg).
+  Not tied to any cell in the original Excel master (there isn't one), so
+  it's saved in the record's JSON like every other field here but isn't
+  part of the pixel-cell Excel export.
+- **Investigated "ราคาต้นทุนส่วนผสม / หน่วย" (K47) looking wrong**: confirmed
+  it isn't a sign/calculation bug -- K47 (cost) and กำไร/หน่วย (K49, profit)
+  are two separate fields that happened to show the same magnitude in her
+  screenshot only because no ราคาขาย/หน่วย had been entered yet (profit =
+  0 − cost). K47 itself computes correctly per its existing "×120" rule
+  (`rowCostAll*120`, carried from the real master's own costing formula per
+  an earlier verified round). Left asking the user to confirm whether that
+  ×120 multiplier is still the intended business rule for this exact field,
+  rather than silently changing a verified costing formula.
+
+Verified via a real-browser Playwright pass reproducing her exact reported
+scenario (F-RD-002 inactive-only entry, F-RD-002.1 single-row entry):
+confirmed headers/columns reordered correctly in both tables, K47
+reproduces the reported 10.2 with K49 correctly at -10.2 (not a bug),
+สารสำคัญ columns compute and round-trip through save/reload correctly,
+F-RD-002.1's K36/K33 now show real computed values instead of 0 -- plus a
+regression pass confirming the old-grid-view toggle and Excel export still
+work. Zero console/page errors.
+
+Cache-busting version bumped to 31.66.
+
 ## v31.65 — Readable F-RD-002/002.1 formula forms; composite-ingredient expansion
 
 Finishes the rest of the same multi-part request v31.64 started (items D/E/F
