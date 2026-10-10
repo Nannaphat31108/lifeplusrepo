@@ -21,7 +21,7 @@ from app.models.entities import PurchaseDocument, RecordVersion
 
 router = APIRouter(prefix="/api/purchase-docs", tags=["Purchase Documents"])
 
-DOC_TYPES = {"PO", "PR", "QP"}
+DOC_TYPES = {"PO", "PR", "QP", "RECEIPT", "PAYMENT"}
 LOGO_PATH = Path(__file__).resolve().parents[1] / "static" / "logo.png"
 
 
@@ -44,7 +44,7 @@ def _add_logo_if_present(ws, anchor: str, width: int = 170, height: int = 73) ->
 def _check_doc_type(doc_type: str) -> str:
     d = (doc_type or "").strip().upper()
     if d not in DOC_TYPES:
-        raise HTTPException(404, "Unsupported document type (expected PO, PR or QP)")
+        raise HTTPException(404, "Unsupported document type (expected PO, PR, QP, RECEIPT or PAYMENT)")
     return d
 
 
@@ -68,6 +68,20 @@ def _validate_doc_data(doc_type: str, data: dict):
         has_job_line = any(str(x.get("description") or "").strip() for x in job_lines)
         if not has_ingredient and not has_job_line:
             raise HTTPException(400, "กรุณาใส่รายการสารสกัดหรือรายการงานอย่างน้อย 1 รายการ ก่อนบันทึก")
+    elif doc_type in ("RECEIPT", "PAYMENT"):
+        party_key = "customer_name" if doc_type == "RECEIPT" else "supplier_name"
+        if not str(data.get(party_key) or "").strip():
+            raise HTTPException(
+                400,
+                "กรุณาใส่ชื่อลูกค้าก่อนบันทึก" if doc_type == "RECEIPT" else "กรุณาใส่ชื่อผู้จำหน่ายก่อนบันทึก",
+            )
+        amount = data.get("amount")
+        try:
+            amount = float(amount) if str(amount or "").strip() else 0
+        except (TypeError, ValueError):
+            amount = 0
+        if amount <= 0:
+            raise HTTPException(400, "กรุณาใส่จำนวนเงินมากกว่า 0 ก่อนบันทึก")
     else:
         if not any(str(x.get("material_code") or "").strip() or str(x.get("description") or "").strip() for x in items):
             raise HTTPException(400, "กรุณาใส่รายการวัตถุดิบอย่างน้อย 1 รายการ (รหัสสินค้าหรือรายละเอียด) ก่อนบันทึก")
@@ -721,6 +735,69 @@ def _build_qp_workbook(doc_no: str, data: dict) -> Workbook:
     return wb
 
 
+_PAYMENT_METHOD_LABELS = {
+    "cash": "เงินสด",
+    "transfer": "โอนเงิน",
+    "cheque": "เช็ค",
+    "credit_card": "บัตรเครดิต",
+}
+
+
+def _build_express_voucher_workbook(doc_type: str, doc_no: str, data: dict) -> Workbook:
+    """Express module (ใบรับเงิน/ใบสำคัญจ่าย) -- a single voucher per
+    document, no item grid, same "preserve what the screen shows" rule as
+    the other free-HTML-form exports (PO/PR/QP)."""
+    is_receipt = doc_type == "RECEIPT"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = doc_type
+    for col, width in zip("AB", [22, 34]):
+        ws.column_dimensions[col].width = width
+
+    ws.merge_cells("A1:B1")
+    ws["A1"] = "ใบรับเงิน (Receipt Voucher)" if is_receipt else "ใบสำคัญจ่าย (Payment Voucher)"
+    ws["A1"].font = _TITLE_FONT
+    ws.row_dimensions[1].height = 40
+    _add_logo_if_present(ws, "C1")
+
+    r = 3
+    _label_value(ws, r, 1, "เลขที่", doc_no); r += 1
+    _label_value(ws, r, 1, "วันที่", data.get("date")); r += 1
+    if is_receipt:
+        _label_value(ws, r, 1, "รับเงินจาก (ลูกค้า)", data.get("customer_name")); r += 1
+        _label_value(ws, r, 1, "รหัสลูกค้า", data.get("customer_code")); r += 1
+    else:
+        _label_value(ws, r, 1, "จ่ายเงินให้ (ผู้จำหน่าย)", data.get("supplier_name")); r += 1
+        _label_value(ws, r, 1, "รหัสผู้จำหน่าย", data.get("supplier_code")); r += 1
+    _label_value(ws, r, 1, "อ้างอิง", data.get("reference")); r += 1
+    amount = data.get("amount")
+    try:
+        amount = float(amount) if str(amount or "").strip() else 0
+    except (TypeError, ValueError):
+        amount = 0
+    _label_value(ws, r, 1, "จำนวนเงิน", round(amount, 2)); r += 1
+    ws.merge_cells(f"A{r}:B{r}")
+    ws[f"A{r}"] = f"({thai_baht_text(amount)})"
+    r += 1
+    method = str(data.get("payment_method") or "")
+    _label_value(ws, r, 1, "ช่องทาง", _PAYMENT_METHOD_LABELS.get(method, method)); r += 1
+    if method in ("transfer", "cheque"):
+        _label_value(ws, r, 1, "ธนาคาร", data.get("bank_name")); r += 1
+    if method == "cheque":
+        _label_value(ws, r, 1, "เลขที่เช็ค", data.get("cheque_no")); r += 1
+    if str(data.get("notes") or "").strip():
+        _label_value(ws, r, 1, "หมายเหตุ", data.get("notes")); r += 1
+    r += 1
+
+    if is_receipt:
+        _label_value(ws, r, 1, "ผู้รับเงิน", data.get("received_by")); r += 1
+    else:
+        _label_value(ws, r, 1, "ผู้จ่ายเงิน", data.get("paid_by")); r += 1
+        _label_value(ws, r, 1, "ผู้อนุมัติ", data.get("approved_by")); r += 1
+
+    return wb
+
+
 @router.get("/record/{record_id}/excel")
 def export_doc_excel(
     record_id: int,
@@ -737,6 +814,8 @@ def export_doc_excel(
             wb = _build_po_workbook(x.doc_no, data)
         elif x.doc_type == "QP":
             wb = _build_qp_workbook(x.doc_no, data)
+        elif x.doc_type in ("RECEIPT", "PAYMENT"):
+            wb = _build_express_voucher_workbook(x.doc_type, x.doc_no, data)
         else:
             wb = _build_pr_workbook(x.doc_no, data)
         output = BytesIO()
