@@ -798,6 +798,245 @@ def _build_express_voucher_workbook(doc_type: str, doc_no: str, data: dict) -> W
     return wb
 
 
+# ---------------------------------------------------------------------------
+# Express reporting -- ลูกหนี้ (AR) / เจ้าหนี้ (AP) / ภาษีซื้อ-ขาย (ภ.พ.30),
+# the other pieces of โปรแกรมบัญชี Express the "Express" menu is modeled on.
+# These are read-only aggregates over the existing QP/PO/RECEIPT/PAYMENT
+# documents -- no new stored data, so there's nothing to keep in sync: an
+# unpaid QP or an unrecorded PO shows up here the moment either exists.
+# ---------------------------------------------------------------------------
+
+def _po_totals(data: dict) -> tuple[float, float, float]:
+    """(subtotal, vat, grand_total) -- same math as _build_po_workbook's
+    item-table loop, kept here too since AP reporting needs the number
+    without rendering a sheet."""
+    subtotal = 0.0
+    for item in (data.get("items") or []):
+        if not str(item.get("description") or "").strip():
+            continue
+        qty = float(item.get("quantity") or 0) if str(item.get("quantity") or "").strip() else 0
+        price = float(item.get("unit_price") or 0) if str(item.get("unit_price") or "").strip() else 0
+        subtotal += qty * price
+    vat = subtotal * 0.07
+    return subtotal, vat, subtotal + vat
+
+
+def _qp_totals(data: dict) -> tuple[float, float, float]:
+    """(after_discount_base, vat, grand_total) -- same math as
+    _build_qp_workbook's job-lines loop plus discount/VAT, kept here too
+    since AR reporting needs the number without rendering a sheet."""
+    subtotal = 0.0
+    for x in (data.get("job_lines") or []):
+        if not str(x.get("description") or "").strip() and not str(x.get("job_code") or "").strip():
+            continue
+        qty = float(x.get("quantity") or 0) if str(x.get("quantity") or "").strip() else 0
+        price = float(x.get("unit_price") or 0) if str(x.get("unit_price") or "").strip() else 0
+        subtotal += qty * price
+    discount = float(data.get("discount") or 0) if str(data.get("discount") or "").strip() else 0
+    after_discount = max(0.0, subtotal - discount)
+    vat = after_discount * 0.07
+    return after_discount, vat, after_discount + vat
+
+
+def _doc_month(x: "PurchaseDocument", data: dict) -> str:
+    date_str = str(data.get("date") or "").strip()
+    if len(date_str) >= 7:
+        return date_str[:7]
+    return x.created_at.strftime("%Y-%m") if x.created_at else ""
+
+
+def _ar_ap_rows(db: Session, invoice_type: str, voucher_type: str, party_key: str, code_key: str):
+    """Shared by express_ar/express_ap -- group invoice-side docs (QP for
+    AR, PO for AP) and payment-side vouchers (RECEIPT/PAYMENT) by party
+    name, returning {name, code, invoiced, received_or_paid, outstanding}
+    rows for every party that appears on either side."""
+    invoice_rows = db.scalars(
+        select(PurchaseDocument).where(PurchaseDocument.doc_type == invoice_type)
+    ).all()
+    voucher_rows = db.scalars(
+        select(PurchaseDocument).where(PurchaseDocument.doc_type == voucher_type)
+    ).all()
+
+    parties: dict[str, dict] = {}
+
+    def bucket(name: str, code: str = ""):
+        key = name.strip().lower()
+        if key not in parties:
+            parties[key] = {"party_name": name.strip(), "party_code": code.strip(), "invoiced": 0.0, "paid": 0.0}
+        elif code.strip() and not parties[key]["party_code"]:
+            parties[key]["party_code"] = code.strip()
+        return parties[key]
+
+    for x in invoice_rows:
+        try:
+            data = json.loads(x.payload_json or "{}")
+        except Exception:
+            continue
+        name = str(data.get(party_key) or "").strip()
+        if not name:
+            continue
+        _, _, grand_total = _qp_totals(data) if invoice_type == "QP" else _po_totals(data)
+        bucket(name, str(data.get(code_key) or ""))["invoiced"] += grand_total
+
+    for x in voucher_rows:
+        try:
+            data = json.loads(x.payload_json or "{}")
+        except Exception:
+            continue
+        name = str(data.get(party_key) or "").strip()
+        if not name:
+            continue
+        amount = data.get("amount")
+        try:
+            amount = float(amount) if str(amount or "").strip() else 0
+        except (TypeError, ValueError):
+            amount = 0
+        bucket(name, str(data.get(code_key) or ""))["paid"] += amount
+
+    out = []
+    for p in parties.values():
+        outstanding = round(p["invoiced"] - p["paid"], 2)
+        out.append({
+            "party_name": p["party_name"],
+            "party_code": p["party_code"],
+            "invoiced": round(p["invoiced"], 2),
+            "received" if invoice_type == "QP" else "paid_out": round(p["paid"], 2),
+            "outstanding": outstanding,
+        })
+    out.sort(key=lambda r: -abs(r["outstanding"]))
+    return out
+
+
+@router.get("/express/ar")
+def express_ar(db: Session = Depends(get_db), u=Depends(get_current_user)):
+    """ลูกหนี้ (AR) -- ยอดค้างรับ: QP (ใบเสนอราคา/ขาย) ต่อลูกค้า เทียบกับ
+    RECEIPT ที่บันทึกไว้แล้ว ส่วนต่างคือยอดที่ยังค้างรับ"""
+    return _ar_ap_rows(db, "QP", "RECEIPT", "customer_name", "customer_code")
+
+
+@router.get("/express/ap")
+def express_ap(db: Session = Depends(get_db), u=Depends(get_current_user)):
+    """เจ้าหนี้ (AP) -- ยอดค้างจ่าย: PO (ใบสั่งซื้อ) ต่อผู้จำหน่าย เทียบกับ
+    PAYMENT ที่บันทึกไว้แล้ว ส่วนต่างคือยอดที่ยังค้างจ่าย"""
+    return _ar_ap_rows(db, "PO", "PAYMENT", "supplier_name", "supplier_code")
+
+
+@router.get("/express/vat-report")
+def express_vat_report(db: Session = Depends(get_db), u=Depends(get_current_user)):
+    """รายงานภาษีซื้อ-ขาย (ภ.พ.30 แบบย่อ) -- รวม VAT 7% จาก QP (ภาษีขาย) และ
+    PO (ภาษีซื้อ) แยกตามเดือน ให้เห็นภาษีที่ต้องชำระเพิ่ม/ขอคืนต่อเดือน."""
+    months: dict[str, dict] = {}
+
+    def bucket(month: str):
+        if month not in months:
+            months[month] = {"month": month, "sales_base": 0.0, "sales_vat": 0.0, "purchase_base": 0.0, "purchase_vat": 0.0}
+        return months[month]
+
+    for x in db.scalars(select(PurchaseDocument).where(PurchaseDocument.doc_type == "QP")).all():
+        try:
+            data = json.loads(x.payload_json or "{}")
+        except Exception:
+            continue
+        base, vat, _ = _qp_totals(data)
+        if not base and not vat:
+            continue
+        m = bucket(_doc_month(x, data))
+        m["sales_base"] += base
+        m["sales_vat"] += vat
+
+    for x in db.scalars(select(PurchaseDocument).where(PurchaseDocument.doc_type == "PO")).all():
+        try:
+            data = json.loads(x.payload_json or "{}")
+        except Exception:
+            continue
+        base, vat, _ = _po_totals(data)
+        if not base and not vat:
+            continue
+        m = bucket(_doc_month(x, data))
+        m["purchase_base"] += base
+        m["purchase_vat"] += vat
+
+    out = []
+    for m in months.values():
+        out.append({
+            "month": m["month"],
+            "sales_base": round(m["sales_base"], 2),
+            "sales_vat": round(m["sales_vat"], 2),
+            "purchase_base": round(m["purchase_base"], 2),
+            "purchase_vat": round(m["purchase_vat"], 2),
+            "net_vat": round(m["sales_vat"] - m["purchase_vat"], 2),
+        })
+    out.sort(key=lambda r: r["month"])
+    return out
+
+
+def _build_ar_ap_workbook(title: str, headers: list[str], rows: list[dict], keys: list[str]) -> Workbook:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Report"
+    for col, width in zip("ABCDEF", [26, 14, 16, 16, 16, 18]):
+        ws.column_dimensions[col].width = width
+    ws.merge_cells(f"A1:{get_column_letter(len(headers))}1")
+    ws["A1"] = title
+    ws["A1"].font = _TITLE_FONT
+    for i, h in enumerate(headers, start=1):
+        c = ws.cell(row=3, column=i, value=h)
+        c.font = _HEAD_FONT
+        c.border = _BORDER
+    r = 4
+    for row in rows:
+        for i, k in enumerate(keys, start=1):
+            c = ws.cell(row=r, column=i, value=row.get(k))
+            c.border = _BORDER
+        r += 1
+    return wb
+
+
+@router.get("/express/ar/excel")
+def express_ar_excel(db: Session = Depends(get_db), u=Depends(get_current_user)):
+    rows = _ar_ap_rows(db, "QP", "RECEIPT", "customer_name", "customer_code")
+    wb = _build_ar_ap_workbook(
+        "ลูกหนี้ (AR) -- ยอดค้างรับ",
+        ["ลูกค้า", "รหัส", "ยอดขาย (QP)", "รับเงินแล้ว", "ค้างรับ"],
+        rows, ["party_name", "party_code", "invoiced", "received", "outstanding"],
+    )
+    output = BytesIO(); wb.save(output); output.seek(0)
+    return StreamingResponse(
+        output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="express_ar.xlsx"'},
+    )
+
+
+@router.get("/express/ap/excel")
+def express_ap_excel(db: Session = Depends(get_db), u=Depends(get_current_user)):
+    rows = _ar_ap_rows(db, "PO", "PAYMENT", "supplier_name", "supplier_code")
+    wb = _build_ar_ap_workbook(
+        "เจ้าหนี้ (AP) -- ยอดค้างจ่าย",
+        ["ผู้จำหน่าย", "รหัส", "ยอดซื้อ (PO)", "จ่ายเงินแล้ว", "ค้างจ่าย"],
+        rows, ["party_name", "party_code", "invoiced", "paid_out", "outstanding"],
+    )
+    output = BytesIO(); wb.save(output); output.seek(0)
+    return StreamingResponse(
+        output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="express_ap.xlsx"'},
+    )
+
+
+@router.get("/express/vat-report/excel")
+def express_vat_report_excel(db: Session = Depends(get_db), u=Depends(get_current_user)):
+    rows = express_vat_report(db=db, u=u)
+    wb = _build_ar_ap_workbook(
+        "รายงานภาษีซื้อ-ขาย (ภ.พ.30 แบบย่อ)",
+        ["เดือน", "ยอดขาย", "ภาษีขาย", "ยอดซื้อ", "ภาษีซื้อ", "ภาษีที่ต้องชำระ/ขอคืน"],
+        rows, ["month", "sales_base", "sales_vat", "purchase_base", "purchase_vat", "net_vat"],
+    )
+    output = BytesIO(); wb.save(output); output.seek(0)
+    return StreamingResponse(
+        output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="express_vat_report.xlsx"'},
+    )
+
+
 @router.get("/record/{record_id}/excel")
 def export_doc_excel(
     record_id: int,

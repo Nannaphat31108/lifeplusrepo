@@ -1670,7 +1670,81 @@ async function listExpressDocs(){
       <input class="search" placeholder="ค้นหาเลขที่/คู่ค้า/อ้างอิง..." oninput="filterRecordRows(this)">
       <button class="primary" onclick="openExpressDocForm('RECEIPT')">+ ใบรับเงิน</button>
       <button class="primary" onclick="openExpressDocForm('PAYMENT')">+ ใบสำคัญจ่าย</button>
-    </div>${table(headers,tr)}</div>`;
+    </div>${table(headers,tr)}</div>
+    <div class="card"><h3>รายงาน Express</h3>
+      <div class="toolbar">
+        <button onclick="listExpressAR()">ลูกหนี้ (AR) — ยอดค้างรับ</button>
+        <button onclick="listExpressAP()">เจ้าหนี้ (AP) — ยอดค้างจ่าย</button>
+        <button onclick="listExpressVatReport()">รายงานภาษีซื้อ-ขาย (ภ.พ.30)</button>
+      </div>
+    </div>`;
+}
+
+// ===== AR/AP outstanding-balance reports + VAT report -- the other core
+// Express Accounting functions, computed live from existing QP/PO/RECEIPT/
+// PAYMENT documents rather than a separately-tracked ledger (see
+// app/api/purchase_docs.py's "Express reporting" section for the math).
+
+async function listExpressAR(){
+  currentPage="express:ar";
+  $("pageTitle").textContent="ลูกหนี้ (AR) — ยอดค้างรับ";
+  $("pageSubtitle").textContent="ยอดขาย (QP) เทียบกับใบรับเงินที่บันทึกแล้ว ต่อลูกค้า";
+  const rows=await api("/api/purchase-docs/express/ar");
+  const tr=rows.map(x=>{
+    const search=esc(`${x.party_name} ${x.party_code||""}`.toLowerCase());
+    return `<tr data-search="${search}">
+      <td>${esc(x.party_name)}</td><td>${esc(x.party_code||"-")}</td>
+      <td style="text-align:right">${money(x.invoiced)}</td>
+      <td style="text-align:right">${money(x.received)}</td>
+      <td style="text-align:right"><b class="${x.outstanding>0?'diff-red':''}">${money(x.outstanding)}</b></td>
+    </tr>`;
+  });
+  $("pageContent").innerHTML=`<div class="card"><div class="toolbar">
+      <input class="search" placeholder="ค้นหาลูกค้า..." oninput="filterRecordRows(this)">
+      <button onclick="listExpressDocs()">กลับไปสมุดรับ-จ่ายเงิน</button>
+      <button class="primary" onclick="exportExcel('/api/purchase-docs/express/ar/excel')">Excel</button>
+    </div>${table(["ลูกค้า","รหัส","ยอดขาย (QP)","รับเงินแล้ว","ค้างรับ"],tr)}</div>`;
+}
+
+async function listExpressAP(){
+  currentPage="express:ap";
+  $("pageTitle").textContent="เจ้าหนี้ (AP) — ยอดค้างจ่าย";
+  $("pageSubtitle").textContent="ยอดซื้อ (PO) เทียบกับใบสำคัญจ่ายที่บันทึกแล้ว ต่อผู้จำหน่าย";
+  const rows=await api("/api/purchase-docs/express/ap");
+  const tr=rows.map(x=>{
+    const search=esc(`${x.party_name} ${x.party_code||""}`.toLowerCase());
+    return `<tr data-search="${search}">
+      <td>${esc(x.party_name)}</td><td>${esc(x.party_code||"-")}</td>
+      <td style="text-align:right">${money(x.invoiced)}</td>
+      <td style="text-align:right">${money(x.paid_out)}</td>
+      <td style="text-align:right"><b class="${x.outstanding>0?'diff-red':''}">${money(x.outstanding)}</b></td>
+    </tr>`;
+  });
+  $("pageContent").innerHTML=`<div class="card"><div class="toolbar">
+      <input class="search" placeholder="ค้นหาผู้จำหน่าย..." oninput="filterRecordRows(this)">
+      <button onclick="listExpressDocs()">กลับไปสมุดรับ-จ่ายเงิน</button>
+      <button class="primary" onclick="exportExcel('/api/purchase-docs/express/ap/excel')">Excel</button>
+    </div>${table(["ผู้จำหน่าย","รหัส","ยอดซื้อ (PO)","จ่ายเงินแล้ว","ค้างจ่าย"],tr)}</div>`;
+}
+
+async function listExpressVatReport(){
+  currentPage="express:vat-report";
+  $("pageTitle").textContent="รายงานภาษีซื้อ-ขาย (ภ.พ.30 แบบย่อ)";
+  $("pageSubtitle").textContent="ภาษีขาย (จาก QP) และภาษีซื้อ (จาก PO) แยกตามเดือน";
+  const rows=await api("/api/purchase-docs/express/vat-report");
+  const tr=rows.map(x=>`<tr>
+      <td>${esc(monthLabel(x.month))}</td>
+      <td style="text-align:right">${money(x.sales_base)}</td>
+      <td style="text-align:right">${money(x.sales_vat)}</td>
+      <td style="text-align:right">${money(x.purchase_base)}</td>
+      <td style="text-align:right">${money(x.purchase_vat)}</td>
+      <td style="text-align:right"><b>${money(x.net_vat)}</b></td>
+    </tr>`);
+  $("pageContent").innerHTML=`<div class="card"><div class="toolbar">
+      <button onclick="listExpressDocs()">กลับไปสมุดรับ-จ่ายเงิน</button>
+      <button class="primary" onclick="exportExcel('/api/purchase-docs/express/vat-report/excel')">Excel</button>
+    </div>${table(["เดือน","ยอดขาย","ภาษีขาย","ยอดซื้อ","ภาษีซื้อ","ภาษีที่ต้องชำระ/ขอคืน"],tr)}
+    <small class="muted">ภาษีที่ต้องชำระ/ขอคืน = ภาษีขาย − ภาษีซื้อ ต่อเดือน (ค่าบวก = ต้องชำระเพิ่ม, ค่าลบ = ขอคืนภาษี/ยกไปเดือนถัดไป)</small></div>`;
 }
 
 const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","ACCOUNTING","CEO"];
@@ -1892,14 +1966,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.69",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.70",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.69",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.70",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
