@@ -1,3 +1,85 @@
+## v31.68 — F-RD-002/002.1: critical save-overwrite fix + a batch of real-use fixes
+
+Real-world feedback from more LINE chat screenshots after v31.67, including a
+report that a real record got corrupted: "ทำตามคำสั่งที่เขาบอกมาในไลน์".
+
+- **Critical bug, fixed: opening a brand-new blank F-RD-002/F-RD-002.1 form
+  could silently overwrite whatever record was last edited anywhere in the
+  session.** `editingSourceRecordId` (which field tells บันทึก to UPDATE)
+  was only ever reset by the "แก้ไข" edit-an-existing-record flow -- normal
+  navigation to open a fresh blank form never cleared it, so if you'd
+  edited record A earlier in the session and then opened a new blank form
+  through the sidebar, filling it in and saving would PUT to record A's id
+  instead of creating a new row, replacing its data with the new form's.
+  This is almost certainly what actually happened to the user's record
+  ("พี่เลยกดเซฟ มันกลายเป็นไฟล์สูตรผลิตเลย" / "มันกลายเป็นแบบนี้"). Fixed at
+  the root: `openExactFormAccount()` (the entry point for every "open a
+  fresh form" nav path) now resets `editingSourceRecordId` to null.
+- **New "บันทึกเป็นรายการใหม่" (Save As New) button**, next to the regular
+  บันทึก on every exact form -- "ถ้าทำแบบกด save as ได้ด้วยจะดีมาก". Always
+  creates a brand-new record regardless of what's currently loaded. The
+  regular บันทึก button now also warns with a confirm dialog before saving
+  if "เลขที่รายการ" was changed from what the currently-loaded record was
+  opened with, instead of silently renaming/overwriting it -- "พอพี่จะเซฟ
+  ชื่อไฟล์ใหม่ มันจะทับไปเลย".
+- **New "VLOOKUP จากไฟล์สูตร F-RD-002" button on F-RD-002.1**, next to its
+  เลขที่สูตร field -- "ถ้าใส่รหัสตรงนี้ สามารถให้มันลิงค์สูตร F-RD-002 สูตร
+  มาได้เลยได้ไหม". Pulls customer/product info plus every ingredient
+  (Active and Inactive merged into F-RD-002.1's single table, since it has
+  no separate Inactive section) from an F-RD-002 record by formula_no/
+  record_no. Uses a new `GET /api/source-forms/formula-link-full/{formula_no}`
+  endpoint carrying material_code/supplier/price_kg/halal/fda_no too, since
+  F-RD-002.1 is a costing form that needs them -- QP's existing
+  `formula-link` endpoint stays deliberately slim (name/qty/origin only)
+  and untouched.
+- **Fixed: switching an ingredient row's ชื่อสาร to a different supplier's
+  record of the same substance name didn't update supplier/price/etc.**
+  "ถ้าพี่กดเลือกซัพที่1 แล้วเปลี่ยนไปใช้อีกคน มันจะไม่เปลี่ยนซัพด้านหลังให้
+  สารชื่อเดียวกัน". Root cause: the ชื่อสาร datalist's options all carried
+  the bare substance name with no way to tell two same-named-different-
+  supplier entries apart, so the "keep this row's already-linked variant"
+  fallback always won once any variant had been linked once. The datalist
+  now encodes each option's supplier-specific variant code into its value
+  (already-supported `"name || VARIANT"` format `findSupplementByName`
+  reads), making every pick unambiguous; the display field still shows
+  just the clean name once linked.
+- **"% ส่วนที่เหลือ"/"ส่วนที่เหลือ (มก.)" renamed and made manual** --
+  "ไม่เอาคำว่าส่วนที่เหลือได้ไหม ... ให้พี่ใส่ตัวเลขเอง" -- now "% อื่นๆ"/
+  "อื่นๆ (มก.)", freely typed instead of auto-computed as 100-minus-%
+  สารสำคัญ. "% สารสำคัญ"/"สารสำคัญ (มก.)" are unchanged.
+- **"ผลิต (ก.ก.)" can now be overridden per row** -- "แคปซูล พี่ไม่อยากให้
+  มันคำนวณกิโลงะ เฉพาะแคปซูล". Typing into it marks it overridden (same
+  flag price_kg's tiered pricing already respects), so recalculation
+  leaves that row's value alone from then on; the override survives
+  save/reload too.
+- **Live "ปริมาณรวม" total** right under each ingredient table (Active and
+  Inactive) -- "เพิ่มช่องปริมาณรวมตรงนี้ให้หน่อย" -- no more needing to
+  scroll to the bottom ปริมาณ/ต้นทุน/กำไร section just to see a running
+  total while entering rows.
+- **Fixed uneven column widths** ("ระยะช่องไม่เท่ากันงับ") -- every
+  ingredient table now renders with an explicit `<colgroup>` and
+  `table-layout:fixed`, so a column's width no longer depends on what kind
+  of input happens to be inside it (a readonly field, one with spinner
+  arrows, a dropdown, ...).
+- **Moved รหัสสาร/Supplier/FDA/Import/Halal to the end of every ingredient
+  row** (both tables, both forms) -- continues the same "ย้ายไปไว้ด้านหลัง"
+  request from v31.66, now also covering the columns added since.
+
+Verified via a real-browser Playwright pass covering every item above:
+reproduced the exact save-overwrite bug (opening a fresh blank form after
+editing a record no longer carries over its id), confirmed the overwrite
+warning dialog and Save As New both behave correctly (one overwrites in
+place, the other creates a genuinely separate record), confirmed the new
+F-RD-002.1→F-RD-002 VLOOKUP pulls full ingredient data including supplier/
+price, confirmed the supplier re-select fix with two same-named materials
+from different suppliers, confirmed % อื่นๆ/อื่นๆ (มก.) stay exactly what's
+typed through recalculation, confirmed ผลิต (ก.ก.)'s override survives
+both recalculation and a save+reload round trip, and confirmed the live
+total and column widths render correctly -- zero console/page errors
+throughout.
+
+Cache-busting version bumped to 31.68.
+
 ## v31.67 — Remove K47's ×120, add สารสำคัญ columns to the Excel export
 
 Answers to the two questions v31.66 left open:
