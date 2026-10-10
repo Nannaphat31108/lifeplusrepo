@@ -81,16 +81,18 @@ tr:last-child td{border-bottom:0}
    same fix as .purchase-doc-table's, and bumps the font size up from the
    grid's tiny-to-fit-69-columns size -- the whole point of this view is
    fixing "ตัวอักษรมันค่อนข้างเล็ก คนทำงาน แอบทำงานยาก". */
-.rd-formula-table{width:100%;border-collapse:collapse}
-.rd-formula-table th,.rd-formula-table td{border:1px solid #e5e7eb;padding:6px}
-.rd-formula-table th{background:#f8fafc;font-size:13px;white-space:nowrap}
+.rd-formula-table{width:100%;border-collapse:collapse;table-layout:fixed}
+.rd-formula-table th,.rd-formula-table td{border:1px solid #e5e7eb;padding:6px;overflow:hidden}
+.rd-formula-table th{background:#f8fafc;font-size:13px}
 .rd-formula-table td.col-no{text-align:center;background:#f8fafc;font-size:14px;color:#667085}
-.rd-formula-table .excel-input{position:static;inset:auto;width:100%;height:auto;min-width:110px;border:none;padding:6px;font-size:15px;box-sizing:border-box}
+.rd-formula-table .excel-input{position:static;inset:auto;width:100%;height:auto;border:none;padding:6px;font-size:15px;box-sizing:border-box}
 .rd-formula-table .excel-input:focus{outline:2px solid var(--primary,#2563eb);outline-offset:-2px}
 .rd-ingredient-name-cell{display:flex;gap:4px;align-items:center}
-.rd-ingredient-name-cell .excel-input{min-width:160px}
+.rd-ingredient-name-cell .excel-input{min-width:0;flex:1}
 .rd-expand-btn{flex:none;font-size:11px;padding:4px 7px;white-space:nowrap;border-radius:6px;border:1px solid #d0d5dd;background:#f8fafc;cursor:pointer}
 .rd-expand-btn:hover{background:#eff6ff;border-color:#2563eb}
+.rd-table-total{margin:6px 0;font-size:14px;color:#344054}
+.rd-table-total b{color:#027a48;font-size:15px;margin-left:4px}
 .purchase-doc-grid .form-grid .excel-input{position:static;inset:auto;width:100%;height:auto;border:1px solid var(--line);border-radius:8px;padding:10px;font-size:15px;box-sizing:border-box}
 .qp-table{width:100%;border-collapse:collapse}
 .qp-table th,.qp-table td{border:1px solid #e5e7eb;padding:4px}

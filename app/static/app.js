@@ -1704,14 +1704,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.67",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.68",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.67",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.68",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -3898,10 +3898,10 @@ function rdFormulaFieldOrCell(code,rawMap,addr){
   if(field)return exactInput(field,addr,"");
   return formulaAutoInputForCell(code,addr,"") || manualInputForCell(code,addr,"") || "";
 }
-function rdFormulaHeaderField(code,rawMap,key){
+function rdFormulaHeaderField(code,rawMap,key,extraHtml){
   const field=Object.values(rawMap).find(f=>f.key===key);
   if(!field)return "";
-  return `<div><label>${esc(RD_FORMULA_LABELS[key]||key)}</label>${exactInput(field,field.cell,"")}</div>`;
+  return `<div><label>${esc(RD_FORMULA_LABELS[key]||key)}</label>${extraHtml?`<div class="qp-exact-link">${exactInput(field,field.cell,"")}${extraHtml}</div>`:exactInput(field,field.cell,"")}</div>`;
 }
 
 // "แตกสาร" button next to a row's ชื่อสาร cell -- see
@@ -3912,19 +3912,51 @@ function rdFormulaHeaderField(code,rawMap,key){
 function rdExpandBtn(group,i){
   return `<button type="button" class="rd-expand-btn" data-group="${group}" data-index="${i}" onclick="expandCompositeIngredientRow(this)" title="แตกสารประกอบตามสัดส่วน (ถ้าสารนี้ตั้งค่าไว้)">แตกสาร</button>`;
 }
+// Without an explicit <colgroup>, every column's rendered width depends on
+// its own content (an editable number input's up/down spinner arrows make
+// it wider than a readonly one, a dropdown wider than a plain text box,
+// ...), so columns that are logically "the same kind of cell" end up
+// visibly different widths -- "ระยะช่อง ไม่เท่ากันงับ". Fixed pixel widths
+// here make every column a consistent, predictable size regardless of
+// what's rendered inside it; the table-wrap's overflow:auto still handles
+// the total width being wider than the viewport, same as before.
+const RD_FORMULA_COL_WIDTH={
+  "No.":44,"ชื่อสาร (Active Ingredient)":220,"ชื่อสาร":220,
+  "รหัสสาร":130,"Supplier":150,"FDA เลขที่":130,"Import":110,"Halal":100,
+};
+function rdFormulaColgroup(cols){
+  return `<colgroup>${cols.map(c=>`<col style="width:${RD_FORMULA_COL_WIDTH[c]||120}px">`).join("")}</colgroup>`;
+}
 // สารสำคัญ (active-content) calculator columns -- "อยากเพิ่มช่องไว้คำนวณ
 // ปริมาณสารสำคัญ" request: a material's registered quantity isn't always
 // 100% the actual active substance (e.g. an extract standardized to a
 // given %), so these four extra columns, appended at the end of every
-// ingredient row ("แนบไว้ด้านหลัง"), let the row's own % be typed in and
-// split ปริมาณ (มก.) into the real active-substance amount and the
-// remainder -- see recalculateFormulaBoth's activePct/remainder block.
-// Not part of the original Excel master (no cell address of its own), so
-// it's purely data-group/index/sub like every other extra row field --
-// saved in the record's JSON but not in the pixel-cell Excel export, same
-// as any other field with no corresponding master cell.
+// ingredient row ("แนบไว้ด้านหลัง"), let the row's own % สารสำคัญ be typed
+// in with ปริมาณสารสำคัญ (มก.) auto-derived from it (see
+// applyActiveContentForRow). The other pair (% อื่นๆ / อื่นๆ (มก.)) is
+// freely user-typed, not an auto-computed complement -- originally named
+// "ส่วนที่เหลือ" (remainder), renamed and un-automated per "ไม่เอาคำว่า
+// ส่วนที่เหลือได้ไหม ... ให้พี่ใส่ตัวเลขเอง". Not part of the original
+// Excel master (no cell address of its own there), but does get its own
+// extra columns in the Excel export (see fill_formula() in
+// source_forms.py) since nothing stops that just because the master
+// didn't have them.
 function rdActiveContentCells(mk){
-  return `<td>${mk("active_percent","number")}</td><td>${mk("active_mg","number_auto")}</td><td>${mk("remainder_percent","number_auto")}</td><td>${mk("remainder_mg","number_auto")}</td>`;
+  return `<td>${mk("active_percent","number")}</td><td>${mk("active_mg","number_auto")}</td><td>${mk("other_percent","number")}</td><td>${mk("other_mg","number")}</td>`;
+}
+// ผลิต (ก.ก.) is normally auto (= ปริมาณ × จำนวนที่สั่งผลิต / 1,000,000),
+// but that kg conversion doesn't make sense for every row -- "แคปซูล พี่
+// ไม่อยากให้มันคำนวณกิโลงะ เฉพาะแคปซูล". Unlike the other number_auto
+// cells, this one is left editable: the global input listener below marks
+// it overridden the moment it's typed into (same manualOverride flag
+// price_kg's tiered-pricing already respects), so recalculateFormulaBoth
+// leaves that row's value alone from then on instead of recalculating
+// over it every time. No inline oninput here -- the global listener runs
+// in the capture phase, strictly before any inline handler would, so
+// marking the override there is what actually makes it take effect on
+// the very same keystroke instead of one input event too late.
+function rdProductionKgCell(group,i){
+  return `<input class="excel-input" data-group="${group}" data-index="${i}" data-sub="production_kg" type="number" step="0.000001" placeholder="คำนวณอัตโนมัติ (พิมพ์เพื่อแก้เอง)">`;
 }
 function rdFormulaIngredientRowHtml(code,group,i){
   const mk=(sub,type,options)=>exactInput({group,index:i,sub,type,options},`${group}${i}${sub}`,"");
@@ -3938,7 +3970,7 @@ function rdFormulaIngredientRowHtml(code,group,i){
         <td class="col-no">${i+1}</td>
         <td><div class="rd-ingredient-name-cell">${mk("name","supplement")}${rdExpandBtn(group,i)}</div></td>
         <td>${mk("quantity_mg","number")}</td>
-        <td>${mk("production_kg","number_auto")}</td>
+        <td>${rdProductionKgCell(group,i)}</td>
         <td>${mk("percent","number_auto")}</td>
         <td>${mk("price_kg","number")}</td>
         <td>${mk("row_cost","number_auto")}</td>
@@ -3954,7 +3986,7 @@ function rdFormulaIngredientRowHtml(code,group,i){
       <td class="col-no">${i+1}</td>
       <td><div class="rd-ingredient-name-cell">${mk("name","supplement")}${rdExpandBtn(group,i)}</div></td>
       <td>${mk("quantity_mg","number")}</td>
-      <td>${mk("production_kg","number_auto")}</td>
+      <td>${rdProductionKgCell(group,i)}</td>
       <td>${mk("percent","number_auto")}</td>
       <td>${mk("price_kg","number")}</td>
       <td>${mk("row_cost","number_auto")}</td>
@@ -3980,7 +4012,7 @@ function rdFormulaIngredientRowHtml(code,group,i){
     <td class="col-no">${i+1}</td>
     <td><div class="rd-ingredient-name-cell">${mk("name","supplement")}${rdExpandBtn(group,i)}</div></td>
     <td>${mk("quantity_mg","number")}</td>
-    <td>${mk("production_kg","number_auto")}</td>
+    <td>${rdProductionKgCell(group,i)}</td>
     <td>${mk("percent","number_auto")}</td>
     <td>${mk("price_kg","number")}</td>
     <td>${rowCostCell}</td>
@@ -4074,6 +4106,64 @@ function expandCompositeIngredientRow(btn){
   toast(`แตกสารประกอบเป็น ${components.length} รายการตามสัดส่วนที่ตั้งไว้ (รวม ${fmtCalc(totalQty,3)} มก.)`);
 }
 
+// F-RD-002.1's own VLOOKUP, pulling in header info + every ingredient from
+// an F-RD-002 (สูตร) record by its formula_no/record_no -- "ถ้าใส่รหัส
+// ตรงนี้ สามารถให้มันลิงค์สูตร F-RD-002 สูตรมาได้เลยได้ไหม". Uses
+// formula-link-full (not QP's slim formula-link) since F-RD-002.1 is a
+// costing form that needs supplier/price_kg too, not just name/qty/origin.
+// F-RD-002 keeps Active and Inactive Ingredient as two separate tables;
+// F-RD-002.1 has only one ingredients table, so both get merged into it.
+// Fills the first still-empty row(s) before adding new ones, same pattern
+// as the PO form's "เลือกจาก PR ที่ค้างอยู่" picker.
+async function linkRdProductionFormula(code){
+  if(code!=="F-RD-002.1")return;
+  const formulaNoEl=document.querySelector('.excel-input[data-key="formula_no"]');
+  const formulaNo=(formulaNoEl?.value||"").trim();
+  if(!formulaNo){
+    toast("กรอกเลขที่สูตร F-RD-002 ในช่อง \"เลขที่สูตร\" ก่อน");
+    formulaNoEl?.focus();
+    return;
+  }
+  let linked;
+  try{
+    linked=await api(`/api/source-forms/formula-link-full/${encodeURIComponent(formulaNo)}`);
+  }catch(e){
+    toast("ลิงก์สูตรไม่สำเร็จ: "+(e?.message||e));
+    return;
+  }
+  const setIfEmpty=(key,value)=>{
+    const el=document.querySelector(`.excel-input[data-key="${key}"]`);
+    if(el && !String(el.value||"").trim() && value)el.value=value;
+  };
+  setIfEmpty("customer_name",linked.customer_name);
+  setIfEmpty("product_name_fda",linked.product_name);
+  setIfEmpty("product_type",linked.product_type);
+  if(formulaNoEl && linked.formula_no)formulaNoEl.value=linked.formula_no;
+
+  const items=[...(linked.ingredients||[]),...(linked.inactive_ingredients||[])].filter(x=>String(x.name||"").trim());
+  if(!items.length){
+    toast(`ลิงก์ ${linked.record_no||formulaNo} สำเร็จ แต่ไม่พบรายการสารในสูตรนั้น`);
+    return;
+  }
+  for(const it of items){
+    let idx=formulaGroupIndexes("ingredients").find(i=>!String(formulaField("ingredients",i,"name")?.value||"").trim());
+    if(idx===undefined){
+      addRdFormulaIngredientRow(code);
+      idx=Math.max(...formulaGroupIndexes("ingredients"));
+    }
+    const set=(sub,v)=>{const el=formulaField("ingredients",idx,sub);if(el)el.value=v??"";};
+    set("name",it.name);
+    set("quantity_mg",it.quantity_mg);
+    set("material_code",it.material_code);
+    set("supplier",it.supplier);
+    set("price_kg",it.price_kg);
+    set("halal",it.halal);
+    set("fda_no",it.fda_no);
+  }
+  setTimeout(recalculateFormulaBoth,0);
+  toast(`ลิงก์สูตร ${linked.record_no||formulaNo} สำเร็จ • ดึง ${items.length} รายการสาร (Active + Inactive จาก F-RD-002)`);
+}
+
 // Swaps between this readable view and the original pixel-grid view
 // (openPrivateExactForm's .excel-sheet branch) without losing whatever
 // has been typed -- collects the current payload first (same function
@@ -4099,7 +4189,7 @@ function rdFormulaDatalistsHtml(){
       ${supplements.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join("")}
     </datalist>
     <datalist id="exactSupplementNameList">
-      ${supplements.map(x=>`<option value="${esc(x.name)}">${esc(x.code)} — ${esc(x.vendor||"")}</option>`).join("")}
+      ${supplements.map(x=>`<option value="${esc(x.name)} || ${esc(x.variant_code||x.code||"")}">${esc(x.code)} — ${esc(x.vendor||"")}</option>`).join("")}
     </datalist>
     <datalist id="exactSupplierList">
       ${supNames.map(x=>`<option value="${esc(x)}">`).join("")}
@@ -4125,10 +4215,11 @@ function renderFormulaFreeForm(code){
   let inactiveRows="";
   for(let i=0;i<inactiveCount;i++)inactiveRows+=rdFormulaIngredientRowHtml(code,"inactive_ingredients",i);
 
-  const activeContentHeadCols=["% สารสำคัญ","สารสำคัญ (มก.)","% ส่วนที่เหลือ","ส่วนที่เหลือ (มก.)"];
+  const activeContentHeadCols=["% สารสำคัญ","สารสำคัญ (มก.)","% อื่นๆ","อื่นๆ (มก.)"];
   const activeHeadCols=isRd002
     ? ["No.","ชื่อสาร (Active Ingredient)","ปริมาณ (มก.)","ผลิต (ก.ก.)","ร้อยละ (%)","ราคา/กก.","ราคา/มก.","รหัสสาร","Supplier","FDA เลขที่","Import","Halal",...activeContentHeadCols]
     : ["No.","ชื่อสาร (Active Ingredient)","ปริมาณ (มก.)","ผลิต (ก.ก.)","ร้อยละ (%)","ราคา/กก.","ราคา/มก.","ราคา/แพ็ค","ปริมาณ (มก./Tester)","ปริมาณ (ก./Tester)","ราคา/mg (Tester)","รหัสสาร","Supplier","FDA เลขที่",...activeContentHeadCols];
+  const inactiveHeadCols=["No.","ชื่อสาร","ปริมาณ (มก.)","ผลิต (ก.ก.)","ร้อยละ (%)","ราคา/กก.","ราคา/มก.","รหัสสาร","Supplier","FDA เลขที่","Import","Halal",...activeContentHeadCols];
 
   $("pageContent").innerHTML=`
     <div class="exact-form-toolbar">
@@ -4143,6 +4234,7 @@ function renderFormulaFreeForm(code){
         <button onclick="showSourceRecords('${code}')">ฟอร์มของฉัน</button>
         <button class="ai-formula-btn" onclick="openAIFormulaAssistant('${code}')">AI คิดสูตร</button>
         <button onclick="toggleRdFormulaView('${code}')">มุมมองตาราง Excel (เดิม)</button>
+        <button onclick="saveExactFormAsNew('${code}')" title="สร้างรายการใหม่แยกต่างหาก ไม่กระทบรายการเดิมที่เปิดอยู่">บันทึกเป็นรายการใหม่</button>
         <button class="primary" onclick="saveExactForm('${code}')">บันทึก</button>
       </div>
     </div>
@@ -4152,7 +4244,7 @@ function renderFormulaFreeForm(code){
     <div class="card purchase-doc-grid">
       <div class="form-grid">
         ${rdFormulaHeaderField(code,fmap,"customer_name")}
-        ${rdFormulaHeaderField(code,fmap,"formula_no")}
+        ${rdFormulaHeaderField(code,fmap,"formula_no",!isRd002?`<button type="button" onclick="linkRdProductionFormula('${code}')">VLOOKUP จากไฟล์สูตร F-RD-002</button>`:"")}
         ${rdFormulaHeaderField(code,fmap,"product_type")}
         ${rdFormulaHeaderField(code,fmap,"date")}
         ${rdFormulaHeaderField(code,fmap,"product_name_fda")}
@@ -4164,20 +4256,24 @@ function renderFormulaFreeForm(code){
       <h3>Active Ingredient (ส่วนประกอบที่สำคัญ)</h3>
       <div class="table-wrap rd-formula-table-wrap">
         <table class="rd-formula-table" data-rd-group="ingredients">
+          ${rdFormulaColgroup(activeHeadCols)}
           <thead><tr>${activeHeadCols.map(h=>`<th>${esc(h)}</th>`).join("")}</tr></thead>
           <tbody>${activeRows}</tbody>
         </table>
       </div>
+      <div class="rd-table-total">ปริมาณรวม (มก.) <b id="rdActiveQtyTotal">0</b></div>
       <button type="button" onclick="addRdFormulaIngredientRow('${code}')">+ เพิ่มแถวสารสกัด</button>
 
       ${isRd002?`
       <h3>Inactive Ingredient (ส่วนประกอบที่ไม่สำคัญ)</h3>
       <div class="table-wrap rd-formula-table-wrap">
         <table class="rd-formula-table" data-rd-group="inactive_ingredients">
-          <thead><tr><th>No.</th><th>ชื่อสาร</th><th>ปริมาณ (มก.)</th><th>ผลิต (ก.ก.)</th><th>ร้อยละ (%)</th><th>ราคา/กก.</th><th>ราคา/มก.</th><th>รหัสสาร</th><th>Supplier</th><th>FDA เลขที่</th><th>Import</th><th>Halal</th><th>% สารสำคัญ</th><th>สารสำคัญ (มก.)</th><th>% ส่วนที่เหลือ</th><th>ส่วนที่เหลือ (มก.)</th></tr></thead>
+          ${rdFormulaColgroup(inactiveHeadCols)}
+          <thead><tr>${inactiveHeadCols.map(h=>`<th>${esc(h)}</th>`).join("")}</tr></thead>
           <tbody>${inactiveRows}</tbody>
         </table>
       </div>
+      <div class="rd-table-total">ปริมาณรวม (มก.) <b id="rdInactiveQtyTotal">0</b></div>
       <button type="button" onclick="addRdFormulaInactiveRow('${code}')">+ เพิ่มแถวสารไม่สำคัญ</button>
       `:""}
 
@@ -4402,6 +4498,7 @@ async function openPrivateExactForm(code){
         <button onclick="showSourceRecords('${code}')">ฟอร์มของฉัน</button>
         ${isQPLikeForm(code)?`<div class="qp-exact-link"><input id="qpExactFormulaNo" placeholder="คีย์รหัสสูตร เช่น F-RD-002-001"><button onclick="linkAdminQPFormula(true)">VLOOKUP จากไฟล์สูตร</button></div>`:""}
         ${(code==="F-RD-002"||code==="F-RD-002.1")?`<button class="ai-formula-btn" onclick="openAIFormulaAssistant('${code}')">AI คิดสูตร</button><button onclick="toggleRdFormulaView('${code}')">กลับไปฟอร์มอ่านง่าย</button>`:""}
+        <button onclick="saveExactFormAsNew('${code}')" title="สร้างรายการใหม่แยกต่างหาก ไม่กระทบรายการเดิมที่เปิดอยู่">บันทึกเป็นรายการใหม่</button>
         <button class="primary" onclick="saveExactForm('${code}')">บันทึก</button>
       </div>
     </div>
@@ -4425,7 +4522,7 @@ async function openPrivateExactForm(code){
       ${supplements.map(x=>`<option value="${esc(x.code)}">${esc(x.name)}</option>`).join("")}
     </datalist>
     <datalist id="exactSupplementNameList">
-      ${supplements.map(x=>`<option value="${esc(x.name)}">${esc(x.code)} — ${esc(x.vendor||"")}</option>`).join("")}
+      ${supplements.map(x=>`<option value="${esc(x.name)} || ${esc(x.variant_code||x.code||"")}">${esc(x.code)} — ${esc(x.vendor||"")}</option>`).join("")}
     </datalist>
     <datalist id="exactSupplierList">
       ${supNames.map(x=>`<option value="${esc(x)}">`).join("")}
@@ -4734,7 +4831,13 @@ function collectExactPayload(){
  // collected the same way.
  const d={};document.querySelectorAll(".excel-input, .cost-detail-input").forEach(e=>{let v=e.value;if(e.type==="number"&&v!=="")v=Number(v);
    if(e.dataset.key)d[e.dataset.key]=v;
-   if(e.dataset.group){const g=e.dataset.group,i=+e.dataset.index,k=e.dataset.sub;d[g]??=[];d[g][i]??={};d[g][i][k]=v}
+   if(e.dataset.group){const g=e.dataset.group,i=+e.dataset.index,k=e.dataset.sub;d[g]??=[];d[g][i]??={};d[g][i][k]=v;
+     // Persist a manually-overridden auto cell (e.g. ผลิต (ก.ก.) typed by
+     // hand for a capsule row -- see rdProductionKgCell) so reopening the
+     // record doesn't silently let recalculateFormulaBoth recalculate
+     // over it again; restored by populateExactForm below.
+     if(e.dataset.manualOverride==="1")d[g][i][`${k}_override`]=true;
+   }
  });
  for(const k of Object.keys(d))if(Array.isArray(d[k]))d[k]=d[k].filter(x=>x&&Object.values(x).some(v=>v!==""&&v!=null));
  return d;
@@ -4772,10 +4875,18 @@ collectExactPayload = function(){
 };
 
 window.editingSourceRecordId=null;
+// The record_no the currently-open record was loaded with (or null for a
+// brand-new form) -- saveExactForm compares this against what's actually
+// typed in "เลขที่รายการ" right before saving, so retyping it to a
+// different number and clicking the regular บันทึก doesn't silently
+// rename/overwrite the record that's actually loaded. See saveExactForm
+// and saveExactFormAsNew.
+window.loadedRecordNo=null;
 
 async function editOwnSourceRecord(id){
  const rec=await api(`/api/source-forms/record/${id}`);
  window.editingSourceRecordId=id;
+ window.loadedRecordNo=rec.record_no||null;
  if(rec.form_code==="F-RD-002" || rec.form_code==="F-RD-002.1"){
    const savedCount=Number(rec.data?.ingredient_count)||((rec.data?.ingredients||[]).length)||1;
    window.formulaIngredientCount ??= {};
@@ -4841,6 +4952,18 @@ function populateExactForm(d){
 
      for(const [k,v] of Object.entries(x||{})){
        if(k==="variant_code")continue;
+       // "<sub>_override": true, written by collectExactPayload for a
+       // manually-overridden auto cell (ผลิต (ก.ก.) only, so far) -- marks
+       // that cell overridden again instead of looking up a real field.
+       if(k.endsWith("_override")){
+         if(!v)continue;
+         const sub=k.slice(0,-"_override".length);
+         const overrideEl=document.querySelector(
+           `.excel-input[data-group="${group}"][data-index="${i}"][data-sub="${sub}"]`
+         );
+         if(overrideEl)overrideEl.dataset.manualOverride="1";
+         continue;
+       }
        const e=document.querySelector(
          `.excel-input[data-group="${group}"][data-index="${i}"][data-sub="${k}"]`
        );
@@ -4875,7 +4998,7 @@ function populateExactForm(d){
  },0);
 }
 
-saveExactForm=async function(code){
+saveExactForm=async function(code,{asNew=false}={}){
   try{
     if(!code)code=currentExactForm;
     if(!code)throw new Error("ไม่พบรหัสฟอร์มที่กำลังเปิด");
@@ -4899,6 +5022,24 @@ saveExactForm=async function(code){
 
     const recordInput=document.getElementById("exactRecordNo");
     const recordNo=(recordInput?.value||"").trim() || `${code}-${Date.now()}`;
+
+    // Changing "เลขที่รายการ" while a record is still loaded, then
+    // clicking the regular บันทึก, would otherwise silently rename AND
+    // overwrite that loaded record (a PUT, not a new row) -- this has
+    // actually destroyed a real record this way. Steer toward "บันทึกเป็น
+    // รายการใหม่" (asNew=true, which skips this check since it never
+    // reuses editingSourceRecordId) unless they explicitly confirm they
+    // mean to overwrite the loaded one under its new number.
+    const targetEditingId=asNew?null:window.editingSourceRecordId;
+    if(!asNew && targetEditingId && window.loadedRecordNo && recordNo!==window.loadedRecordNo){
+      const proceed=confirm(
+        `เลขที่รายการเปลี่ยนจาก "${window.loadedRecordNo}" เป็น "${recordNo}"\n\n`+
+        `กด OK = บันทึกทับรายการเดิม (เปลี่ยนแค่เลขที่ ข้อมูลเดิมจะถูกแทนที่ด้วยฟอร์มนี้)\n`+
+        `ต้องการสร้างรายการใหม่แยกต่างหากแทน? กด Cancel แล้วใช้ปุ่ม "บันทึกเป็นรายการใหม่"`
+      );
+      if(!proceed)return;
+    }
+
     const body={record_no:recordNo,status:"DRAFT",data};
     if(code==="F-RD-002"){
       body.filed_month=document.getElementById("exactFiledMonth")?.value||currentYearMonth();
@@ -4908,13 +5049,13 @@ saveExactForm=async function(code){
     }
 
     let result;
-    if(window.editingSourceRecordId){
-      result=await api(`/api/source-forms/record/${window.editingSourceRecordId}`,{
+    if(targetEditingId){
+      result=await api(`/api/source-forms/record/${targetEditingId}`,{
         method:"PUT",
         body
       });
       // PUT may not always return id in older records.
-      result.id=result.id||window.editingSourceRecordId;
+      result.id=result.id||targetEditingId;
     }else{
       result=await api(`/api/source-forms/${encodeURIComponent(code)}`,{
         method:"POST",
@@ -4922,12 +5063,13 @@ saveExactForm=async function(code){
       });
       window.editingSourceRecordId=result.id;
     }
+    window.loadedRecordNo=result?.record_no||recordNo;
 
     if(recordInput && result?.record_no){
       recordInput.value=result.record_no;
     }
 
-    toast(`บันทึก ${result?.record_no||recordNo} สำเร็จ`);
+    toast(`${asNew?"บันทึกเป็นรายการใหม่":"บันทึก"} ${result?.record_no||recordNo} สำเร็จ`);
 
     // ADMIN-QP / ADMIN-INVOICE: Save first, then download the freshly saved Excel automatically.
     if(isQPLikeForm(code)){
@@ -4952,6 +5094,16 @@ saveExactForm=async function(code){
     throw e;
   }
 };
+
+// "ถ้าทำแบบกด save as ได้ด้วยจะดีมาก" -- explicit save-as-new-record
+// action, kept completely separate from the regular บันทึก button so
+// there's never any ambiguity about which one overwrites the currently
+// loaded record and which one doesn't.
+async function saveExactFormAsNew(code){
+  if(!code)code=currentExactForm;
+  if(!confirm("บันทึกเป็นรายการใหม่แยกต่างหาก (ไม่กระทบรายการเดิมที่เปิดอยู่ตอนนี้) ใช่ไหม?"))return;
+  await saveExactForm(code,{asNew:true});
+}
 
 function sourceRecordRow(x){
   const owner=x.owner||window.formWorkspace?.display_name||"";
@@ -5724,6 +5876,16 @@ openExactFormAccount = async function(code){
         slot_no: window.loginUserInfo?.person_no || 1,
         workspace_token: "account-owner"
     };
+    // This is the entry point for "open a brand-new blank form" (every nav
+    // path except editOwnSourceRecord, which sets these itself right
+    // before calling openPrivateExactForm directly) -- without this reset,
+    // editingSourceRecordId stays pointed at whatever record was last
+    // edited anywhere in the session, so saving this new blank form would
+    // silently overwrite that old record's data via a PUT instead of
+    // creating a new one via POST. Confirmed to be exactly what happened
+    // to a real record ("พี่เลยกดเซฟ มันกลายเป็นไฟล์สูตรผลิตเลย").
+    window.editingSourceRecordId=null;
+    window.loadedRecordNo=null;
     return openPrivateExactForm(code);
 };
 
@@ -6135,6 +6297,14 @@ function forceCalcAddr(addr,value,digits=6){
     ||document.querySelector(`.manual-cell-input[data-manual-cell="${addr}"]`);
   forceCalcValue(el,value,digits);
 }
+// Same as forceCalcValue, but skips writing when the cell has been
+// manually overridden (markFormulaOverride) -- used for ผลิต (ก.ก.) only,
+// the one number_auto-looking cell in the free-form view that's actually
+// user-editable (see rdProductionKgCell).
+function forceCalcValueUnlessOverridden(el,value,digits=6){
+  if(!el || el.dataset.manualOverride==="1")return;
+  forceCalcValue(el,value,digits);
+}
 function formulaGroupIndexes(group){
   return [...new Set([...document.querySelectorAll(`.excel-input[data-group="${group}"]`)]
     .map(e=>Number(e.dataset.index)).filter(Number.isFinite))].sort((a,b)=>a-b);
@@ -6195,21 +6365,19 @@ function applyTieredPriceForRow(group,index,qtyKg){
 // สารสำคัญ (active-content) split for one row -- "อยากเพิ่มช่องไว้คำนวณ
 // ปริมาณสารสำคัญ" request: a material's ปริมาณ (มก.) isn't always 100%
 // the real active substance (e.g. a standardized extract), so % สารสำคัญ
-// is a plain user-typed percentage and these three cells are its
-// derivatives: ปริมาณสารสำคัญ = ปริมาณ×%/100, the remainder % and mg make
-// up the rest. Blank % leaves all three at 0, same as every other
-// quantity×price-style auto cell here when its inputs are blank.
+// is a plain user-typed percentage and ปริมาณสารสำคัญ (มก.) is its auto
+// derivative (= ปริมาณ×%/100). The other two columns (originally named
+// "ส่วนที่เหลือ" -- "ไม่เอาคำว่าส่วนที่เหลือได้ไหม ... ให้พี่ใส่ตัวเลขเอง")
+// are freely user-typed instead, not auto-computed as a 100-minus-%
+// complement -- left alone here entirely, same as any other plain
+// "number" field.
 function applyActiveContentForRow(group,i){
   const pctEl=formulaField(group,i,"active_percent");
   if(!pctEl)return; // row has no สารสำคัญ columns (not every table does)
   const hasPct=String(pctEl.value||"").trim()!=="";
   const qty=readNumber(formulaField(group,i,"quantity_mg"));
   const pct=readNumber(pctEl);
-  const activeMg=hasPct?qty*pct/100:0;
-  const remainderPct=hasPct?Math.max(0,100-pct):0;
-  forceCalcValue(formulaField(group,i,"active_mg"),activeMg,6);
-  forceCalcValue(formulaField(group,i,"remainder_percent"),remainderPct,6);
-  forceCalcValue(formulaField(group,i,"remainder_mg"),hasPct?qty-activeMg:0,6);
+  forceCalcValue(formulaField(group,i,"active_mg"),hasPct?qty*pct/100:0,6);
 }
 
 recalculateFormulaBoth=function(){
@@ -6232,7 +6400,7 @@ recalculateFormulaBoth=function(){
       const prodKg=qty*orderQty/1000000;
       applyTieredPriceForRow("ingredients",i,prodKg);
       const price=readNumber(formulaField("ingredients",i,"price_kg"));
-      forceCalcValue(formulaField("ingredients",i,"production_kg"),prodKg,6);
+      forceCalcValueUnlessOverridden(formulaField("ingredients",i,"production_kg"),prodKg,6);
       forceCalcValue(formulaField("ingredients",i,"row_cost"),price/1000000*qty,9);
       applyActiveContentForRow("ingredients",i);
     }
@@ -6245,7 +6413,7 @@ recalculateFormulaBoth=function(){
       const prodKg=qty*orderQty/1000000;
       applyTieredPriceForRow("inactive_ingredients",i,prodKg);
       const price=readNumber(formulaField("inactive_ingredients",i,"price_kg"));
-      forceCalcValue(formulaField("inactive_ingredients",i,"production_kg"),prodKg,6);
+      forceCalcValueUnlessOverridden(formulaField("inactive_ingredients",i,"production_kg"),prodKg,6);
       const rowCost=price/1000000*qty;
       if(i<=2){
         forceCalcAddr(`AI${39+i}`,rowCost,9);
@@ -6263,6 +6431,12 @@ recalculateFormulaBoth=function(){
     const activeProd=sumAllIndexes(active,"production_kg","ingredients");
     const inactiveQty=sumAllIndexes(inactiveOn,"quantity_mg","inactive_ingredients");
     const inactiveProd=sumAllIndexes(inactiveOn,"production_kg","inactive_ingredients");
+    // Quick-glance totals right under each table -- "เพิ่มช่องปริมาณรวม
+    // ตรงนี้ให้หน่อย" -- so there's no need to scroll down to the bottom
+    // ปริมาณ/ต้นทุน/กำไร section just to see a running total while entering
+    // rows.
+    if($("rdActiveQtyTotal"))$("rdActiveQtyTotal").textContent=fmtCalc(activeQty,3);
+    if($("rdInactiveQtyTotal"))$("rdInactiveQtyTotal").textContent=fmtCalc(inactiveQty,3);
 
     // Grand total = active subtotal + inactive subtotal, nothing else.
     // The raw master's T42="SUM(T23:Y41)" range overlaps T36 itself (T36
@@ -6343,7 +6517,7 @@ recalculateFormulaBoth=function(){
     const packMg=qty*ap31;
     const quantityG=packMg/1000;
     const testerCost=price/1000000*packMg;
-    forceCalcValue(formulaField("ingredients",i,"production_kg"),prod,6);
+    forceCalcValueUnlessOverridden(formulaField("ingredients",i,"production_kg"),prod,6);
     forceCalcValue(formulaField("ingredients",i,"row_cost"),rowCost,9);
     forceCalcValue(formulaField("ingredients",i,"pack_mg"),packMg,6);
     forceCalcValue(formulaField("ingredients",i,"quantity_g"),quantityG,6);
@@ -6358,6 +6532,7 @@ recalculateFormulaBoth=function(){
     z28+=pct;
   }
   forceCalcAddr("P28",p28,6); forceCalcAddr("V28",v28,6); forceCalcAddr("Z28",z28,6);
+  if($("rdActiveQtyTotal"))$("rdActiveQtyTotal").textContent=fmtCalc(p28,3);
   // AP31 is now the user-editable "จำนวน Tester" input itself — never
   // force-overwrite it here (that would undo what the user just typed).
 
@@ -6393,11 +6568,19 @@ recalculateFormulaBoth=function(){
 };
 
 // Capture every direct edit, including fields rendered as generic/manual cells.
+// Capture phase, so this runs before any element's own inline oninput --
+// that's why rdProductionKgCell's override flag is set RIGHT HERE rather
+// than in its own oninput attribute: an inline handler fires in the
+// target/bubble phase, which is AFTER this listener, so marking the
+// override there would always be one input event too late (this same
+// capture-phase recalculateFormulaBoth() call would already have
+// overwritten the just-typed value back to the auto-calculated one first).
 document.addEventListener("input",function(e){
   const el=e.target;
   if(!el)return;
   if(currentExactForm==="F-RD-002" || currentExactForm==="F-RD-002.1"){
     if(el.classList?.contains("excel-input") || el.classList?.contains("manual-cell-input")){
+      if(el.dataset.sub==="production_kg")el.dataset.manualOverride="1";
       recalculateFormulaBoth();
     }
   }else if(isQPLikeForm(currentExactForm) && el.classList?.contains("excel-input")){

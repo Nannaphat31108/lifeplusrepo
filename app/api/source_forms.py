@@ -264,6 +264,71 @@ def formula_link_for_qp(
 
     raise HTTPException(404, "ไม่พบรหัสสูตรนี้ในไฟล์สูตร F-RD-002 / F-RD-002.1")
 
+
+@router.get("/formula-link-full/{formula_no}")
+def formula_link_full(
+    formula_no: str,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    person_key: str = Depends(require_person_key),
+):
+    """Full ingredient data (material_code/supplier/price_kg/halal/fda_no
+    included, unlike formula-link-for-qp's deliberately slim name/qty/origin
+    response) for F-RD-002.1's own "VLOOKUP จากไฟล์สูตร F-RD-002" button --
+    "ถ้าใส่รหัสตรงนี้ สามารถให้มันลิงค์สูตร F-RD-002 สูตรมาได้เลยได้ไหม".
+    F-RD-002.1 (สูตรผลิต) is a costing form, so it needs the supplier/price
+    data QP intentionally never receives. A separate endpoint rather than
+    widening formula-link's response, so QP's existing slim contract is
+    untouched.
+    """
+    wanted = re.sub(r"\s+", "", str(formula_no or "")).upper()
+    rows = db.scalars(
+        select(SourceFormRecord)
+        .where(SourceFormRecord.form_code.in_(["F-RD-002", "F-RD-002.1"]))
+        .order_by(SourceFormRecord.id.desc())
+    ).all()
+
+    for rec in rows:
+        try:
+            data = json.loads(rec.payload_json or "{}")
+        except Exception:
+            continue
+        current_formula = re.sub(r"\s+", "", str(data.get("formula_no") or "")).upper()
+        current_record_no = re.sub(r"\s+", "", str(rec.record_no or "")).upper()
+        if wanted not in (current_formula, current_record_no):
+            continue
+
+        def full(items, limit):
+            out = []
+            for x in (items or [])[:limit]:
+                if not isinstance(x, dict):
+                    continue
+                out.append({
+                    "name": x.get("name") or x.get("ingredient_name") or "",
+                    "quantity_mg": x.get("quantity_mg") if x.get("quantity_mg") not in (None, "") else x.get("quantity"),
+                    "origin": x.get("import_country") or x.get("origin") or "",
+                    "material_code": x.get("material_code") or "",
+                    "supplier": x.get("supplier") or "",
+                    "price_kg": x.get("price_kg") if x.get("price_kg") not in (None, "") else "",
+                    "halal": x.get("halal") or "",
+                    "fda_no": x.get("fda_no") or "",
+                })
+            return out
+
+        return {
+            "id": rec.id,
+            "record_no": rec.record_no,
+            "formula_no": data.get("formula_no") or formula_no,
+            "customer_name": data.get("customer_name") or "",
+            "product_name": data.get("product_name_fda") or data.get("product_name") or "",
+            "product_type": data.get("product_type") or "",
+            "ingredients": full(data.get("ingredients"), 200),
+            "inactive_ingredients": full(data.get("inactive_ingredients"), 200),
+        }
+
+    raise HTTPException(404, "ไม่พบรหัสสูตรนี้ในไฟล์สูตร F-RD-002 / F-RD-002.1")
+
+
 @router.get("/{code}")
 def list_records(
     code: str,
@@ -733,7 +798,7 @@ def fill_formula(ws,d,production=False):
         # original master, so they get fresh blank columns past its own
         # last used one (BK) rather than colliding with anything real.
         put(ws,"BM14","% สารสำคัญ");put(ws,"BN14","สารสำคัญ (มก.)")
-        put(ws,"BO14","% ส่วนที่เหลือ");put(ws,"BP14","ส่วนที่เหลือ (มก.)")
+        put(ws,"BO14","% อื่นๆ");put(ws,"BP14","อื่นๆ (มก.)")
 
         # Actual F-RD-002.1 ingredient template is rows 16-27 (12 rows).
         capacity=12
@@ -760,8 +825,8 @@ def fill_formula(ws,d,production=False):
             put(ws,f"AP{row}",x.get("quantity_g"))
             put(ws,f"BM{row}",x.get("active_percent"))
             put(ws,f"BN{row}",x.get("active_mg"))
-            put(ws,f"BO{row}",x.get("remainder_percent"))
-            put(ws,f"BP{row}",x.get("remainder_mg"))
+            put(ws,f"BO{row}",x.get("other_percent"))
+            put(ws,f"BP{row}",x.get("other_mg"))
 
             # Calculation Master ingredient rules.
             put(ws,f"V{row}",f"=SUM(P{row}*$I$12/1000000)")
@@ -795,7 +860,7 @@ def fill_formula(ws,d,production=False):
         # last used one (BQ, where fda_no already sits) rather than
         # colliding with anything real.
         put(ws,"BR14","% สารสำคัญ");put(ws,"BS14","สารสำคัญ (มก.)")
-        put(ws,"BT14","% ส่วนที่เหลือ");put(ws,"BU14","ส่วนที่เหลือ (มก.)")
+        put(ws,"BT14","% อื่นๆ");put(ws,"BU14","อื่นๆ (มก.)")
 
         # F-RD-002 current layout: 20 active rows, then fixed 3 inactive rows.
         capacity=20
@@ -837,8 +902,8 @@ def fill_formula(ws,d,production=False):
             put(ws,f"AT{row}",x.get("halal"))
             put(ws,f"BR{row}",x.get("active_percent"))
             put(ws,f"BS{row}",x.get("active_mg"))
-            put(ws,f"BT{row}",x.get("remainder_percent"))
-            put(ws,f"BU{row}",x.get("remainder_mg"))
+            put(ws,f"BT{row}",x.get("other_percent"))
+            put(ws,f"BU{row}",x.get("other_mg"))
 
             # Exact master formulas.
             put(ws,f"Z{row}",f"=SUM(T{row}*$I$11/1000000)")
@@ -863,8 +928,8 @@ def fill_formula(ws,d,production=False):
             put(ws,f"AT{row}",x.get("halal"))
             put(ws,f"BR{row}",x.get("active_percent"))
             put(ws,f"BS{row}",x.get("active_mg"))
-            put(ws,f"BT{row}",x.get("remainder_percent"))
-            put(ws,f"BU{row}",x.get("remainder_mg"))
+            put(ws,f"BT{row}",x.get("other_percent"))
+            put(ws,f"BU{row}",x.get("other_mg"))
 
             put(ws,f"Z{row}",f"=SUM(T{row}*$I$11/1000000)")
             put(ws,f"AD{row}",f"=T{row}*100/$T${total_row}")
