@@ -1485,6 +1485,194 @@ async function saveQPDoc(){
   }
 }
 
+// ===== Express (บันทึกรับเงิน/จ่ายเงิน) -- a cash receipt/payment voucher
+// module modeled on โปรแกรมบัญชี Express, built on the same shared
+// PurchaseDocument doc_type pattern as PO/PR/QP (doc_type="RECEIPT" or
+// "PAYMENT"). No item grid -- each voucher is one payment/receipt event,
+// listed together in listExpressDocs() as a running cash ledger.
+
+const EXPRESS_PAYMENT_METHODS=[["cash","เงินสด"],["transfer","โอนเงิน"],["cheque","เช็ค"],["credit_card","บัตรเครดิต"]];
+
+async function loadExpressAssets(){
+  if(!window.customerListCacheExpress) try{window.customerListCacheExpress=await api("/api/customers")}catch{window.customerListCacheExpress=[]}
+  if(!window.supplierListCache) try{window.supplierListCache=await api("/api/suppliers")}catch{window.supplierListCache=[]}
+}
+
+function expressMethodFieldsHtml(d){
+  return `
+    <div><label>ช่องทางรับ-จ่าย</label>
+      <select id="exp_payment_method" onchange="toggleExpressMethodFields()">
+        ${EXPRESS_PAYMENT_METHODS.map(([v,label])=>`<option value="${v}" ${d.payment_method===v?"selected":""}>${label}</option>`).join("")}
+      </select>
+    </div>
+    <div id="exp_bank_field" class="${["transfer","cheque"].includes(d.payment_method)?"":"hidden"}"><label>ธนาคาร</label><input id="exp_bank_name" value="${esc(d.bank_name||"")}"></div>
+    <div id="exp_cheque_field" class="${d.payment_method==="cheque"?"":"hidden"}"><label>เลขที่เช็ค</label><input id="exp_cheque_no" value="${esc(d.cheque_no||"")}"></div>
+  `;
+}
+function toggleExpressMethodFields(){
+  const method=$("exp_payment_method")?.value||"";
+  $("exp_bank_field")?.classList.toggle("hidden",!["transfer","cheque"].includes(method));
+  $("exp_cheque_field")?.classList.toggle("hidden",method!=="cheque");
+}
+
+async function openExpressDocForm(docType,existingId=null){
+  await loadExpressAssets();
+  window.currentExpressDoc=docType;
+  window.editingExpressDocId=existingId;
+  let existing=null;
+  if(existingId){
+    try{existing=await api(`/api/purchase-docs/record/${existingId}`);}catch(e){toast("โหลดข้อมูลไม่สำเร็จ: "+(e?.message||e));}
+  }
+  const d=existing?.data||{};
+  const isReceipt=docType==="RECEIPT";
+  const customerOptions=(window.customerListCacheExpress||[]).map(c=>`<option value="${esc(c.customer_code||"")}">${esc(c.name)}</option>`).join("");
+  const supplierOptions=(window.supplierListCache||[]).map(s=>`<option value="${esc(s.supplier_code||"")}">${esc(s.name)}</option>`).join("");
+
+  $("pageTitle").textContent=isReceipt?"ใบรับเงิน (Express)":"ใบสำคัญจ่าย (Express)";
+  $("pageSubtitle").textContent=isReceipt?"บันทึกรับเงินจากลูกค้า":"บันทึกจ่ายเงินให้ผู้จำหน่าย";
+
+  $("pageContent").innerHTML=`
+    <div class="exact-form-toolbar">
+      <div><b>${isReceipt?"ใบรับเงิน":"ใบสำคัญจ่าย"} ${existing?`#${esc(existing.doc_no)}`:"(ฉบับใหม่)"}</b></div>
+      <div class="actions">
+        <button onclick="listExpressDocs()">สมุดรับ-จ่ายเงิน (Express)</button>
+        ${existing?`<button onclick="exportPurchaseDocExcel(${existing.id})">Excel</button><button onclick="showRecordVersions('purchase_doc',${existing.id})">ประวัติ</button>`:""}
+        <button class="primary" onclick="saveExpressDoc('${docType}')">บันทึก</button>
+      </div>
+    </div>
+    <div class="doc-logo-header"><img src="/static/logo.png" alt="Life Plus Pharmaceutical"></div>
+    <div class="card purchase-doc-grid">
+      <div class="form-grid">
+        <div><label>เลขที่</label><input id="exp_doc_no" value="${esc(existing?.doc_no||"")}" placeholder="${isReceipt?"RC":"PV"}-${currentDateISO().replace(/-/g,"")}-001"></div>
+        <div><label>วันที่</label><input id="exp_date" type="date" value="${esc(d.date||currentDateISO())}"></div>
+        ${isReceipt?`
+          <div><label>รหัสลูกค้า</label><input id="exp_party_code" list="expCustomerList" value="${esc(d.customer_code||"")}" oninput="linkExpressParty('customer')"></div>
+          <div class="wide"><label>รับเงินจาก (ลูกค้า)</label><input id="exp_party_name" value="${esc(d.customer_name||"")}"></div>
+        `:`
+          <div><label>รหัสผู้จำหน่าย</label><input id="exp_party_code" list="expSupplierList" value="${esc(d.supplier_code||"")}" oninput="linkExpressParty('supplier')"></div>
+          <div class="wide"><label>จ่ายเงินให้ (ผู้จำหน่าย)</label><input id="exp_party_name" value="${esc(d.supplier_name||"")}"></div>
+        `}
+        <div><label>อ้างอิง (เลขที่ QP/PO/Invoice)</label><input id="exp_reference" value="${esc(existing?.linked_reference||d.reference||"")}"></div>
+        <div><label>จำนวนเงิน</label><input id="exp_amount" type="number" step="any" value="${esc(d.amount||"")}"></div>
+        ${expressMethodFieldsHtml(d)}
+        <div class="wide"><label>หมายเหตุ</label><input id="exp_notes" value="${esc(d.notes||"")}"></div>
+        ${isReceipt?`
+          <div><label>ผู้รับเงิน</label><input id="exp_handled_by" value="${esc(d.received_by||"")}"></div>
+        `:`
+          <div><label>ผู้จ่ายเงิน</label><input id="exp_handled_by" value="${esc(d.paid_by||"")}"></div>
+          <div><label>ผู้อนุมัติ</label><input id="exp_approved_by" value="${esc(d.approved_by||"")}"></div>
+        `}
+      </div>
+      <datalist id="expCustomerList">${customerOptions}</datalist>
+      <datalist id="expSupplierList">${supplierOptions}</datalist>
+    </div>
+  `;
+}
+
+function linkExpressParty(kind){
+  const codeEl=$("exp_party_code");
+  const code=(codeEl?.value||"").trim();
+  if(!code)return;
+  const list=kind==="customer"?(window.customerListCacheExpress||[]):(window.supplierListCache||[]);
+  const codeKey=kind==="customer"?"customer_code":"supplier_code";
+  const found=list.find(x=>String(x[codeKey]||"").toUpperCase()===code.toUpperCase());
+  const nameEl=$("exp_party_name");
+  if(found && nameEl && !nameEl.value)nameEl.value=found.name||"";
+}
+
+async function saveExpressDoc(docType){
+  try{
+    const isReceipt=docType==="RECEIPT";
+    const doc_no=($("exp_doc_no")?.value||"").trim()||`${isReceipt?"RC":"PV"}-${Date.now()}`;
+    const linked_reference=($("exp_reference")?.value||"").trim()||null;
+    const partyName=($("exp_party_name")?.value||"").trim();
+    const amount=Number($("exp_amount")?.value)||0;
+    if(!partyName){
+      toast(isReceipt?"กรุณาใส่ชื่อลูกค้าก่อนบันทึก":"กรุณาใส่ชื่อผู้จำหน่ายก่อนบันทึก");
+      $("exp_party_name")?.focus();
+      return;
+    }
+    if(amount<=0){
+      toast("กรุณาใส่จำนวนเงินมากกว่า 0 ก่อนบันทึก");
+      $("exp_amount")?.focus();
+      return;
+    }
+    const data={
+      date:$("exp_date")?.value||"",
+      reference:$("exp_reference")?.value||"",
+      amount,
+      payment_method:$("exp_payment_method")?.value||"",
+      bank_name:$("exp_bank_name")?.value||"",
+      cheque_no:$("exp_cheque_no")?.value||"",
+      notes:$("exp_notes")?.value||"",
+    };
+    if(isReceipt){
+      data.customer_code=$("exp_party_code")?.value||"";
+      data.customer_name=partyName;
+      data.received_by=$("exp_handled_by")?.value||"";
+    }else{
+      data.supplier_code=$("exp_party_code")?.value||"";
+      data.supplier_name=partyName;
+      data.paid_by=$("exp_handled_by")?.value||"";
+      data.approved_by=$("exp_approved_by")?.value||"";
+    }
+    const body={doc_no,status:"DRAFT",data,linked_reference};
+    let result;
+    if(window.editingExpressDocId){
+      result=await api(`/api/purchase-docs/record/${window.editingExpressDocId}`,{method:"PUT",body});
+    }else{
+      result=await api(`/api/purchase-docs/${docType}`,{method:"POST",body});
+      window.editingExpressDocId=result.id;
+    }
+    toast(`บันทึก ${result.doc_no} สำเร็จ`);
+  }catch(e){
+    toast("บันทึกไม่สำเร็จ: "+(e?.message||e));
+  }
+}
+
+// Combined cash ledger -- Express's core "สมุดรับ-จ่ายเงิน" view: both
+// RECEIPT and PAYMENT vouchers merged into one list sorted by date, each
+// row showing its running balance (รับสะสม - จ่ายสะสม) so far.
+async function listExpressDocs(){
+  currentPage="express:cashbook";
+  $("pageTitle").textContent="Express — สมุดรับ-จ่ายเงิน";
+  $("pageSubtitle").textContent="รวมใบรับเงินและใบสำคัญจ่ายเป็นรายการเดียว เรียงตามวันที่";
+  const [receipts,payments]=await Promise.all([
+    api("/api/purchase-docs/RECEIPT"),
+    api("/api/purchase-docs/PAYMENT"),
+  ]);
+  const merged=[
+    ...receipts.map(x=>({...x,_kind:"RECEIPT"})),
+    ...payments.map(x=>({...x,_kind:"PAYMENT"})),
+  ].sort((a,b)=>new Date(a.data?.date||a.created_at)-new Date(b.data?.date||b.created_at));
+
+  let balance=0;
+  const tr=merged.map(x=>{
+    const isReceipt=x._kind==="RECEIPT";
+    const amount=Number(x.data?.amount)||0;
+    balance+=isReceipt?amount:-amount;
+    const party=isReceipt?(x.data?.customer_name||""):(x.data?.supplier_name||"");
+    const search=esc(`${x.doc_no||""} ${party} ${x.linked_reference||""}`.toLowerCase());
+    return `<tr data-search="${search}">
+      <td>${esc(x.data?.date||"")}</td>
+      <td><span class="badge ${isReceipt?"ok":"warn"}">${isReceipt?"รับเงิน":"จ่ายเงิน"}</span></td>
+      <td>${esc(x.doc_no)}</td>
+      <td>${esc(party)}</td>
+      <td>${esc(x.linked_reference||"-")}</td>
+      <td style="text-align:right">${isReceipt?money(amount):"-"}</td>
+      <td style="text-align:right">${isReceipt?"-":money(amount)}</td>
+      <td style="text-align:right"><b>${money(balance)}</b></td>
+      <td class="mini-actions"><button onclick="openExpressDocForm('${x._kind}',${x.id})">แก้ไข</button><button onclick="exportPurchaseDocExcel(${x.id})">Excel</button></td>
+    </tr>`;
+  });
+  const headers=["วันที่","ประเภท","เลขที่","คู่ค้า","อ้างอิง","รับ","จ่าย","คงเหลือสะสม","จัดการ"];
+  $("pageContent").innerHTML=`<div class="card"><div class="toolbar">
+      <input class="search" placeholder="ค้นหาเลขที่/คู่ค้า/อ้างอิง..." oninput="filterRecordRows(this)">
+      <button class="primary" onclick="openExpressDocForm('RECEIPT')">+ ใบรับเงิน</button>
+      <button class="primary" onclick="openExpressDocForm('PAYMENT')">+ ใบสำคัญจ่าย</button>
+    </div>${table(headers,tr)}</div>`;
+}
+
 const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","ACCOUNTING","CEO"];
 const EMPLOYEE_ROLES=["RD_HEAD","RD_ASSISTANT","RD_OFFICER","SALES","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","ACCOUNTING","CEO","ADMIN"];
 
@@ -1704,14 +1892,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.68",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.69",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.68",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.69",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -5851,6 +6039,7 @@ async function openDepartmentWorkspace(code){
  // (require_roles on those endpoints is unchanged); this only adds the
  // ability to open and read them.
  ACCOUNTING:{title:"บัญชี",text:"เอกสารการเงิน ลูกค้า และ Supplier",cards:[
+   ["Express","บันทึกรับ-จ่ายเงิน (คล้ายโปรแกรมบัญชี Express)","listExpressDocs()"],
    ["QP / Quotation","ดูใบเสนอราคา","openExactForm('ADMIN-QP')"],
    ["Invoice / ใบแจ้งหนี้","ดูใบแจ้งหนี้","openExactForm('ADMIN-INVOICE')"],
    ["ใบสั่งซื้อ (PO)","รายการสั่งซื้อภายนอก","listPurchaseDocs('PO')"],
