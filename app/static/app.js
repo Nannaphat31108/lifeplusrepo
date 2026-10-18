@@ -572,13 +572,20 @@ function purchaseDocKeyNav(e){
 // manualInputForCell(), formulaAutoInputForCell(), the dynamic
 // ingredient-row renderers, ...) -- delegation covers all of them without
 // having to wire onkeydown into each one individually.
+// ADMIN-QP's "รายละเอียดต้นทุน" cost-breakdown tab uses .cost-detail-input
+// instead (a plain <table>, not the .excel-sheet grid -- see
+// qpCostDetailRowHtml's comment), so its own scope is that <table>, not
+// .excel-sheet, keeping arrow/Enter nav working there too instead of each
+// field being a dead end.
 // PO/PR (.purchase-doc-grid) already has its own simpler row/col-based
 // nav (purchaseDocKeyNav above) and is explicitly skipped here.
 document.addEventListener("keydown",function(e){
   const t=e.target;
-  if(!t.classList || !t.classList.contains("excel-input"))return;
+  if(!t.classList)return;
+  const isCostDetail=t.classList.contains("cost-detail-input");
+  if(!isCostDetail && !t.classList.contains("excel-input"))return;
   if(t.closest(".purchase-doc-grid"))return;
-  const sheet=t.closest(".excel-sheet");
+  const sheet=isCostDetail?t.closest("table"):t.closest(".excel-sheet");
   if(!sheet)return;
   const tag=t.tagName;
   if(tag==="SELECT")return; // let native up/down/left/right change the selected option
@@ -597,7 +604,7 @@ document.addEventListener("keydown",function(e){
     dir="down";
   }else return;
 
-  const candidates=[...sheet.querySelectorAll(".excel-input")].filter(el=>el!==t && !el.disabled && !el.readOnly);
+  const candidates=[...sheet.querySelectorAll(isCostDetail?".cost-detail-input":".excel-input")].filter(el=>el!==t && !el.disabled && !el.readOnly);
   if(!candidates.length)return;
 
   const r0=t.getBoundingClientRect();
@@ -1630,13 +1637,64 @@ async function saveExpressDoc(docType){
   }
 }
 
+// ===== Express app shell -- redesigned so the four Express views (cash
+// ledger, AR, AP, VAT) feel like one small self-contained app nested
+// inside the ERP ("เว็บซ้อนเว็บ") instead of four separate full-page
+// navigations: a shared KPI summary row + tab strip wraps whichever
+// view's table is the current tab's body, and switching tabs re-renders
+// the whole shell rather than leaving the page.
+
+const EXPRESS_TABS=[
+  ["ledger","สมุดรับ-จ่ายเงิน","listExpressDocs"],
+  ["ar","ลูกหนี้ (AR)","listExpressAR"],
+  ["ap","เจ้าหนี้ (AP)","listExpressAP"],
+  ["vat","ภาษีซื้อ-ขาย (ภ.พ.30)","listExpressVatReport"],
+];
+
+async function expressSummary(){
+  try{
+    const [receipts,payments,ar,ap,vat]=await Promise.all([
+      api("/api/purchase-docs/RECEIPT"),
+      api("/api/purchase-docs/PAYMENT"),
+      api("/api/purchase-docs/express/ar"),
+      api("/api/purchase-docs/express/ap"),
+      api("/api/purchase-docs/express/vat-report"),
+    ]);
+    const sum=(rows)=>rows.reduce((s,x)=>s+(Number(x.data?.amount)||0),0);
+    const cash=sum(receipts)-sum(payments);
+    const arTotal=ar.reduce((s,x)=>s+(Number(x.outstanding)||0),0);
+    const apTotal=ap.reduce((s,x)=>s+(Number(x.outstanding)||0),0);
+    const vatRow=vat.find(x=>x.month===currentYearMonth());
+    return {cash,arTotal,apTotal,netVatThisMonth:vatRow?.net_vat||0};
+  }catch(e){
+    return {cash:0,arTotal:0,apTotal:0,netVatThisMonth:0};
+  }
+}
+
+async function renderExpressShell(activeTab,title,subtitle,bodyHtml){
+  currentPage=`express:${activeTab}`;
+  $("pageTitle").textContent=title;
+  $("pageSubtitle").textContent=subtitle;
+  const s=await expressSummary();
+  const tabs=EXPRESS_TABS.map(([key,label,fn])=>
+    `<button class="express-tab ${key===activeTab?"active":""}" onclick="${fn}()">${esc(label)}</button>`
+  ).join("");
+  $("pageContent").innerHTML=`<div class="express-app">
+    <div class="kpis">
+      <div class="kpi"><small>เงินสดคงเหลือ (สะสม)</small><div class="value">${money(s.cash)}</div></div>
+      <div class="kpi"><small>ลูกหนี้ค้างรับรวม</small><div class="value ${s.arTotal>0?"diff-red":""}">${money(s.arTotal)}</div></div>
+      <div class="kpi"><small>เจ้าหนี้ค้างจ่ายรวม</small><div class="value ${s.apTotal>0?"diff-red":""}">${money(s.apTotal)}</div></div>
+      <div class="kpi"><small>ภาษีสุทธิเดือนนี้</small><div class="value">${money(s.netVatThisMonth)}</div></div>
+    </div>
+    <div class="express-tabs">${tabs}</div>
+    <div class="express-body">${bodyHtml}</div>
+  </div>`;
+}
+
 // Combined cash ledger -- Express's core "สมุดรับ-จ่ายเงิน" view: both
 // RECEIPT and PAYMENT vouchers merged into one list sorted by date, each
 // row showing its running balance (รับสะสม - จ่ายสะสม) so far.
 async function listExpressDocs(){
-  currentPage="express:cashbook";
-  $("pageTitle").textContent="Express — สมุดรับ-จ่ายเงิน";
-  $("pageSubtitle").textContent="รวมใบรับเงินและใบสำคัญจ่ายเป็นรายการเดียว เรียงตามวันที่";
   const [receipts,payments]=await Promise.all([
     api("/api/purchase-docs/RECEIPT"),
     api("/api/purchase-docs/PAYMENT"),
@@ -1666,18 +1724,12 @@ async function listExpressDocs(){
     </tr>`;
   });
   const headers=["วันที่","ประเภท","เลขที่","คู่ค้า","อ้างอิง","รับ","จ่าย","คงเหลือสะสม","จัดการ"];
-  $("pageContent").innerHTML=`<div class="card"><div class="toolbar">
+  const body=`<div class="toolbar">
       <input class="search" placeholder="ค้นหาเลขที่/คู่ค้า/อ้างอิง..." oninput="filterRecordRows(this)">
       <button class="primary" onclick="openExpressDocForm('RECEIPT')">+ ใบรับเงิน</button>
       <button class="primary" onclick="openExpressDocForm('PAYMENT')">+ ใบสำคัญจ่าย</button>
-    </div>${table(headers,tr)}</div>
-    <div class="card"><h3>รายงาน Express</h3>
-      <div class="toolbar">
-        <button onclick="listExpressAR()">ลูกหนี้ (AR) — ยอดค้างรับ</button>
-        <button onclick="listExpressAP()">เจ้าหนี้ (AP) — ยอดค้างจ่าย</button>
-        <button onclick="listExpressVatReport()">รายงานภาษีซื้อ-ขาย (ภ.พ.30)</button>
-      </div>
-    </div>`;
+    </div>${table(headers,tr)}`;
+  await renderExpressShell("ledger","Express — สมุดรับ-จ่ายเงิน","รวมใบรับเงินและใบสำคัญจ่ายเป็นรายการเดียว เรียงตามวันที่",body);
 }
 
 // ===== AR/AP outstanding-balance reports + VAT report -- the other core
@@ -1686,9 +1738,6 @@ async function listExpressDocs(){
 // app/api/purchase_docs.py's "Express reporting" section for the math).
 
 async function listExpressAR(){
-  currentPage="express:ar";
-  $("pageTitle").textContent="ลูกหนี้ (AR) — ยอดค้างรับ";
-  $("pageSubtitle").textContent="ยอดขาย (QP) เทียบกับใบรับเงินที่บันทึกแล้ว ต่อลูกค้า";
   const rows=await api("/api/purchase-docs/express/ar");
   const tr=rows.map(x=>{
     const search=esc(`${x.party_name} ${x.party_code||""}`.toLowerCase());
@@ -1696,20 +1745,17 @@ async function listExpressAR(){
       <td>${esc(x.party_name)}</td><td>${esc(x.party_code||"-")}</td>
       <td style="text-align:right">${money(x.invoiced)}</td>
       <td style="text-align:right">${money(x.received)}</td>
-      <td style="text-align:right"><b class="${x.outstanding>0?'diff-red':''}">${money(x.outstanding)}</b></td>
+      <td style="text-align:right"><b class="${x.outstanding>0?"diff-red":""}">${money(x.outstanding)}</b></td>
     </tr>`;
   });
-  $("pageContent").innerHTML=`<div class="card"><div class="toolbar">
+  const body=`<div class="toolbar">
       <input class="search" placeholder="ค้นหาลูกค้า..." oninput="filterRecordRows(this)">
-      <button onclick="listExpressDocs()">กลับไปสมุดรับ-จ่ายเงิน</button>
       <button class="primary" onclick="exportExcel('/api/purchase-docs/express/ar/excel')">Excel</button>
-    </div>${table(["ลูกค้า","รหัส","ยอดขาย (QP)","รับเงินแล้ว","ค้างรับ"],tr)}</div>`;
+    </div>${table(["ลูกค้า","รหัส","ยอดขาย (QP)","รับเงินแล้ว","ค้างรับ"],tr)}`;
+  await renderExpressShell("ar","ลูกหนี้ (AR) — ยอดค้างรับ","ยอดขาย (QP) เทียบกับใบรับเงินที่บันทึกแล้ว ต่อลูกค้า",body);
 }
 
 async function listExpressAP(){
-  currentPage="express:ap";
-  $("pageTitle").textContent="เจ้าหนี้ (AP) — ยอดค้างจ่าย";
-  $("pageSubtitle").textContent="ยอดซื้อ (PO) เทียบกับใบสำคัญจ่ายที่บันทึกแล้ว ต่อผู้จำหน่าย";
   const rows=await api("/api/purchase-docs/express/ap");
   const tr=rows.map(x=>{
     const search=esc(`${x.party_name} ${x.party_code||""}`.toLowerCase());
@@ -1717,20 +1763,17 @@ async function listExpressAP(){
       <td>${esc(x.party_name)}</td><td>${esc(x.party_code||"-")}</td>
       <td style="text-align:right">${money(x.invoiced)}</td>
       <td style="text-align:right">${money(x.paid_out)}</td>
-      <td style="text-align:right"><b class="${x.outstanding>0?'diff-red':''}">${money(x.outstanding)}</b></td>
+      <td style="text-align:right"><b class="${x.outstanding>0?"diff-red":""}">${money(x.outstanding)}</b></td>
     </tr>`;
   });
-  $("pageContent").innerHTML=`<div class="card"><div class="toolbar">
+  const body=`<div class="toolbar">
       <input class="search" placeholder="ค้นหาผู้จำหน่าย..." oninput="filterRecordRows(this)">
-      <button onclick="listExpressDocs()">กลับไปสมุดรับ-จ่ายเงิน</button>
       <button class="primary" onclick="exportExcel('/api/purchase-docs/express/ap/excel')">Excel</button>
-    </div>${table(["ผู้จำหน่าย","รหัส","ยอดซื้อ (PO)","จ่ายเงินแล้ว","ค้างจ่าย"],tr)}</div>`;
+    </div>${table(["ผู้จำหน่าย","รหัส","ยอดซื้อ (PO)","จ่ายเงินแล้ว","ค้างจ่าย"],tr)}`;
+  await renderExpressShell("ap","เจ้าหนี้ (AP) — ยอดค้างจ่าย","ยอดซื้อ (PO) เทียบกับใบสำคัญจ่ายที่บันทึกแล้ว ต่อผู้จำหน่าย",body);
 }
 
 async function listExpressVatReport(){
-  currentPage="express:vat-report";
-  $("pageTitle").textContent="รายงานภาษีซื้อ-ขาย (ภ.พ.30 แบบย่อ)";
-  $("pageSubtitle").textContent="ภาษีขาย (จาก QP) และภาษีซื้อ (จาก PO) แยกตามเดือน";
   const rows=await api("/api/purchase-docs/express/vat-report");
   const tr=rows.map(x=>`<tr>
       <td>${esc(monthLabel(x.month))}</td>
@@ -1740,11 +1783,11 @@ async function listExpressVatReport(){
       <td style="text-align:right">${money(x.purchase_vat)}</td>
       <td style="text-align:right"><b>${money(x.net_vat)}</b></td>
     </tr>`);
-  $("pageContent").innerHTML=`<div class="card"><div class="toolbar">
-      <button onclick="listExpressDocs()">กลับไปสมุดรับ-จ่ายเงิน</button>
+  const body=`<div class="toolbar">
       <button class="primary" onclick="exportExcel('/api/purchase-docs/express/vat-report/excel')">Excel</button>
     </div>${table(["เดือน","ยอดขาย","ภาษีขาย","ยอดซื้อ","ภาษีซื้อ","ภาษีที่ต้องชำระ/ขอคืน"],tr)}
-    <small class="muted">ภาษีที่ต้องชำระ/ขอคืน = ภาษีขาย − ภาษีซื้อ ต่อเดือน (ค่าบวก = ต้องชำระเพิ่ม, ค่าลบ = ขอคืนภาษี/ยกไปเดือนถัดไป)</small></div>`;
+    <small class="muted">ภาษีที่ต้องชำระ/ขอคืน = ภาษีขาย − ภาษีซื้อ ต่อเดือน (ค่าบวก = ต้องชำระเพิ่ม, ค่าลบ = ขอคืนภาษี/ยกไปเดือนถัดไป)</small>`;
+  await renderExpressShell("vat","รายงานภาษีซื้อ-ขาย (ภ.พ.30 แบบย่อ)","ภาษีขาย (จาก QP) และภาษีซื้อ (จาก PO) แยกตามเดือน",body);
 }
 
 const EMPLOYEE_DEPARTMENTS=["RD","ADMIN","SALE","JOB","PLANNING","STOCK","PURCHASE","PRODUCTION","GRAPHIC","QC","QUALITY","ACCOUNTING","CEO"];
@@ -1966,14 +2009,14 @@ let exactFormsCache=null, exactFieldsCache=null, currentExactForm=null;
 window.packageCatalogData=window.packageCatalogData||null;
 async function loadExactAssets(){
  if(!exactFormsCache){
-   exactFormsCache=await fetch("/static/exact_forms.json?v=31.70",{cache:"no-store"}).then(r=>r.json());
+   exactFormsCache=await fetch("/static/exact_forms.json?v=31.71",{cache:"no-store"}).then(r=>r.json());
    // ADMIN-INVOICE reuses the exact ADMIN-QP layout (same master workbook,
    // same cells) — only the title text differs, which the export step
    // rewrites server-side. Alias it here instead of duplicating the file.
    if(exactFormsCache["ADMIN-QP"] && !exactFormsCache["ADMIN-INVOICE"]) exactFormsCache["ADMIN-INVOICE"]=exactFormsCache["ADMIN-QP"];
  }
  if(!exactFieldsCache){
-   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.70",{cache:"no-store"}).then(r=>r.json());
+   exactFieldsCache=await fetch("/static/exact_fields.json?v=31.71",{cache:"no-store"}).then(r=>r.json());
    if(exactFieldsCache["ADMIN-QP"] && !exactFieldsCache["ADMIN-INVOICE"]) exactFieldsCache["ADMIN-INVOICE"]=exactFieldsCache["ADMIN-QP"];
  }
  if(!window.supplementCodeData) try{window.supplementCodeData=await api("/api/fda-materials/catalog/live")}catch{window.supplementCodeData=[]}
@@ -4491,8 +4534,8 @@ function renderFormulaFreeForm(code){
       </div>
       <div class="actions">
         <input id="exactRecordNo" placeholder="เลขที่รายการ เช่น ${code}-001">
-        ${isRd002?`<input id="exactFiledMonth" type="month" value="${currentYearMonth()}" title="เก็บไว้ในเดือนไหน">`:""}
         ${!isRd002?`<input id="exactFiledPerson" list="exactEmployeeList" placeholder="เก็บไว้ในชื่อของใคร" title="เก็บไว้ในชื่อของใคร">`:""}
+        <input id="exactFiledMonth" type="month" value="${currentYearMonth()}" title="เก็บไว้ในเดือนไหน">
         <button onclick="showSourceRecords('${code}')">ฟอร์มของฉัน</button>
         <button class="ai-formula-btn" onclick="openAIFormulaAssistant('${code}')">AI คิดสูตร</button>
         <button onclick="toggleRdFormulaView('${code}')">มุมมองตาราง Excel (เดิม)</button>
@@ -4755,8 +4798,8 @@ async function openPrivateExactForm(code){
       </div>
       <div class="actions">
         <input id="exactRecordNo" placeholder="เลขที่รายการ เช่น ${code}-001">
-        ${code==="F-RD-002"?`<input id="exactFiledMonth" type="month" value="${currentYearMonth()}" title="เก็บไว้ในเดือนไหน">`:""}
         ${code==="F-RD-002.1"?`<input id="exactFiledPerson" list="exactEmployeeList" placeholder="เก็บไว้ในชื่อของใคร" title="เก็บไว้ในชื่อของใคร">`:""}
+        ${(code==="F-RD-002"||code==="F-RD-002.1")?`<input id="exactFiledMonth" type="month" value="${currentYearMonth()}" title="เก็บไว้ในเดือนไหน">`:""}
         <button onclick="showSourceRecords('${code}')">ฟอร์มของฉัน</button>
         ${isQPLikeForm(code)?`<div class="qp-exact-link"><input id="qpExactFormulaNo" placeholder="คีย์รหัสสูตร เช่น F-RD-002-001"><button onclick="linkAdminQPFormula(true)">VLOOKUP จากไฟล์สูตร</button></div>`:""}
         ${(code==="F-RD-002"||code==="F-RD-002.1")?`<button class="ai-formula-btn" onclick="openAIFormulaAssistant('${code}')">AI คิดสูตร</button><button onclick="toggleRdFormulaView('${code}')">กลับไปฟอร์มอ่านง่าย</button>`:""}
@@ -5156,7 +5199,7 @@ async function editOwnSourceRecord(id){
  }
  await openPrivateExactForm(rec.form_code);
  $("exactRecordNo").value=rec.record_no||"";
- if(rec.form_code==="F-RD-002" && $("exactFiledMonth")){
+ if((rec.form_code==="F-RD-002"||rec.form_code==="F-RD-002.1") && $("exactFiledMonth")){
    $("exactFiledMonth").value=rec.filed_month||currentYearMonth();
  }
  if(rec.form_code==="F-RD-002.1" && $("exactFiledPerson")){
@@ -5303,7 +5346,7 @@ saveExactForm=async function(code,{asNew=false}={}){
     }
 
     const body={record_no:recordNo,status:"DRAFT",data};
-    if(code==="F-RD-002"){
+    if(code==="F-RD-002"||code==="F-RD-002.1"){
       body.filed_month=document.getElementById("exactFiledMonth")?.value||currentYearMonth();
     }
     if(code==="F-RD-002.1"){
@@ -5392,6 +5435,27 @@ function filterRecordRows(input){
     card.classList.toggle("hidden",hasRows && !anyVisible && !!q);
   });
 }
+// Opens a brand-new ${code} form with the "เก็บไว้ในชื่อของใคร" /
+// "เก็บไว้ในเดือนไหน" filing fields pre-filled -- used by the "+ ฟอร์มใหม่"
+// buttons inside a person's folder / a month's folder, so creating a new
+// record from inside a folder files it into that same folder by default
+// instead of the user having to retype the name/month every time.
+async function openPrivateExactFormFiled(code,personName,month){
+  await openPrivateExactForm(code);
+  const personEl=$("exactFiledPerson");
+  if(personEl && personName)personEl.value=personName;
+  const monthEl=$("exactFiledMonth");
+  if(monthEl && month)monthEl.value=month;
+}
+
+async function exportSourceZip(code,{personName,month}={}){
+  const params=new URLSearchParams();
+  if(personName)params.set("person_name",personName);
+  if(month)params.set("month",month);
+  const qs=params.toString();
+  return exportExcel(`/api/source-forms/${code}/export-zip${qs?`?${qs}`:""}`);
+}
+
 showSourceRecords=async function(code){
  const rows=await api(`/api/source-forms/${code}`);
  const header=`<div class="card-head"><div class="workspace-note">คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น</div><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่รายการ..." oninput="filterRecordRows(this)"><button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button></div></div>`;
@@ -5403,7 +5467,10 @@ showSourceRecords=async function(code){
    return;
  }
 
- // F-RD-002.1: group by the person the user chose to file each record under.
+ // F-RD-002.1: group by the person the user chose to file each record
+ // under, each shown as its own folder (clicking in drills down into that
+ // person's year/month grid, same as F-RD-002's) instead of one long flat
+ // table per person.
  if(code==="F-RD-002.1"){
    const groups=new Map();
    for(const x of rows){
@@ -5412,10 +5479,17 @@ showSourceRecords=async function(code){
      groups.get(k).push(x);
    }
    const sortedKeys=[...groups.keys()].sort((a,b)=>a.localeCompare(b,"th"));
-   const sections=sortedKeys.length
-     ? sortedKeys.map(k=>`<div class="card"><h3>${esc(k||"ไม่ระบุชื่อ")} <small>(${groups.get(k).length} รายการ)</small></h3>${table(["ID","Record No.","Status","Owner","Saved","Action"],groups.get(k).map(sourceRecordRow))}</div>`).join("")
-     : '<div class="card"><div class="empty">ยังไม่มีข้อมูล</div></div>';
-   $("pageContent").innerHTML=`<div class="card">${header}</div>${sections}`;
+   const folders=sortedKeys.length
+     ? `<div class="person-folder-grid">${sortedKeys.map(k=>`
+         <div class="person-folder">
+           <button class="person-folder-open" onclick="showSourceRecordsForPerson('${code}','${esc(k).replace(/'/g,"&#39;")}')">
+             <div class="person-folder-name">${esc(k||"ไม่ระบุชื่อ")}</div>
+             <div class="person-folder-count">${groups.get(k).length} รายการ</div>
+           </button>
+           <button class="person-folder-export" title="บันทึกสูตรทั้งหมดของ ${esc(k||"ไม่ระบุชื่อ")} เป็นไฟล์ Excel (ZIP)" onclick="exportSourceZip('${code}',{personName:'${esc(k).replace(/'/g,"&#39;")}'})">⬇ Save As ทั้งหมด</button>
+         </div>`).join("")}</div>`
+     : '<div class="empty">ยังไม่มีข้อมูล</div>';
+   $("pageContent").innerHTML=`<div class="card">${header}<h3>เลือกคนที่จะดูฟอร์ม</h3>${folders}</div>`;
    return;
  }
 
@@ -5423,12 +5497,21 @@ showSourceRecords=async function(code){
  $("pageContent").innerHTML=`<div class="card">${header}${table(["ID","Record No.","Status","Owner","Saved","Action"],tr)}</div>`;
 };
 
-// F-RD-002 "ฟอร์มของฉัน": a 12-month grid (one year at a time) the user
-// clicks into to see that month's records, instead of every non-empty
-// month stacked on one long page.
+// F-RD-002.1's per-person folder -> that person's own year/month grid,
+// same UX as F-RD-002's top-level "ฟอร์มของฉัน" (see renderSourceMonthGrid
+// below, now shared by both instead of being F-RD-002-only).
+async function showSourceRecordsForPerson(code,personName){
+  const rows=await api(`/api/source-forms/${code}?person_name=${encodeURIComponent(personName)}`);
+  renderSourceMonthGrid(code,rows,personName);
+}
+
+// F-RD-002 (and now F-RD-002.1, scoped to one person) "ฟอร์มของฉัน": a
+// 12-month grid (one year at a time) the user clicks into to see that
+// month's records, instead of every non-empty month stacked on one long
+// page.
 const MONTH_TILE_NAMES=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 
-function renderSourceMonthGrid(code,rows){
+function renderSourceMonthGrid(code,rows,personName=null){
   const year=window.sourceMonthGridYear||new Date().getFullYear();
   window.sourceMonthGridYear=year;
 
@@ -5439,44 +5522,66 @@ function renderSourceMonthGrid(code,rows){
     if(!k){unfiled++;continue;}
     counts[k]=(counts[k]||0)+1;
   }
+  const personArg=personName?`,'${esc(personName).replace(/'/g,"&#39;")}'`:"";
 
   const tiles=MONTH_TILE_NAMES.map((name,i)=>{
     const ym=`${year}-${String(i+1).padStart(2,"0")}`;
     const count=counts[ym]||0;
-    return `<button class="month-tile ${count?"":"empty-month"}" onclick="showSourceMonthRecords('${code}','${ym}')">
+    return `<button class="month-tile ${count?"":"empty-month"}" onclick="showSourceMonthRecords('${code}','${ym}'${personArg})">
       <div class="month-tile-name">${name}</div>
       <div class="month-tile-year">${year}</div>
       <div class="month-tile-count">${count} รายการ</div>
     </button>`;
   }).join("");
   const unfiledTile=unfiled
-    ? `<button class="month-tile unfiled-month" onclick="showSourceMonthRecords('${code}','')">
+    ? `<button class="month-tile unfiled-month" onclick="showSourceMonthRecords('${code}',''${personArg})">
         <div class="month-tile-name">ไม่ระบุเดือน</div>
         <div class="month-tile-count">${unfiled} รายการ</div>
       </button>`
     : "";
 
-  const header=`<div class="card-head"><div class="workspace-note">คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น</div><div class="toolbar"><button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button></div></div>`;
+  const backBtn=personName?`<button onclick="showSourceRecords('${code}')">← กลับไปรายชื่อ</button>`:"";
+  const newFormBtn=personName
+    ? `<button onclick="openPrivateExactFormFiled('${code}','${esc(personName).replace(/'/g,"&#39;")}')">← ฟอร์มใหม่ ${code}</button>`
+    : `<button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button>`;
+  const note=personName
+    ? `คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — โฟลเดอร์ของ <b>${esc(personName)}</b>`
+    : `คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น`;
+  const header=`<div class="card-head"><div class="workspace-note">${note}</div><div class="toolbar">${backBtn}${newFormBtn}</div></div>`;
 
   $("pageContent").innerHTML=`<div class="card">${header}
     <div class="month-grid-toolbar">
-      <button onclick="shiftSourceMonthGridYear('${code}',-1)">‹ ${year-1}</button>
+      <button onclick="shiftSourceMonthGridYear('${code}',-1${personArg})">‹ ${year-1}</button>
       <b>ปี ${year}</b>
-      <button onclick="shiftSourceMonthGridYear('${code}',1)">${year+1} ›</button>
+      <button onclick="shiftSourceMonthGridYear('${code}',1${personArg})">${year+1} ›</button>
     </div>
     <div class="month-grid">${tiles}${unfiledTile}</div>
   </div>`;
 }
 
-function shiftSourceMonthGridYear(code,delta){
+function shiftSourceMonthGridYear(code,delta,personName=null){
   window.sourceMonthGridYear=(window.sourceMonthGridYear||new Date().getFullYear())+delta;
-  showSourceRecords(code);
+  if(personName)showSourceRecordsForPerson(code,personName);
+  else showSourceRecords(code);
 }
 
-async function showSourceMonthRecords(code,ym){
-  const rows=await api(`/api/source-forms/${code}${ym?`?month=${encodeURIComponent(ym)}`:""}`);
+async function showSourceMonthRecords(code,ym,personName=null){
+  const params=new URLSearchParams();
+  if(ym)params.set("month",ym);
+  if(personName)params.set("person_name",personName);
+  const rows=await api(`/api/source-forms/${code}${params.toString()?`?${params.toString()}`:""}`);
   const filtered=ym?rows:rows.filter(x=>!x.filed_month);
-  const header=`<div class="card-head"><div class="workspace-note">คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น</div><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่รายการ..." oninput="filterRecordRows(this)"><button onclick="showSourceRecords('${code}')">← กลับไปเลือกเดือน</button><button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button></div></div>`;
+  const personArg=personName?`,'${esc(personName).replace(/'/g,"&#39;")}'`:"";
+  const backBtn=personName
+    ? `<button onclick="showSourceRecordsForPerson('${code}','${esc(personName).replace(/'/g,"&#39;")}')">← กลับไปเลือกเดือน</button>`
+    : `<button onclick="showSourceRecords('${code}')">← กลับไปเลือกเดือน</button>`;
+  const newFormBtn=personName
+    ? `<button onclick="openPrivateExactFormFiled('${code}','${esc(personName).replace(/'/g,"&#39;")}','${esc(ym)}')">← ฟอร์มใหม่ ${code}</button>`
+    : `<button onclick="openPrivateExactForm('${code}')">← ฟอร์มใหม่ ${code}</button>`;
+  const note=personName
+    ? `คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — โฟลเดอร์ของ <b>${esc(personName)}</b>`
+    : `คุณกำลังอยู่ในพื้นที่ของ <b>${esc(window.formWorkspace?.display_name||"")}</b> — ระบบไม่แสดงฟอร์มของคนอื่น`;
+  const header=`<div class="card-head"><div class="workspace-note">${note}</div><div class="toolbar"><input class="search" placeholder="ค้นหาเลขที่รายการ..." oninput="filterRecordRows(this)">${backBtn}${newFormBtn}${filtered.length?`<button onclick="exportSourceZip('${code}',{month:'${esc(ym)}'${personName?`,personName:'${esc(personName).replace(/'/g,"&#39;")}'`:""}})">⬇ Save As ทั้งหมด (ZIP)</button>`:""}</div></div>`;
   $("pageContent").innerHTML=`<div class="card"><h3>${esc(ym?monthLabel(ym):"ไม่ระบุเดือน")}</h3>${header}${table(["ID","Record No.","Status","Owner","Saved","Action"],filtered.map(sourceRecordRow))}</div>`;
 }
 

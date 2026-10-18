@@ -42,9 +42,11 @@ class FormSave(BaseModel):
     record_no:str
     status:str="DRAFT"
     data:dict
-    # F-RD-002 only: which month ("YYYY-MM") the user chose to file this
-    # record under. F-RD-002.1 only: which person's name the user chose to
-    # file it under. Both optional, both user-selected at save time.
+    # F-RD-002/F-RD-002.1: which month ("YYYY-MM") the user chose to file
+    # this record under. F-RD-002.1 only: which person's name the user
+    # chose to file it under (nested one level above the month on that
+    # form's "ฟอร์มของฉัน" view). Both optional, both user-selected at
+    # save time.
     filed_month:str|None=None
     filed_person_name:str|None=None
 
@@ -131,7 +133,7 @@ def save(
         created_by=u.id,
         workspace_user_id=None,
         owner_person_key=person_key,
-        filed_month=(p.filed_month.strip() or None) if code == "F-RD-002" and p.filed_month else None,
+        filed_month=(p.filed_month.strip() or None) if code in ("F-RD-002", "F-RD-002.1") and p.filed_month else None,
         filed_person_name=(p.filed_person_name.strip() or None) if code == "F-RD-002.1" and p.filed_person_name else None,
     )
     try:
@@ -350,7 +352,7 @@ def list_records(
         SourceFormRecord.created_by == u.id,
         SourceFormRecord.owner_person_key == person_key,
     ]
-    if code == "F-RD-002" and month:
+    if code in ("F-RD-002", "F-RD-002.1") and month:
         conditions.append(SourceFormRecord.filed_month == month)
     if code == "F-RD-002.1" and person_name:
         conditions.append(SourceFormRecord.filed_person_name == person_name)
@@ -423,7 +425,7 @@ def update_record(
     x.status = p.status
     x.owner_person_key = person_key
     x.payload_json = json.dumps(p.data, ensure_ascii=False, default=str)
-    if x.form_code == "F-RD-002" and p.filed_month is not None:
+    if x.form_code in ("F-RD-002", "F-RD-002.1") and p.filed_month is not None:
         x.filed_month = p.filed_month.strip() or None
     if x.form_code == "F-RD-002.1" and p.filed_person_name is not None:
         x.filed_person_name = p.filed_person_name.strip() or None
@@ -1431,17 +1433,11 @@ def _verify_master_media_preserved(master_path: Path, output_bytes: bytes):
         raise ValueError(f"invalid xlsx while checking master media: {e}")
 
 
-@router.get("/record/{record_id}/excel")
-def export_record(
-    record_id:int,
-    db:Session=Depends(get_db),
-    u=Depends(get_current_user),
-    person_key:str=Depends(require_person_key),
-):
-    x=db.get(SourceFormRecord,record_id)
-    if not x or x.created_by != u.id or x.owner_person_key != person_key:
-        raise HTTPException(404,"Record not found")
-
+def _build_record_workbook_bytes(x: "SourceFormRecord") -> tuple[str, bytes]:
+    """The actual "patch the master template and serialize it" logic for one
+    record, shared by the single-record export endpoint and the bulk
+    export-zip endpoint below (so the zip can't silently drift out of sync
+    with what a single Excel download produces)."""
     try:
         d=json.loads(x.payload_json or "{}")
         d=_normalize_formula_material_codes(d)
@@ -1513,13 +1509,89 @@ def export_record(
 
     safe_record=re.sub(r'[^A-Za-z0-9._-]+','_',str(x.record_no or x.id)).strip('_') or str(x.id)
     filename=f"{x.form_code}_{safe_record}.xlsx"
+    return filename, output.getvalue()
 
+
+@router.get("/record/{record_id}/excel")
+def export_record(
+    record_id:int,
+    db:Session=Depends(get_db),
+    u=Depends(get_current_user),
+    person_key:str=Depends(require_person_key),
+):
+    x=db.get(SourceFormRecord,record_id)
+    if not x or x.created_by != u.id or x.owner_person_key != person_key:
+        raise HTTPException(404,"Record not found")
+
+    filename, data = _build_record_workbook_bytes(x)
     return StreamingResponse(
-        output,
+        BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
 
+
+@router.get("/{code}/export-zip")
+def export_records_zip(
+    code: str,
+    month: str | None = None,
+    person_name: str | None = None,
+    db: Session = Depends(get_db),
+    u=Depends(get_current_user),
+    person_key: str = Depends(require_person_key),
+):
+    """"บันทึกเป็นไฟล์ทั้งหมด" -- every record in the given scope (a
+    month's folder, a person's folder, or every record under this code if
+    neither is given), bundled into one .zip of individually-exported
+    .xlsx files. Scope rules mirror list_records exactly, so "export this
+    folder" always matches what that folder's table actually shows."""
+    conditions = [
+        SourceFormRecord.form_code == code,
+        SourceFormRecord.created_by == u.id,
+        SourceFormRecord.owner_person_key == person_key,
+    ]
+    if code in ("F-RD-002", "F-RD-002.1") and month:
+        conditions.append(SourceFormRecord.filed_month == month)
+    if code == "F-RD-002.1" and person_name:
+        conditions.append(SourceFormRecord.filed_person_name == person_name)
+
+    rows = db.scalars(
+        select(SourceFormRecord).where(*conditions).order_by(SourceFormRecord.id.desc())
+    ).all()
+    if not rows:
+        raise HTTPException(404, "ไม่พบรายการในหมวดนี้")
+
+    buf = BytesIO()
+    used_names: set[str] = set()
+    exported = 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for x in rows:
+            try:
+                filename, data = _build_record_workbook_bytes(x)
+            except Exception:
+                # One bad record shouldn't block downloading the rest of
+                # the folder -- skip it, the rest of the zip is still useful.
+                continue
+            name = filename
+            n = 1
+            while name in used_names:
+                name = f"{filename[:-5]}_{n}.xlsx"
+                n += 1
+            used_names.add(name)
+            zf.writestr(name, data)
+            exported += 1
+    if not exported:
+        raise HTTPException(500, "Export ไฟล์ในหมวดนี้ไม่สำเร็จทั้งหมด")
+    buf.seek(0)
+
+    label = person_name or month or "all"
+    safe_label = re.sub(r'[^A-Za-z0-9._-]+', '_', str(label)).strip('_') or "all"
+    zip_filename = f"{code}_{safe_label}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'}
+    )
 
 
 @router.get("/diagnostics/source-form-schema")
